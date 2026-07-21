@@ -63,6 +63,24 @@ export async function markDriverUnavailable(driverId: string): Promise<boolean> 
   return data !== null;
 }
 
+export async function markDriverAvailable(driverId: string): Promise<boolean> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .update({ is_available: true })
+    .eq("id", driverId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al marcar disponible:", error);
+    throw error;
+  }
+
+  return data !== null;
+}
+
 export async function createDriver(input: {
   phone: string;
   name: string;

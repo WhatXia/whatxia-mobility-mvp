@@ -1,6 +1,10 @@
 import type { IncomingMessage } from "@/types";
 import {
   handleDriverAccept,
+  handleDriverEta,
+  handleDriverFinalizarViaje,
+  handleDriverIniciarViaje,
+  handleDriverLlegue,
   handleDriverReject,
   offerTripToDrivers,
   parseDriverButton,
@@ -10,6 +14,10 @@ import {
   getActiveRegistrationSession,
   startDriverRegistration,
 } from "@/lib/driver-registration";
+import {
+  handlePassengerRating,
+  parseRatingButton,
+} from "@/lib/rating";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import {
   clearSession,
@@ -66,6 +74,17 @@ export async function handleIncomingMessage(
 ): Promise<void> {
   console.log("[whatsapp] mensaje recibido:", message);
 
+  const ratingButton = parseRatingButton(message.button);
+
+  if (ratingButton) {
+    await handlePassengerRating(
+      message.phone,
+      ratingButton.tripId,
+      ratingButton.rating,
+    );
+    return;
+  }
+
   const driverButton = parseDriverButton(message.button);
 
   if (driverButton?.action === "accept") {
@@ -75,6 +94,30 @@ export async function handleIncomingMessage(
 
   if (driverButton?.action === "reject") {
     await handleDriverReject(message.phone, driverButton.tripId);
+    return;
+  }
+
+  if (driverButton?.action === "eta") {
+    await handleDriverEta(
+      message.phone,
+      driverButton.tripId,
+      driverButton.minutes,
+    );
+    return;
+  }
+
+  if (driverButton?.action === "llegue") {
+    await handleDriverLlegue(message.phone, driverButton.tripId);
+    return;
+  }
+
+  if (driverButton?.action === "iniciar") {
+    await handleDriverIniciarViaje(message.phone, driverButton.tripId);
+    return;
+  }
+
+  if (driverButton?.action === "finalizar") {
+    await handleDriverFinalizarViaje(message.phone, driverButton.tripId);
     return;
   }
 

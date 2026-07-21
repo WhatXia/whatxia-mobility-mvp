@@ -1,16 +1,40 @@
 import {
   findDriverByPhone,
   listAvailableDrivers,
+  markDriverAvailable,
   markDriverUnavailable,
 } from "@/lib/supabase/drivers";
-import { createTrip, getTrip, tryAssignTrip } from "@/lib/trips";
+import {
+  createTrip,
+  finishTrip,
+  getTrip,
+  markDriverArrived,
+  setTripEta,
+  startTrip,
+  tryAssignTrip,
+} from "@/lib/trips";
 import { upsertSession } from "@/lib/sessions";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+import { sendRatingPrompt } from "@/lib/rating";
 
 export const DRIVER_BUTTON_IDS = {
   ACEPTAR: "aceptar_servicio",
   RECHAZAR: "rechazar_servicio",
+  ETA: "eta",
+  LLEGUE: "llegue",
+  INICIAR: "iniciar_viaje",
+  FINALIZAR: "finalizar_viaje",
 } as const;
+
+const ETA_OPTIONS = [5, 7, 10] as const;
+
+type DriverButtonAction =
+  | { action: "accept"; tripId: string }
+  | { action: "reject"; tripId: string }
+  | { action: "eta"; tripId: string; minutes: number }
+  | { action: "llegue"; tripId: string }
+  | { action: "iniciar"; tripId: string }
+  | { action: "finalizar"; tripId: string };
 
 function acceptButtonId(tripId: string) {
   return `${DRIVER_BUTTON_IDS.ACEPTAR}:${tripId}`;
@@ -20,9 +44,25 @@ function rejectButtonId(tripId: string) {
   return `${DRIVER_BUTTON_IDS.RECHAZAR}:${tripId}`;
 }
 
+function etaButtonId(minutes: number, tripId: string) {
+  return `${DRIVER_BUTTON_IDS.ETA}:${minutes}:${tripId}`;
+}
+
+function llegueButtonId(tripId: string) {
+  return `${DRIVER_BUTTON_IDS.LLEGUE}:${tripId}`;
+}
+
+function iniciarButtonId(tripId: string) {
+  return `${DRIVER_BUTTON_IDS.INICIAR}:${tripId}`;
+}
+
+function finalizarButtonId(tripId: string) {
+  return `${DRIVER_BUTTON_IDS.FINALIZAR}:${tripId}`;
+}
+
 export function parseDriverButton(
   button: string | null,
-): { action: "accept" | "reject"; tripId: string } | null {
+): DriverButtonAction | null {
   if (!button) {
     return null;
   }
@@ -41,16 +81,72 @@ export function parseDriverButton(
     };
   }
 
-  // Compatibilidad con botones antiguos sin tripId.
-  if (button === DRIVER_BUTTON_IDS.ACEPTAR) {
-    return null;
+  if (button.startsWith(`${DRIVER_BUTTON_IDS.ETA}:`)) {
+    const rest = button.slice(DRIVER_BUTTON_IDS.ETA.length + 1);
+    const [minutesRaw, ...tripParts] = rest.split(":");
+    const minutes = Number(minutesRaw);
+    const tripId = tripParts.join(":");
+
+    if (!ETA_OPTIONS.includes(minutes as (typeof ETA_OPTIONS)[number]) || !tripId) {
+      return null;
+    }
+
+    return { action: "eta", tripId, minutes };
   }
 
-  if (button === DRIVER_BUTTON_IDS.RECHAZAR) {
-    return null;
+  if (button.startsWith(`${DRIVER_BUTTON_IDS.LLEGUE}:`)) {
+    return {
+      action: "llegue",
+      tripId: button.slice(DRIVER_BUTTON_IDS.LLEGUE.length + 1),
+    };
+  }
+
+  if (button.startsWith(`${DRIVER_BUTTON_IDS.INICIAR}:`)) {
+    return {
+      action: "iniciar",
+      tripId: button.slice(DRIVER_BUTTON_IDS.INICIAR.length + 1),
+    };
+  }
+
+  if (button.startsWith(`${DRIVER_BUTTON_IDS.FINALIZAR}:`)) {
+    return {
+      action: "finalizar",
+      tripId: button.slice(DRIVER_BUTTON_IDS.FINALIZAR.length + 1),
+    };
   }
 
   return null;
+}
+
+async function sendEtaOptions(driverPhone: string, tripId: string) {
+  // Títulos ≤ 20 caracteres (límite WhatsApp).
+  await sendButtonsMessage(
+    driverPhone,
+    "¿En cuánto tiempo llegas al punto de recogida?",
+    [
+      { id: etaButtonId(5, tripId), title: "⏱️ Llego en 5 min" },
+      { id: etaButtonId(7, tripId), title: "⏱️ Llego en 7 min" },
+      { id: etaButtonId(10, tripId), title: "⏱️ Llego en 10 min" },
+    ],
+  );
+}
+
+async function sendArrivedButton(driverPhone: string, tripId: string) {
+  await sendButtonsMessage(driverPhone, "Cuando llegues al punto de recogida:", [
+    { id: llegueButtonId(tripId), title: "📍 Llegué" },
+  ]);
+}
+
+async function sendStartTripButton(driverPhone: string, tripId: string) {
+  await sendButtonsMessage(driverPhone, "Cuando el pasajero suba:", [
+    { id: iniciarButtonId(tripId), title: "▶️ Iniciar viaje" },
+  ]);
+}
+
+async function sendFinishTripButton(driverPhone: string, tripId: string) {
+  await sendButtonsMessage(driverPhone, "Cuando lleguen al destino:", [
+    { id: finalizarButtonId(tripId), title: "🏁 Finalizar viaje" },
+  ]);
 }
 
 export async function offerTripToDrivers(
@@ -143,7 +239,12 @@ export async function handleDriverAccept(
     return;
   }
 
-  const assigned = tryAssignTrip(tripId, driver.id, driver.phone);
+  const assigned = tryAssignTrip(
+    tripId,
+    driver.id,
+    driver.phone,
+    driver.name,
+  );
 
   if (!assigned) {
     await sendTextMessage(
@@ -175,6 +276,8 @@ export async function handleDriverAccept(
     ),
   ]);
 
+  await sendEtaOptions(driverPhone, assigned.id);
+
   console.log("[dispatch] viaje asignado:", {
     tripId: assigned.id,
     passengerPhone: assigned.passengerPhone,
@@ -195,4 +298,211 @@ export async function handleDriverReject(
 
   console.log("[dispatch] conductor rechazó:", { tripId, driverPhone });
   await sendTextMessage(driverPhone, "Has rechazado el servicio.");
+}
+
+export async function handleDriverEta(
+  driverPhone: string,
+  tripId: string,
+  minutes: number,
+): Promise<void> {
+  const trip = getTrip(tripId);
+
+  if (!trip || trip.assignedDriverPhone !== driverPhone) {
+    await sendTextMessage(
+      driverPhone,
+      "No encontramos un servicio activo asignado a ti.",
+    );
+    return;
+  }
+
+  if (trip.status !== "ASSIGNED") {
+    await sendTextMessage(
+      driverPhone,
+      "El tiempo de llegada ya fue informado para este servicio.",
+    );
+    return;
+  }
+
+  const updated = setTripEta(tripId, minutes);
+
+  if (!updated) {
+    await sendTextMessage(
+      driverPhone,
+      "No se pudo registrar el tiempo de llegada.",
+    );
+    return;
+  }
+
+  const driverName = updated.assignedDriverName ?? "tu conductor";
+
+  await Promise.allSettled([
+    sendTextMessage(
+      updated.passengerPhone,
+      `Tu conductor ${driverName} llegará aproximadamente en ${minutes} minutos.`,
+    ),
+    sendTextMessage(driverPhone, "✅ Tiempo informado al pasajero."),
+  ]);
+
+  await sendArrivedButton(driverPhone, updated.id);
+
+  console.log("[dispatch] ETA informado:", {
+    tripId: updated.id,
+    minutes,
+    driverPhone,
+  });
+}
+
+export async function handleDriverLlegue(
+  driverPhone: string,
+  tripId: string,
+): Promise<void> {
+  const trip = getTrip(tripId);
+
+  if (!trip || trip.assignedDriverPhone !== driverPhone) {
+    await sendTextMessage(
+      driverPhone,
+      "No encontramos un servicio activo asignado a ti.",
+    );
+    return;
+  }
+
+  if (trip.status !== "ETA_INFORMED") {
+    await sendTextMessage(
+      driverPhone,
+      trip.status === "DRIVER_ARRIVED" || trip.status === "IN_PROGRESS"
+        ? "La llegada ya fue informada para este servicio."
+        : "Primero informa tu tiempo de llegada.",
+    );
+    return;
+  }
+
+  const updated = markDriverArrived(tripId);
+
+  if (!updated) {
+    await sendTextMessage(driverPhone, "No se pudo registrar la llegada.");
+    return;
+  }
+
+  const driverName = updated.assignedDriverName ?? "tu conductor";
+
+  await Promise.allSettled([
+    sendTextMessage(
+      updated.passengerPhone,
+      `📍 Tu conductor ${driverName} ya llegó al punto de recogida.`,
+    ),
+    sendTextMessage(
+      driverPhone,
+      "✅ Se informó al pasajero que ya llegaste.",
+    ),
+  ]);
+
+  await sendStartTripButton(driverPhone, updated.id);
+
+  console.log("[dispatch] conductor llegó al punto de recogida:", {
+    tripId: updated.id,
+    driverPhone,
+  });
+}
+
+export async function handleDriverIniciarViaje(
+  driverPhone: string,
+  tripId: string,
+): Promise<void> {
+  const trip = getTrip(tripId);
+
+  if (!trip || trip.assignedDriverPhone !== driverPhone) {
+    await sendTextMessage(
+      driverPhone,
+      "No encontramos un servicio activo asignado a ti.",
+    );
+    return;
+  }
+
+  if (trip.status !== "DRIVER_ARRIVED") {
+    await sendTextMessage(
+      driverPhone,
+      trip.status === "IN_PROGRESS" || trip.status === "COMPLETED"
+        ? "El viaje ya fue iniciado."
+        : "Primero confirma que llegaste al punto de recogida.",
+    );
+    return;
+  }
+
+  const updated = startTrip(tripId);
+
+  if (!updated) {
+    await sendTextMessage(driverPhone, "No se pudo iniciar el viaje.");
+    return;
+  }
+
+  await Promise.allSettled([
+    sendTextMessage(updated.passengerPhone, "🚗 Tu viaje ha comenzado."),
+    sendTextMessage(driverPhone, "✅ Viaje iniciado."),
+  ]);
+
+  await sendFinishTripButton(driverPhone, updated.id);
+
+  console.log("[dispatch] viaje iniciado:", {
+    tripId: updated.id,
+    driverPhone,
+  });
+}
+
+export async function handleDriverFinalizarViaje(
+  driverPhone: string,
+  tripId: string,
+): Promise<void> {
+  const trip = getTrip(tripId);
+
+  if (!trip || trip.assignedDriverPhone !== driverPhone) {
+    await sendTextMessage(
+      driverPhone,
+      "No encontramos un servicio activo asignado a ti.",
+    );
+    return;
+  }
+
+  if (trip.status !== "IN_PROGRESS") {
+    await sendTextMessage(
+      driverPhone,
+      trip.status === "COMPLETED"
+        ? "Este viaje ya fue finalizado."
+        : "Primero inicia el viaje.",
+    );
+    return;
+  }
+
+  const updated = finishTrip(tripId);
+
+  if (!updated) {
+    await sendTextMessage(driverPhone, "No se pudo finalizar el viaje.");
+    return;
+  }
+
+  if (updated.assignedDriverId) {
+    await markDriverAvailable(updated.assignedDriverId);
+  }
+
+  upsertSession(updated.passengerPhone, {
+    state: "IDLE",
+  });
+
+  await Promise.allSettled([
+    sendTextMessage(
+      updated.passengerPhone,
+      "🎉 Tu viaje ha finalizado. Gracias por elegir WhatXia Mobility.",
+    ),
+    sendTextMessage(
+      driverPhone,
+      "✅ Viaje finalizado. Ya estás disponible para recibir nuevos servicios.",
+    ),
+  ]);
+
+  await sendRatingPrompt(updated.passengerPhone, updated.id);
+
+  console.log("[dispatch] viaje finalizado:", {
+    tripId: updated.id,
+    driverPhone,
+    driverId: updated.assignedDriverId,
+  });
 }
