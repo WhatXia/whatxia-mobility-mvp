@@ -6,7 +6,8 @@ export type TripStatus =
   | "ETA_INFORMED"
   | "DRIVER_ARRIVED"
   | "IN_PROGRESS"
-  | "COMPLETED";
+  | "COMPLETED"
+  | "CANCELLED";
 
 export type Trip = {
   id: string;
@@ -39,6 +40,11 @@ const ACTIVE_STATUSES: TripStatus[] = [
   "ETA_INFORMED",
   "DRIVER_ARRIVED",
   "IN_PROGRESS",
+];
+
+const CANCELLABLE_STATUSES: TripStatus[] = [
+  "SEARCHING",
+  ...ACTIVE_STATUSES,
 ];
 
 const TRIP_COLUMNS =
@@ -414,6 +420,86 @@ export async function finishTrip(tripId: string): Promise<Trip | null> {
 
   const trip = mapRow(data as TripRow);
   logTransition(trip, "IN_PROGRESS", "COMPLETED");
+  return trip;
+}
+
+export async function findCancellableTripByPhone(
+  phone: string,
+): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const normalized = normalizePhone(phone);
+
+  const { data: asPassenger, error: passengerError } = await supabase
+    .from("trips")
+    .select(TRIP_COLUMNS)
+    .eq("passenger_phone", normalized)
+    .in("status", CANCELLABLE_STATUSES)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (passengerError) {
+    console.error("[supabase] error al buscar viaje cancelable (pasajero):", passengerError);
+    throw passengerError;
+  }
+
+  if (asPassenger) {
+    return mapRow(asPassenger as TripRow);
+  }
+
+  const { data: asDriver, error: driverError } = await supabase
+    .from("trips")
+    .select(TRIP_COLUMNS)
+    .eq("driver_phone", normalized)
+    .in("status", ACTIVE_STATUSES)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (driverError) {
+    console.error("[supabase] error al buscar viaje cancelable (conductor):", driverError);
+    throw driverError;
+  }
+
+  return asDriver ? mapRow(asDriver as TripRow) : null;
+}
+
+export async function cancelTrip(tripId: string): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const current = await getTrip(tripId);
+
+  if (!current || !CANCELLABLE_STATUSES.includes(current.status)) {
+    console.warn("[trip:cancel:rejected]", {
+      tripId,
+      statusFound: current?.status ?? null,
+    });
+    return null;
+  }
+
+  const from = current.status;
+
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      status: "CANCELLED",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .in("status", CANCELLABLE_STATUSES)
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al cancelar viaje:", error);
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const trip = mapRow(data as TripRow);
+  logTransition(trip, from, "CANCELLED");
   return trip;
 }
 

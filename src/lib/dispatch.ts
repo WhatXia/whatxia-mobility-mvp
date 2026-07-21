@@ -6,18 +6,27 @@ import {
 } from "@/lib/supabase/drivers";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import {
+  cancelTrip,
   createTrip,
+  findCancellableTripByPhone,
   finishTrip,
   getTrip,
   markDriverArrived,
   resolveDriverTrip,
+  samePhone,
   setTripEta,
   startTrip,
   tryAssignTrip,
+  type Trip,
 } from "@/lib/trips";
 import { upsertSession } from "@/lib/sessions";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
+import {
+  closeTunnelForTrip,
+  openTunnel,
+  scheduleTunnelClose,
+} from "@/lib/tunnels";
 
 export const DRIVER_BUTTON_IDS = {
   ACEPTAR: "aceptar_servicio",
@@ -273,6 +282,12 @@ export async function handleDriverAccept(
 
   await upsertSession(assigned.passengerPhone, {
     state: "ASSIGNED",
+  });
+
+  await openTunnel({
+    tripId: assigned.id,
+    passengerPhone: assigned.passengerPhone,
+    driverPhone,
   });
 
   await Promise.allSettled([
@@ -533,10 +548,61 @@ export async function handleDriverFinalizarViaje(
 
   await sendRatingPrompt(updated.passengerPhone, updated.id);
 
+  // active → closing + closes_at = now + 20 min
+  await scheduleTunnelClose(updated.id);
+
   console.log("[dispatch] viaje finalizado:", {
     tripId: updated.id,
     driverPhone,
     driverId: updated.assignedDriverId,
     resolveSource: source,
   });
+}
+
+/**
+ * Cancela el viaje del participante y cierra el túnel de inmediato.
+ * No permite más mensajes por el canal.
+ */
+export async function cancelTripByPhone(
+  phone: string,
+): Promise<Trip | null> {
+  const trip = await findCancellableTripByPhone(phone);
+  if (!trip) {
+    return null;
+  }
+
+  const cancelled = await cancelTrip(trip.id);
+  if (!cancelled) {
+    return null;
+  }
+
+  if (cancelled.assignedDriverId) {
+    await markDriverAvailable(cancelled.assignedDriverId);
+  }
+
+  await closeTunnelForTrip(cancelled.id);
+
+  const peerPhone = samePhone(phone, cancelled.passengerPhone)
+    ? cancelled.assignedDriverPhone
+    : cancelled.passengerPhone;
+
+  await Promise.allSettled([
+    sendTextMessage(
+      phone,
+      "Viaje cancelado. El canal de comunicación se cerró.",
+    ),
+    peerPhone
+      ? sendTextMessage(
+          peerPhone,
+          "El viaje fue cancelado. El canal de comunicación se cerró.",
+        )
+      : Promise.resolve(),
+  ]);
+
+  console.log("[dispatch] viaje cancelado:", {
+    tripId: cancelled.id,
+    byPhone: phone,
+  });
+
+  return cancelled;
 }

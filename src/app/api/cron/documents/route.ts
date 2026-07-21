@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runDailyDocumentJobs } from "@/lib/document-jobs";
+import { closeExpiredTunnels } from "@/lib/tunnels";
 
 /**
- * Cron diario de gestión documental.
+ * Cron diario de gestión documental (+ cierre de túneles vencidos).
  * Proteger con CRON_SECRET (Vercel Cron envía Authorization: Bearer <CRON_SECRET>).
  */
 export async function GET(request: NextRequest) {
@@ -14,8 +15,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await runDailyDocumentJobs();
-    return NextResponse.json({ ok: true, ...result });
+    const [docs, tunnelsClosed] = await Promise.all([
+      runDailyDocumentJobs(),
+      closeExpiredTunnels(),
+    ]);
+
+    return NextResponse.json({
+      ok: true,
+      documents: docs,
+      tunnelsClosed,
+    });
   } catch (error) {
     console.error("[cron/documents] error:", error);
     return NextResponse.json(

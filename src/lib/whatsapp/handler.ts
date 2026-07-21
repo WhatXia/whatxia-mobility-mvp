@@ -1,5 +1,6 @@
 import type { IncomingMessage } from "@/types";
 import {
+  cancelTripByPhone,
   handleDriverAccept,
   handleDriverEta,
   handleDriverFinalizarViaje,
@@ -48,6 +49,10 @@ import {
   getSession,
   upsertSession,
 } from "@/lib/sessions";
+import {
+  notifyIfTunnelClosed,
+  routeTunnelMessage,
+} from "@/lib/tunnels";
 
 export const BUTTON_IDS = {
   SOLICITAR_SERVICIO: "solicitar_servicio",
@@ -212,7 +217,10 @@ export async function handleIncomingMessage(
 
   if (message.button === BUTTON_IDS.CANCELAR) {
     await clearSession(message.phone);
-    await sendTextMessage(message.phone, "Operación cancelada.");
+    const cancelled = await cancelTripByPhone(message.phone);
+    if (!cancelled) {
+      await sendTextMessage(message.phone, "Operación cancelada.");
+    }
     return;
   }
 
@@ -274,11 +282,36 @@ export async function handleIncomingMessage(
     return;
   }
 
+  // Cancelar viaje (texto): cierra el túnel de inmediato y no reenvía el mensaje.
+  if (
+    message.text &&
+    !message.button &&
+    normalizeText(message.text) === "cancelar"
+  ) {
+    await clearSession(message.phone);
+    const cancelled = await cancelTripByPhone(message.phone);
+    if (cancelled) {
+      return;
+    }
+  }
+
+  // Túnel conversacional: texto libre entre pasajero y conductor (active/closing).
+  if (message.text && !message.button) {
+    const tunnelResult = await routeTunnelMessage(
+      message.phone,
+      message.text,
+    );
+    if (tunnelResult === "routed") {
+      return;
+    }
+  }
+
   if (isDriverIntent(message.text)) {
     await startDriverRegistration(message.phone);
     return;
   }
 
+  // Túnel cerrado: "Hola" sale del contexto y vuelve al menú pasajero/conductor.
   if (isGreeting(message.text)) {
     await findOrCreatePassenger(message.phone, message.name);
 
@@ -304,7 +337,13 @@ export async function handleIncomingMessage(
     return;
   }
 
+  // Texto no-saludo con túnel cerrado → aviso de canal no disponible.
   if (message.text) {
+    const closed = await notifyIfTunnelClosed(message.phone);
+    if (closed) {
+      return;
+    }
+
     await sendTextMessage(message.phone, "Escribe Hola para comenzar.");
   }
 }
