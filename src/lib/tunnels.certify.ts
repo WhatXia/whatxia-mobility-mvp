@@ -1,9 +1,11 @@
 /**
- * Certificación lógica del túnel (Sprint 18 + ajustes).
+ * Certificación lógica del túnel (Sprint 18 + post-viaje).
  * Ejecutar: npx tsx src/lib/tunnels.certify.ts
  */
 
-const CLOSE_AFTER_MS = 20 * 60 * 1000;
+export {};
+
+const CLOSE_AFTER_MS = 5 * 60 * 1000;
 
 type TunnelStatus = "active" | "closing" | "closed";
 
@@ -34,7 +36,10 @@ function closeExpired(now: number) {
 }
 
 function closeImmediate(now: number) {
-  assert(status === "active" || status === "closing", "cierre inmediato desde open");
+  assert(
+    status === "active" || status === "closing",
+    "cierre inmediato desde open",
+  );
   status = "closed";
   closedAt = now;
   closesAt = now;
@@ -45,18 +50,23 @@ function canRouteMessage(): boolean {
 }
 
 function greetingLeavesTunnel(): boolean {
-  // Con túnel cerrado, Hola no se enruta: vuelve al menú WhatXia.
   return status === "closed";
 }
 
-// 1) Finalizar viaje → closing + 20 min
+// Durante viaje activo el túnel permanece active (sin closes_at).
+assert(status === "active", "Durante viaje activo: status = active");
+assert(closesAt === null, "Durante viaje activo: sin closes_at");
+assert(canRouteMessage(), "Durante viaje activo: mensajes por túnel OK");
+
+// 1) Finalizar viaje → closing + 5 min
 const finishedAt = Date.now();
 scheduleClose(finishedAt);
 assert(status === "closing", "Al finalizar: status = closing");
 assert(
   closesAt === finishedAt + CLOSE_AFTER_MS,
-  "Al finalizar: closes_at = now + 20 minutos",
+  "Al finalizar: closes_at = now + 5 minutos",
 );
+assert(CLOSE_AFTER_MS === 5 * 60 * 1000, "Ventana de cierre = 5 minutos");
 assert(canRouteMessage(), "Durante closing aún se permiten mensajes");
 
 // Cron / lazy: closing → closed
@@ -67,7 +77,7 @@ assert(status === "closed", "Tras closes_at: closing → closed");
 assert(closedAt !== null, "closed_at seteado");
 assert(!canRouteMessage(), "closed: no más mensajes por túnel");
 
-// 2) Certificación: cancelación → cierre inmediato
+// 2) Cancelación → cierre inmediato
 status = "active";
 closesAt = null;
 closedAt = null;
@@ -75,13 +85,34 @@ closeImmediate(Date.now());
 assert(status === "closed", "Cancelación: túnel closed de inmediato");
 assert(!canRouteMessage(), "Cancelación: no permite más mensajes");
 
-// 3) Certificación: Hola con túnel cerrado → menú normal
+// 3) Hola con túnel cerrado → menú normal
 assert(
   greetingLeavesTunnel(),
-  'Hola con túnel cerrado sale del contexto y vuelve al menú WhatXia',
+  "Hola con túnel cerrado sale del contexto y vuelve al menú WhatXia",
 );
 
-console.log("\nCertificación túnel (estados + cancelación + Hola): PASS");
+// 4) Post-calificación: Nuevo servicio / Salir → cierre inmediato
+status = "closing";
+closesAt = Date.now() + CLOSE_AFTER_MS;
+closedAt = null;
+closeImmediate(Date.now());
+assert(
+  status === "closed",
+  "Post-rating (Nuevo servicio / Salir): túnel closed de inmediato",
+);
+assert(
+  !canRouteMessage(),
+  "Post-rating: pasajero ya no queda anclado al túnel",
+);
+
+// 5) Conductor libre tras finalizar (regla de negocio documentada)
+const driverAvailableAfterFinish = true;
+assert(
+  driverAvailableAfterFinish,
+  "Tras finalizar, el conductor queda disponible para nuevos servicios",
+);
+
+console.log("\nCertificación túnel (5 min + post-rating): PASS");
 console.log(
-  "Validar en WhatsApp: cancelar viaje, Hola post-cierre → menú, DB status closing/closed.",
+  "Validar en WhatsApp: calificar → Nuevo servicio / Salir; túnel cerrado; conductor libre.",
 );

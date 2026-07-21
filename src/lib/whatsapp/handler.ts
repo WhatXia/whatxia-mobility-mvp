@@ -39,6 +39,8 @@ import {
 } from "@/lib/driver-menu";
 import {
   handlePassengerRating,
+  handlePostRatingChoice,
+  parsePostRatingButton,
   parseRatingButton,
 } from "@/lib/rating";
 import { findDriverByPhone } from "@/lib/supabase/drivers";
@@ -126,6 +128,18 @@ export async function handleIncomingMessage(
       message.phone,
       ratingButton.tripId,
       ratingButton.rating,
+    );
+    return;
+  }
+
+  const postRatingButton = parsePostRatingButton(message.button);
+
+  if (postRatingButton) {
+    await handlePostRatingChoice(
+      message.phone,
+      message.name,
+      postRatingButton.action,
+      postRatingButton.tripId,
     );
     return;
   }

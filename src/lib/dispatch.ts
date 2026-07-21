@@ -593,7 +593,7 @@ export async function handleDriverFinalizarViaje(
 
   await sendRatingPrompt(updated.passengerPhone, updated.id);
 
-  // active → closing + closes_at = now + 20 min
+  // active → closing + closes_at = now + 5 min
   try {
     await scheduleTunnelClose(updated.id);
   } catch (error) {

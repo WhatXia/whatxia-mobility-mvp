@@ -35,7 +35,7 @@ export const TUNNEL_CLOSED_MESSAGE =
 const TUNNEL_OPEN_NOTICE =
   "💬 Canal WhatXia activo. Puedes escribir mensajes aquí: se reenviarán automáticamente sin compartir números.";
 
-const CLOSE_AFTER_MS = 20 * 60 * 1000;
+const CLOSE_AFTER_MS = 5 * 60 * 1000;
 
 const OPEN_STATUSES: TunnelStatus[] = ["active", "closing"];
 
