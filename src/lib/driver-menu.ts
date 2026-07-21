@@ -9,6 +9,7 @@ import {
 } from "@/lib/driver-documents";
 import { formatDateForDisplay } from "@/lib/driver-profile-fields";
 import { syncDriverDocumentStatus } from "@/lib/document-jobs";
+import { sendExpiredDocumentsPrompt } from "@/lib/expired-docs-prompt";
 import { startDriverUpdate } from "@/lib/driver-update";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
@@ -72,16 +73,13 @@ export async function handleToggleAvailability(phone: string): Promise<void> {
   const nextAvailable = !driver.is_available;
 
   if (nextAvailable && (driver.documents_blocked || driver.status === "inactive")) {
-    await sendTextMessage(phone, BLOCKED_AVAILABILITY_MESSAGE);
-    await sendDriverMainMenu(driver, phone);
+    await sendExpiredDocumentsPrompt(phone, BLOCKED_AVAILABILITY_MESSAGE);
     return;
   }
 
   if (nextAvailable && hasExpiredDocuments(driver)) {
-    await syncDriverDocumentStatus(driver, { notifyPhone: phone });
-    const refreshed = (await findDriverByPhone(phone)) ?? driver;
-    await sendTextMessage(phone, BLOCKED_AVAILABILITY_MESSAGE);
-    await sendDriverMainMenu(refreshed, phone);
+    await syncDriverDocumentStatus(driver);
+    await sendExpiredDocumentsPrompt(phone, BLOCKED_AVAILABILITY_MESSAGE);
     return;
   }
 

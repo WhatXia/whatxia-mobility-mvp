@@ -16,6 +16,7 @@ export type UserState =
   | "DRIVER_UPDATE_CATEGORY"
   | "DRIVER_UPDATE_SELECT_FIELD"
   | "DRIVER_UPDATE_VALUE"
+  | "DRIVER_UPDATE_EXPIRED_DOCS"
   // Compatibilidad con sesiones antiguas en memoria
   | "WAITING_DRIVER_NAME"
   | "WAITING_DRIVER_PLATE";

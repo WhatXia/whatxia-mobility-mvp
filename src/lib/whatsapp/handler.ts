@@ -21,6 +21,12 @@ import {
   UPDATE_CATEGORY_IDS,
 } from "@/lib/driver-update";
 import {
+  ACTUALIZAR_DOCUMENTOS_ID,
+  continueExpiredDocumentsUpdate,
+  getActiveExpiredDocsSession,
+  startExpiredDocumentsUpdate,
+} from "@/lib/driver-expired-docs-update";
+import {
   DRIVER_MENU_IDS,
   handleDriverPerformance,
   handleDriverProfile,
@@ -180,6 +186,11 @@ export async function handleIncomingMessage(
     return;
   }
 
+  if (message.button === ACTUALIZAR_DOCUMENTOS_ID) {
+    await startExpiredDocumentsUpdate(message.phone);
+    return;
+  }
+
   if (
     message.button === UPDATE_CATEGORY_IDS.PERSONAL ||
     message.button === UPDATE_CATEGORY_IDS.VEHICLE ||
@@ -203,6 +214,18 @@ export async function handleIncomingMessage(
     await clearSession(message.phone);
     await sendTextMessage(message.phone, "Operación cancelada.");
     return;
+  }
+
+  const expiredDocsSession = await getActiveExpiredDocsSession(message.phone);
+
+  if (expiredDocsSession) {
+    const handled = await continueExpiredDocumentsUpdate(
+      message,
+      expiredDocsSession,
+    );
+    if (handled) {
+      return;
+    }
   }
 
   const updateSession = await getActiveUpdateSession(message.phone);

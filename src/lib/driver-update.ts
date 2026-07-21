@@ -22,6 +22,7 @@ import {
   hasExpiredDocuments,
 } from "@/lib/driver-documents";
 import { syncDriverDocumentStatus } from "@/lib/document-jobs";
+import { sendExpiredDocumentsPrompt } from "@/lib/expired-docs-prompt";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 export const UPDATE_CATEGORY_IDS = {
@@ -229,16 +230,18 @@ export async function continueDriverUpdate(
       fieldKey === "license_expires_at";
 
     if (isDocumentField || hasExpiredDocuments(updated) || updated.documents_blocked) {
-      const sync = await syncDriverDocumentStatus(updated, {
-        notifyPhone: message.phone,
-      });
+      const sync = await syncDriverDocumentStatus(updated);
 
-      if (
-        hasExpiredDocuments(sync.driver) &&
-        !sync.blockedNow &&
-        !sync.unblockedNow
-      ) {
-        await sendTextMessage(message.phone, EXPIRED_DOCS_MESSAGE);
+      if (sync.blockedNow || hasExpiredDocuments(sync.driver)) {
+        await sendExpiredDocumentsPrompt(
+          message.phone,
+          EXPIRED_DOCS_MESSAGE,
+        );
+      } else if (sync.unblockedNow) {
+        await sendTextMessage(
+          message.phone,
+          "✅ Tus documentos quedaron al día. Cuando quieras, actívate como Disponible desde tu menú.",
+        );
       }
     }
 

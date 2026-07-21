@@ -1,3 +1,6 @@
+import type { DriverRow } from "@/lib/supabase/drivers";
+import { sendTextMessage } from "@/lib/whatsapp/client";
+import { sendExpiredDocumentsPrompt } from "@/lib/expired-docs-prompt";
 import {
   buildExpiredBlockMessage,
   buildReactivatedMessage,
@@ -11,8 +14,6 @@ import {
   type ReminderDay,
 } from "@/lib/driver-documents";
 import { getSupabase } from "@/lib/supabase/client";
-import type { DriverRow } from "@/lib/supabase/drivers";
-import { sendTextMessage } from "@/lib/whatsapp/client";
 
 export async function listAllDrivers(): Promise<DriverRow[]> {
   const supabase = getSupabase();
@@ -102,7 +103,7 @@ export async function syncDriverDocumentStatus(
     const next = updated ?? { ...driver, documents_blocked: true, status: "inactive" as const, is_available: false };
 
     if (options?.notifyPhone) {
-      await sendTextMessage(
+      await sendExpiredDocumentsPrompt(
         options.notifyPhone,
         buildExpiredBlockMessage(expired),
       );
@@ -232,7 +233,7 @@ export async function runDailyDocumentJobs(): Promise<{
       blocked += 1;
 
       if (!wasBlocked) {
-        await sendTextMessage(
+        await sendExpiredDocumentsPrompt(
           driver.phone,
           buildExpiredBlockMessage(expired),
         );

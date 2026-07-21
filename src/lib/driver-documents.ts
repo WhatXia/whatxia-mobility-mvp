@@ -128,7 +128,7 @@ export const EXPIRED_DOCS_MESSAGE =
   "Uno o más de tus documentos están vencidos. Tu información fue guardada correctamente, pero no podrás recibir servicios hasta actualizar los documentos.";
 
 export const BLOCKED_AVAILABILITY_MESSAGE =
-  "No puedes quedar Disponible porque tienes documentos vencidos. Actualiza SOAT, tecnomecánica y/o licencia desde Mis datos.";
+  "No puedes quedar Disponible porque tienes documentos vencidos. Actualiza los documentos vencidos para continuar.";
 
 export function buildReminderMessage(
   driverName: string,
@@ -151,7 +151,7 @@ export function buildExpiredBlockMessage(
   expired: DocumentType[],
 ): string {
   const labels = expired.map((type) => DOCUMENT_LABELS[type]).join(", ");
-  return `⛔ Uno o más documentos vencieron (${labels}). Quedaste inactivo y no recibirás servicios hasta actualizarlos en Mis datos.`;
+  return `⛔ Uno o más documentos vencieron (${labels}). Quedaste inactivo y no recibirás servicios hasta actualizarlos.`;
 }
 
 export function buildReactivatedMessage(): string {
