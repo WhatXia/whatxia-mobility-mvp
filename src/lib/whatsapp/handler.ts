@@ -224,41 +224,9 @@ export async function handleIncomingMessage(
     return;
   }
 
-  const expiredDocsSession = await getActiveExpiredDocsSession(message.phone);
-
-  if (expiredDocsSession) {
-    const handled = await continueExpiredDocumentsUpdate(
-      message,
-      expiredDocsSession,
-    );
-    if (handled) {
-      return;
-    }
-  }
-
-  const updateSession = await getActiveUpdateSession(message.phone);
-
-  if (updateSession) {
-    const handled = await continueDriverUpdate(message, updateSession);
-    if (handled) {
-      return;
-    }
-  }
-
-  const registrationSession = await getActiveRegistrationSession(message.phone);
-
-  if (registrationSession) {
-    const handled = await continueDriverRegistration(
-      message,
-      registrationSession,
-    );
-    if (handled) {
-      return;
-    }
-  }
-
   const session = await getSession(message.phone);
 
+  // Barrio: prioriza solicitud de viaje sobre el túnel.
   if (session?.state === "WAITING_PICKUP" && message.text) {
     const neighborhood = message.text.trim();
 
@@ -295,13 +263,72 @@ export async function handleIncomingMessage(
     }
   }
 
-  // Túnel conversacional: texto libre entre pasajero y conductor (active/closing).
+  // Conversation Tunnel: ANTES del Core Agent y de flujos guiados.
+  // Si hay túnel active/closing para este teléfono → enrutar y no continuar.
   if (message.text && !message.button) {
     const tunnelResult = await routeTunnelMessage(
       message.phone,
       message.text,
     );
-    if (tunnelResult === "routed") {
+
+    console.log("[tunnel:handler]", {
+      phone: message.phone,
+      found: tunnelResult.found,
+      tripId: tunnelResult.tripId,
+      status: tunnelResult.status,
+      outcome: tunnelResult.outcome,
+      reason: tunnelResult.reason,
+    });
+
+    if (tunnelResult.outcome === "routed") {
+      console.log("[tunnel:handler] enrutado → no pasa al Core Agent", {
+        tripId: tunnelResult.tripId,
+        status: tunnelResult.status,
+      });
+      return;
+    }
+
+    console.log(
+      "[tunnel:handler] sin túnel usable → continúa al Core Agent",
+      {
+        phone: message.phone,
+        found: tunnelResult.found,
+        tripId: tunnelResult.tripId,
+        status: tunnelResult.status,
+        reason: tunnelResult.reason,
+      },
+    );
+  }
+
+  const expiredDocsSession = await getActiveExpiredDocsSession(message.phone);
+
+  if (expiredDocsSession) {
+    const handled = await continueExpiredDocumentsUpdate(
+      message,
+      expiredDocsSession,
+    );
+    if (handled) {
+      return;
+    }
+  }
+
+  const updateSession = await getActiveUpdateSession(message.phone);
+
+  if (updateSession) {
+    const handled = await continueDriverUpdate(message, updateSession);
+    if (handled) {
+      return;
+    }
+  }
+
+  const registrationSession = await getActiveRegistrationSession(message.phone);
+
+  if (registrationSession) {
+    const handled = await continueDriverRegistration(
+      message,
+      registrationSession,
+    );
+    if (handled) {
       return;
     }
   }
@@ -311,7 +338,7 @@ export async function handleIncomingMessage(
     return;
   }
 
-  // Túnel cerrado: "Hola" sale del contexto y vuelve al menú pasajero/conductor.
+  // Core Agent: menú / saludo (solo si no hubo túnel activo).
   if (isGreeting(message.text)) {
     await findOrCreatePassenger(message.phone, message.name);
 
@@ -344,6 +371,9 @@ export async function handleIncomingMessage(
       return;
     }
 
+    console.log("[core-agent] Escribe Hola para comenzar", {
+      phone: message.phone,
+    });
     await sendTextMessage(message.phone, "Escribe Hola para comenzar.");
   }
 }

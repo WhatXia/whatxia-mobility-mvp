@@ -24,6 +24,7 @@ import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
 import {
   closeTunnelForTrip,
+  diagnoseTunnelVisibility,
   openTunnel,
   scheduleTunnelClose,
 } from "@/lib/tunnels";
@@ -284,11 +285,46 @@ export async function handleDriverAccept(
     state: "ASSIGNED",
   });
 
-  await openTunnel({
-    tripId: assigned.id,
-    passengerPhone: assigned.passengerPhone,
-    driverPhone,
+  let openedTunnelId: string | null = null;
+
+  console.log("[dispatch:accept:tunnel:before_open]", {
+    trip_id: assigned.id,
+    passenger_phone: assigned.passengerPhone,
+    driver_phone: driverPhone,
   });
+
+  try {
+    const tunnel = await openTunnel({
+      tripId: assigned.id,
+      passengerPhone: assigned.passengerPhone,
+      driverPhone,
+    });
+    openedTunnelId = tunnel.id;
+    console.log("[dispatch:accept:tunnel:after_open]", {
+      trip_id: assigned.id,
+      passenger_phone: assigned.passengerPhone,
+      driver_phone: driverPhone,
+      tunnel_id: tunnel.id,
+      status: tunnel.status,
+    });
+  } catch (error) {
+    // Si faltan migraciones 007–009 en Supabase, el viaje sigue; el túnel no.
+    console.error("[dispatch:accept:tunnel:open_threw]", {
+      trip_id: assigned.id,
+      passenger_phone: assigned.passengerPhone,
+      driver_phone: driverPhone,
+      error,
+      supabase_error:
+        error && typeof error === "object"
+          ? {
+              message: (error as { message?: string }).message,
+              code: (error as { code?: string }).code,
+              details: (error as { details?: string }).details,
+              hint: (error as { hint?: string }).hint,
+            }
+          : null,
+    });
+  }
 
   await Promise.allSettled([
     sendTextMessage(
@@ -305,6 +341,15 @@ export async function handleDriverAccept(
       `✅ Servicio asignado.\n\n📍 Recogida: ${assigned.pickupNeighborhood}`,
     ),
   ]);
+
+  // Diagnóstico: justo después de informar al pasajero (conductor / vehículo).
+  await diagnoseTunnelVisibility({
+    tripId: assigned.id,
+    passengerPhone: assigned.passengerPhone,
+    driverPhone,
+    expectedTunnelId: openedTunnelId,
+    phase: "after_passenger_assignment_message",
+  });
 
   await sendEtaOptions(driverPhone, assigned.id);
 
@@ -549,7 +594,11 @@ export async function handleDriverFinalizarViaje(
   await sendRatingPrompt(updated.passengerPhone, updated.id);
 
   // active → closing + closes_at = now + 20 min
-  await scheduleTunnelClose(updated.id);
+  try {
+    await scheduleTunnelClose(updated.id);
+  } catch (error) {
+    console.error("[dispatch] no se pudo programar cierre de túnel:", error);
+  }
 
   console.log("[dispatch] viaje finalizado:", {
     tripId: updated.id,
