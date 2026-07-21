@@ -12,6 +12,7 @@ export function upsertSession(
     name?: string;
     state: UserState;
     pickupNeighborhood?: string | null;
+    driverName?: string | null;
   },
 ): UserSession {
   const current = sessions.get(phone);
@@ -24,6 +25,10 @@ export function upsertSession(
       data.pickupNeighborhood !== undefined
         ? data.pickupNeighborhood
         : (current?.pickupNeighborhood ?? null),
+    driverName:
+      data.driverName !== undefined
+        ? data.driverName
+        : (current?.driverName ?? null),
   };
 
   sessions.set(phone, session);
