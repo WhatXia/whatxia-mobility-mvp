@@ -165,7 +165,7 @@ export async function offerTripToDrivers(
     return;
   }
 
-  const trip = createTrip(passengerPhone, pickupNeighborhood);
+  const trip = await createTrip(passengerPhone, pickupNeighborhood);
 
   const body = [
     "🚖 Nuevo servicio",
@@ -212,7 +212,7 @@ export async function handleDriverAccept(
   driverPhone: string,
   tripId: string,
 ): Promise<void> {
-  const trip = getTrip(tripId);
+  const trip = await getTrip(tripId);
 
   if (!trip || trip.status !== "SEARCHING") {
     await sendTextMessage(
@@ -241,7 +241,7 @@ export async function handleDriverAccept(
   }
 
   // Usar el teléfono del webhook para que coincida en ETA / Llegué / Iniciar / Finalizar.
-  const assigned = tryAssignTrip(
+  const assigned = await tryAssignTrip(
     tripId,
     driver.id,
     driverPhone,
@@ -293,7 +293,7 @@ export async function handleDriverReject(
   driverPhone: string,
   tripId: string,
 ): Promise<void> {
-  const trip = getTrip(tripId);
+  const trip = await getTrip(tripId);
 
   if (!trip || trip.status !== "SEARCHING") {
     return;
@@ -308,7 +308,7 @@ export async function handleDriverEta(
   tripId: string,
   minutes: number,
 ): Promise<void> {
-  const { trip, source } = resolveDriverTrip(tripId, driverPhone);
+  const { trip, source } = await resolveDriverTrip(tripId, driverPhone);
 
   if (!trip) {
     console.error("[dispatch] ETA sin viaje activo", { tripId, driverPhone, source });
@@ -327,7 +327,7 @@ export async function handleDriverEta(
     return;
   }
 
-  const updated = setTripEta(trip.id, minutes);
+  const updated = await setTripEta(trip.id, minutes);
 
   if (!updated) {
     await sendTextMessage(
@@ -361,7 +361,7 @@ export async function handleDriverLlegue(
   driverPhone: string,
   tripId: string,
 ): Promise<void> {
-  const { trip, source } = resolveDriverTrip(tripId, driverPhone);
+  const { trip, source } = await resolveDriverTrip(tripId, driverPhone);
 
   if (!trip) {
     console.error("[dispatch] Llegué sin viaje activo", { tripId, driverPhone, source });
@@ -382,7 +382,7 @@ export async function handleDriverLlegue(
     return;
   }
 
-  const updated = markDriverArrived(trip.id);
+  const updated = await markDriverArrived(trip.id);
 
   if (!updated) {
     await sendTextMessage(driverPhone, "No se pudo registrar la llegada.");
@@ -415,7 +415,7 @@ export async function handleDriverIniciarViaje(
   driverPhone: string,
   tripId: string,
 ): Promise<void> {
-  const { trip, source } = resolveDriverTrip(tripId, driverPhone);
+  const { trip, source } = await resolveDriverTrip(tripId, driverPhone);
 
   if (!trip) {
     console.error("[dispatch] Iniciar sin viaje activo", { tripId, driverPhone, source });
@@ -436,7 +436,7 @@ export async function handleDriverIniciarViaje(
     return;
   }
 
-  const updated = startTrip(trip.id);
+  const updated = await startTrip(trip.id);
 
   if (!updated) {
     await sendTextMessage(driverPhone, "No se pudo iniciar el viaje.");
@@ -461,7 +461,7 @@ export async function handleDriverFinalizarViaje(
   driverPhone: string,
   tripId: string,
 ): Promise<void> {
-  const { trip, source } = resolveDriverTrip(tripId, driverPhone);
+  const { trip, source } = await resolveDriverTrip(tripId, driverPhone);
 
   if (!trip) {
     console.error("[dispatch] Finalizar sin viaje activo", {
@@ -492,7 +492,7 @@ export async function handleDriverFinalizarViaje(
     return;
   }
 
-  const updated = finishTrip(trip.id);
+  const updated = await finishTrip(trip.id);
 
   if (!updated) {
     await sendTextMessage(driverPhone, "No se pudo finalizar el viaje.");

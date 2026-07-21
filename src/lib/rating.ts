@@ -1,4 +1,4 @@
-import { getTrip, setTripRating } from "@/lib/trips";
+import { getTrip, samePhone, setTripRating } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 const RATING_PREFIX = "rating";
@@ -46,9 +46,9 @@ export async function handlePassengerRating(
   tripId: string,
   rating: number,
 ): Promise<void> {
-  const trip = getTrip(tripId);
+  const trip = await getTrip(tripId);
 
-  if (!trip || trip.passengerPhone !== passengerPhone) {
+  if (!trip || !samePhone(trip.passengerPhone, passengerPhone)) {
     await sendTextMessage(
       passengerPhone,
       "No encontramos el viaje para calificar.",
@@ -64,7 +64,7 @@ export async function handlePassengerRating(
     return;
   }
 
-  const updated = setTripRating(tripId, rating);
+  const updated = await setTripRating(tripId, rating);
 
   if (!updated) {
     await sendTextMessage(

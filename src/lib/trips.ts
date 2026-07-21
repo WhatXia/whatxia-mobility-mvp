@@ -1,3 +1,5 @@
+import { getSupabase } from "@/lib/supabase/client";
+
 export type TripStatus =
   | "SEARCHING"
   | "ASSIGNED"
@@ -18,27 +20,27 @@ export type Trip = {
   rating: number | null;
 };
 
-type TripsGlobal = {
-  trips?: Map<string, Trip>;
-  activeTripByDriverPhone?: Map<string, string>;
+type TripRow = {
+  id: string;
+  passenger_phone: string;
+  pickup_neighborhood: string;
+  status: TripStatus;
+  driver_id: string | null;
+  driver_phone: string | null;
+  driver_name: string | null;
+  eta_minutes: number | null;
+  rating: number | null;
 };
 
-const globalStore = globalThis as typeof globalThis & TripsGlobal;
+const ACTIVE_STATUSES: TripStatus[] = [
+  "ASSIGNED",
+  "ETA_INFORMED",
+  "DRIVER_ARRIVED",
+  "IN_PROGRESS",
+];
 
-/** Persiste entre recargas HMR / workers del mismo proceso (Next.js). */
-function getTripsMap(): Map<string, Trip> {
-  if (!globalStore.trips) {
-    globalStore.trips = new Map();
-  }
-  return globalStore.trips;
-}
-
-function getDriverIndex(): Map<string, string> {
-  if (!globalStore.activeTripByDriverPhone) {
-    globalStore.activeTripByDriverPhone = new Map();
-  }
-  return globalStore.activeTripByDriverPhone;
-}
+const TRIP_COLUMNS =
+  "id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating";
 
 export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -52,6 +54,20 @@ export function samePhone(
     return false;
   }
   return normalizePhone(a) === normalizePhone(b);
+}
+
+function mapRow(row: TripRow): Trip {
+  return {
+    id: row.id,
+    passengerPhone: row.passenger_phone,
+    pickupNeighborhood: row.pickup_neighborhood,
+    status: row.status,
+    assignedDriverId: row.driver_id,
+    assignedDriverPhone: row.driver_phone,
+    assignedDriverName: row.driver_name,
+    etaMinutes: row.eta_minutes,
+    rating: row.rating,
+  };
 }
 
 function logTransition(
@@ -68,59 +84,95 @@ function logTransition(
   });
 }
 
-export function createTrip(
+export async function createTrip(
   passengerPhone: string,
   pickupNeighborhood: string,
-): Trip {
-  const trip: Trip = {
-    id: crypto.randomUUID(),
-    passengerPhone,
-    pickupNeighborhood,
-    status: "SEARCHING",
-    assignedDriverId: null,
-    assignedDriverPhone: null,
-    assignedDriverName: null,
-    etaMinutes: null,
-    rating: null,
-  };
+): Promise<Trip> {
+  const supabase = getSupabase();
 
-  getTripsMap().set(trip.id, trip);
+  const { data, error } = await supabase
+    .from("trips")
+    .insert({
+      passenger_phone: normalizePhone(passengerPhone),
+      pickup_neighborhood: pickupNeighborhood,
+      status: "SEARCHING",
+    })
+    .select(TRIP_COLUMNS)
+    .single();
+
+  if (error) {
+    console.error("[supabase] error al crear viaje:", error);
+    throw error;
+  }
+
+  const trip = mapRow(data as TripRow);
   console.log("[trip:created]", {
     tripId: trip.id,
-    passengerPhone,
+    passengerPhone: trip.passengerPhone,
     status: trip.status,
   });
   return trip;
 }
 
-export function getTrip(tripId: string): Trip | undefined {
-  return getTripsMap().get(tripId);
+export async function getTrip(tripId: string): Promise<Trip | null> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("trips")
+    .select(TRIP_COLUMNS)
+    .eq("id", tripId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al obtener viaje:", error);
+    throw error;
+  }
+
+  return data ? mapRow(data as TripRow) : null;
+}
+
+async function findActiveTripByDriverPhone(
+  driverPhone: string,
+): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const normalized = normalizePhone(driverPhone);
+
+  const { data, error } = await supabase
+    .from("trips")
+    .select(TRIP_COLUMNS)
+    .eq("driver_phone", normalized)
+    .in("status", ACTIVE_STATUSES)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al buscar viaje activo:", error);
+    throw error;
+  }
+
+  return data ? mapRow(data as TripRow) : null;
 }
 
 /**
- * Resuelve el viaje activo del conductor.
+ * Resuelve el viaje activo del conductor desde Supabase.
  * 1) Por tripId del botón
- * 2) Fallback por teléfono (por si el Map se fragmentó o el tripId falló)
+ * 2) Fallback por teléfono del conductor
  */
-export function resolveDriverTrip(
+export async function resolveDriverTrip(
   tripId: string,
   driverPhone: string,
-): { trip: Trip | null; source: "tripId" | "driverPhone" | "none" } {
-  const trips = getTripsMap();
-  const index = getDriverIndex();
-  const normalized = normalizePhone(driverPhone);
-
-  let trip = trips.get(tripId);
+): Promise<{ trip: Trip | null; source: "tripId" | "driverPhone" | "none" }> {
+  let trip = await getTrip(tripId);
   let source: "tripId" | "driverPhone" | "none" = trip ? "tripId" : "none";
 
   console.log("[trip:resolve]", {
     requestedTripId: tripId,
     driverPhone,
-    normalizedPhone: normalized,
+    normalizedPhone: normalizePhone(driverPhone),
     foundByTripId: Boolean(trip),
     statusFound: trip?.status ?? null,
     assignedDriverPhone: trip?.assignedDriverPhone ?? null,
-    mapSize: trips.size,
   });
 
   if (trip && !samePhone(trip.assignedDriverPhone, driverPhone)) {
@@ -129,17 +181,16 @@ export function resolveDriverTrip(
       assignedDriverPhone: trip.assignedDriverPhone,
       driverPhone,
     });
-    trip = undefined;
+    trip = null;
     source = "none";
   }
 
   if (!trip) {
-    const fallbackId = index.get(normalized);
-    const fallback = fallbackId ? trips.get(fallbackId) : undefined;
+    const fallback = await findActiveTripByDriverPhone(driverPhone);
 
     console.log("[trip:resolve:fallback]", {
-      fallbackId: fallbackId ?? null,
       found: Boolean(fallback),
+      fallbackId: fallback?.id ?? null,
       statusFound: fallback?.status ?? null,
     });
 
@@ -156,162 +207,252 @@ export function resolveDriverTrip(
   return { trip, source };
 }
 
-function indexDriver(trip: Trip): void {
-  if (!trip.assignedDriverPhone) {
-    return;
-  }
-  getDriverIndex().set(normalizePhone(trip.assignedDriverPhone), trip.id);
-}
-
-function clearDriverIndex(driverPhone: string | null): void {
-  if (!driverPhone) {
-    return;
-  }
-  getDriverIndex().delete(normalizePhone(driverPhone));
-}
-
 /** Asigna el viaje al primer conductor. Devuelve null si ya fue tomado. */
-export function tryAssignTrip(
+export async function tryAssignTrip(
   tripId: string,
   driverId: string,
   driverPhone: string,
   driverName: string,
-): Trip | null {
-  const trips = getTripsMap();
-  const trip = trips.get(tripId);
+): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const current = await getTrip(tripId);
 
-  if (!trip || trip.status !== "SEARCHING") {
+  if (!current || current.status !== "SEARCHING") {
     console.warn("[trip:assign:rejected]", {
       tripId,
       driverPhone,
-      statusFound: trip?.status ?? null,
+      statusFound: current?.status ?? null,
     });
     return null;
   }
 
-  const from = trip.status;
-  trip.status = "ASSIGNED";
-  trip.assignedDriverId = driverId;
-  // Guardar el teléfono del webhook (no el de Supabase) para coincidir en clics siguientes.
-  trip.assignedDriverPhone = normalizePhone(driverPhone);
-  trip.assignedDriverName = driverName;
-  trips.set(tripId, trip);
-  indexDriver(trip);
-  logTransition(trip, from, "ASSIGNED");
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      status: "ASSIGNED",
+      driver_id: driverId,
+      driver_phone: normalizePhone(driverPhone),
+      driver_name: driverName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "SEARCHING")
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
 
+  if (error) {
+    console.error("[supabase] error al asignar viaje:", error);
+    throw error;
+  }
+
+  if (!data) {
+    console.warn("[trip:assign:race]", { tripId, driverPhone });
+    return null;
+  }
+
+  const trip = mapRow(data as TripRow);
+  logTransition(trip, "SEARCHING", "ASSIGNED");
   return trip;
 }
 
-export function setTripEta(tripId: string, minutes: number): Trip | null {
-  const trips = getTripsMap();
-  const trip = trips.get(tripId);
+export async function setTripEta(
+  tripId: string,
+  minutes: number,
+): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const current = await getTrip(tripId);
 
-  if (!trip || trip.status !== "ASSIGNED") {
+  if (!current || current.status !== "ASSIGNED") {
     console.warn("[trip:eta:rejected]", {
       tripId,
-      driverPhone: trip?.assignedDriverPhone ?? null,
-      statusFound: trip?.status ?? null,
+      driverPhone: current?.assignedDriverPhone ?? null,
+      statusFound: current?.status ?? null,
     });
     return null;
   }
 
-  const from = trip.status;
-  trip.etaMinutes = minutes;
-  trip.status = "ETA_INFORMED";
-  trips.set(tripId, trip);
-  indexDriver(trip);
-  logTransition(trip, from, "ETA_INFORMED");
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      status: "ETA_INFORMED",
+      eta_minutes: minutes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "ASSIGNED")
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
 
+  if (error) {
+    console.error("[supabase] error al guardar ETA:", error);
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const trip = mapRow(data as TripRow);
+  logTransition(trip, "ASSIGNED", "ETA_INFORMED");
   return trip;
 }
 
-export function markDriverArrived(tripId: string): Trip | null {
-  const trips = getTripsMap();
-  const trip = trips.get(tripId);
+export async function markDriverArrived(tripId: string): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const current = await getTrip(tripId);
 
-  if (!trip || trip.status !== "ETA_INFORMED") {
+  if (!current || current.status !== "ETA_INFORMED") {
     console.warn("[trip:arrived:rejected]", {
       tripId,
-      driverPhone: trip?.assignedDriverPhone ?? null,
-      statusFound: trip?.status ?? null,
+      driverPhone: current?.assignedDriverPhone ?? null,
+      statusFound: current?.status ?? null,
     });
     return null;
   }
 
-  const from = trip.status;
-  trip.status = "DRIVER_ARRIVED";
-  trips.set(tripId, trip);
-  indexDriver(trip);
-  logTransition(trip, from, "DRIVER_ARRIVED");
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      status: "DRIVER_ARRIVED",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "ETA_INFORMED")
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
 
+  if (error) {
+    console.error("[supabase] error al marcar llegada:", error);
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const trip = mapRow(data as TripRow);
+  logTransition(trip, "ETA_INFORMED", "DRIVER_ARRIVED");
   return trip;
 }
 
-export function startTrip(tripId: string): Trip | null {
-  const trips = getTripsMap();
-  const trip = trips.get(tripId);
+export async function startTrip(tripId: string): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const current = await getTrip(tripId);
 
-  if (!trip || trip.status !== "DRIVER_ARRIVED") {
+  if (!current || current.status !== "DRIVER_ARRIVED") {
     console.warn("[trip:start:rejected]", {
       tripId,
-      driverPhone: trip?.assignedDriverPhone ?? null,
-      statusFound: trip?.status ?? null,
+      driverPhone: current?.assignedDriverPhone ?? null,
+      statusFound: current?.status ?? null,
     });
     return null;
   }
 
-  const from = trip.status;
-  trip.status = "IN_PROGRESS";
-  trips.set(tripId, trip);
-  indexDriver(trip);
-  logTransition(trip, from, "IN_PROGRESS");
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      status: "IN_PROGRESS",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "DRIVER_ARRIVED")
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
 
+  if (error) {
+    console.error("[supabase] error al iniciar viaje:", error);
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const trip = mapRow(data as TripRow);
+  logTransition(trip, "DRIVER_ARRIVED", "IN_PROGRESS");
   return trip;
 }
 
-export function finishTrip(tripId: string): Trip | null {
-  const trips = getTripsMap();
-  const trip = trips.get(tripId);
+export async function finishTrip(tripId: string): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const current = await getTrip(tripId);
 
-  if (!trip || trip.status !== "IN_PROGRESS") {
+  if (!current || current.status !== "IN_PROGRESS") {
     console.warn("[trip:finish:rejected]", {
       tripId,
-      driverPhone: trip?.assignedDriverPhone ?? null,
-      statusFound: trip?.status ?? null,
+      driverPhone: current?.assignedDriverPhone ?? null,
+      statusFound: current?.status ?? null,
     });
     return null;
   }
 
-  const from = trip.status;
-  trip.status = "COMPLETED";
-  trips.set(tripId, trip);
-  clearDriverIndex(trip.assignedDriverPhone);
-  logTransition(trip, from, "COMPLETED");
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      status: "COMPLETED",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "IN_PROGRESS")
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
 
+  if (error) {
+    console.error("[supabase] error al finalizar viaje:", error);
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const trip = mapRow(data as TripRow);
+  logTransition(trip, "IN_PROGRESS", "COMPLETED");
   return trip;
 }
 
-export function setTripRating(tripId: string, rating: number): Trip | null {
-  const trips = getTripsMap();
-  const trip = trips.get(tripId);
+export async function setTripRating(
+  tripId: string,
+  rating: number,
+): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const current = await getTrip(tripId);
 
-  if (!trip || trip.status !== "COMPLETED") {
+  if (!current || current.status !== "COMPLETED") {
     return null;
   }
 
-  if (trip.rating !== null) {
+  if (current.rating !== null) {
     return null;
   }
 
-  trip.rating = rating;
-  trips.set(tripId, trip);
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      rating,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "COMPLETED")
+    .is("rating", null)
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
 
+  if (error) {
+    console.error("[supabase] error al guardar rating:", error);
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const trip = mapRow(data as TripRow);
   console.log("[trip:rating]", {
     tripId: trip.id,
     driverPhone: trip.assignedDriverPhone,
-    rating,
+    rating: trip.rating,
     status: trip.status,
   });
-
   return trip;
 }
