@@ -9,6 +9,7 @@ export type UserState =
   | "IDLE"
   | "WAITING_PICKUP"
   | "SEARCHING_DRIVER"
+  | "ASSIGNED"
   | "WAITING_DRIVER_NAME"
   | "WAITING_DRIVER_PLATE";
 

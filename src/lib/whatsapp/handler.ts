@@ -1,5 +1,10 @@
 import type { IncomingMessage } from "@/types";
-import { offerTripToDrivers, DRIVER_BUTTON_IDS } from "@/lib/dispatch";
+import {
+  handleDriverAccept,
+  handleDriverReject,
+  offerTripToDrivers,
+  parseDriverButton,
+} from "@/lib/dispatch";
 import {
   continueDriverRegistration,
   getActiveRegistrationSession,
@@ -61,14 +66,15 @@ export async function handleIncomingMessage(
 ): Promise<void> {
   console.log("[whatsapp] mensaje recibido:", message);
 
-  if (
-    message.button === DRIVER_BUTTON_IDS.ACEPTAR ||
-    message.button === DRIVER_BUTTON_IDS.RECHAZAR
-  ) {
-    console.log("[dispatch] respuesta del conductor (sin asignar aún):", {
-      phone: message.phone,
-      button: message.button,
-    });
+  const driverButton = parseDriverButton(message.button);
+
+  if (driverButton?.action === "accept") {
+    await handleDriverAccept(message.phone, driverButton.tripId);
+    return;
+  }
+
+  if (driverButton?.action === "reject") {
+    await handleDriverReject(message.phone, driverButton.tripId);
     return;
   }
 
@@ -126,7 +132,7 @@ export async function handleIncomingMessage(
       "Estamos buscando un conductor. Un momento por favor.",
     );
 
-    await offerTripToDrivers(neighborhood);
+    await offerTripToDrivers(message.phone, neighborhood);
     return;
   }
 

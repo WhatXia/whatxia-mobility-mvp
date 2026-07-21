@@ -28,6 +28,41 @@ export async function findDriverByPhone(
   return data;
 }
 
+export async function listAvailableDrivers(): Promise<DriverRow[]> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .select("id, phone, name, plate, is_available, created_at")
+    .eq("is_available", true);
+
+  if (error) {
+    console.error("[supabase] error al listar conductores:", error);
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+export async function markDriverUnavailable(driverId: string): Promise<boolean> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .update({ is_available: false })
+    .eq("id", driverId)
+    .eq("is_available", true)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al marcar no disponible:", error);
+    throw error;
+  }
+
+  return data !== null;
+}
+
 export async function createDriver(input: {
   phone: string;
   name: string;
