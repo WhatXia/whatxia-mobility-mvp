@@ -41,6 +41,7 @@ import type {
   RouteEstimate,
 } from "@/lib/geo/types";
 import { formatFareCop } from "@/lib/pricing/engine";
+import { mapsUrlForCoords } from "@/lib/geo/maps-url";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -409,18 +410,22 @@ async function publishTripOffer(
       ? Math.max(1, Math.round(trip.durationSeconds / 60))
       : null;
 
+  const pickupLabel = trip.pickupLabel ?? trip.pickupNeighborhood;
+  const mapsLink =
+    trip.pickupLat != null && trip.pickupLng != null
+      ? mapsUrlForCoords({ lat: trip.pickupLat, lng: trip.pickupLng })
+      : null;
+
   const body = [
     "🚖 Nuevo servicio",
     "",
-    "📍 Origen:",
-    trip.pickupLabel ?? trip.pickupNeighborhood,
-    trip.dropoffLabel ? "" : null,
-    trip.dropoffLabel ? "🎯 Destino:" : null,
-    trip.dropoffLabel ?? null,
-    distanceKm ? `🛣️ Distancia: ${distanceKm} km` : null,
-    durationMin ? `⏱️ Tiempo: ${durationMin} min` : null,
+    `📍 Recoger en: ${pickupLabel}`,
+    mapsLink ? `🧭 Ubicación de WhatsApp: ${mapsLink}` : "🧭 Ubicación de WhatsApp: (no disponible)",
+    trip.dropoffLabel ? `🎯 Destino: ${trip.dropoffLabel}` : null,
+    distanceKm ? `📏 Distancia estimada: ${distanceKm} km` : null,
+    durationMin ? `⏱️ Tiempo estimado: ${durationMin} min` : null,
     trip.quotedFare != null
-      ? `💰 Tarifa aprox.: ${formatFareCop(trip.quotedFare)}`
+      ? `💰 Valor del servicio: ${formatFareCop(trip.quotedFare)}`
       : null,
     "",
     "Aceptar el servicio:",

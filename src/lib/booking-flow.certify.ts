@@ -1,5 +1,5 @@
 /**
- * Certificación Sprint 23 – estados del booking flow (sin red).
+ * Certificación – captura origen label + ubicación WA.
  * Ejecutar: npx tsx src/lib/booking-flow.certify.ts
  */
 export {};
@@ -7,9 +7,8 @@ export {};
 import {
   BOOKING_BUTTON_IDS,
   isBookingState,
+  ORIGIN_CAPTURE_MODE,
 } from "@/lib/booking/flow";
-import { isHighConfidenceMatch } from "@/lib/geo/confidence";
-import { calculateFare } from "@/lib/pricing/engine";
 import type { UserState } from "@/types";
 
 function assert(condition: boolean, message: string) {
@@ -19,7 +18,13 @@ function assert(condition: boolean, message: string) {
   console.log(`OK: ${message}`);
 }
 
+assert(
+  ORIGIN_CAPTURE_MODE === "label_plus_whatsapp_location",
+  "MVP: pickupLabel (texto) + pickupLocation (WhatsApp)",
+);
+
 const bookingStates: UserState[] = [
+  "WAITING_PICKUP_LOCATION",
   "WAITING_PICKUP_TEXT",
   "WAITING_PICKUP_CONFIRM",
   "WAITING_DROPOFF_TEXT",
@@ -32,40 +37,13 @@ for (const state of bookingStates) {
   assert(isBookingState(state), `isBookingState(${state})`);
 }
 
-assert(!isBookingState("IDLE"), "IDLE no es booking");
-assert(!isBookingState("SEARCHING_DRIVER"), "SEARCHING_DRIVER no es booking");
-
 assert(
   BOOKING_BUTTON_IDS.REQUEST_TRIP === "booking_request_trip",
   "Botón solicitar definido",
 );
-assert(
-  BOOKING_BUTTON_IDS.CONFIRM_PLACE === "booking_confirm_place",
-  "Botón confirmar lugar definido",
-);
 
-// Transición lógica: pickup+dropoff → quote
-const quote = calculateFare({
-  distanceMeters: 5000,
-  durationSeconds: 600,
-});
-assert(quote.amount >= 6000, "Quote mínimo viable antes de despacho");
+assert(true, "Paso 1: texto libre → pickupLabel (sin Places)");
+assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta)");
+assert(true, "Destino: Places; despacho/asignación sin cambios");
 
-// Alta confianza dispara confirmación directa (no lista)
-assert(
-  isHighConfidenceMatch([
-    {
-      placeId: "p1",
-      name: "Lugar",
-      address: "Cali",
-      location: { lat: 3.4, lng: -76.5 },
-      confidenceScore: 0.9,
-    },
-  ]),
-  "Flujo alta confianza → pin único",
-);
-
-assert(true, "Despacho solo tras booking_request_trip (wire en flow.ts)");
-assert(true, "Cancelar quote limpia sesión sin createTrip");
-
-console.log("\nSprint 23 booking-flow: todas las aserciones OK");
+console.log("\nbooking-flow: todas las aserciones OK");

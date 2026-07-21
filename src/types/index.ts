@@ -20,6 +20,7 @@ export type DriverFieldCategory = "personal" | "vehicle" | "documents";
 export type UserState =
   | "IDLE"
   | "WAITING_PICKUP"
+  | "WAITING_PICKUP_LOCATION"
   | "WAITING_PICKUP_TEXT"
   | "WAITING_PICKUP_CONFIRM"
   | "WAITING_DROPOFF_TEXT"

@@ -39,11 +39,23 @@ export type FareQuote = {
 };
 
 export type BookingDraft = {
+  /** Texto libre del pasajero: "¿Dónde te recogemos?" */
+  pickupLabel?: string;
+  /** Coordenadas obligatorias de WhatsApp (origen para ruta). */
+  pickupLocation?: GeoPoint;
+  /**
+   * Origen compuesto para ruta/createTrip:
+   * name = pickupLabel, location = pickupLocation.
+   */
   pickup?: ResolvedPlace;
   dropoff?: ResolvedPlace;
   candidates?: PlaceCandidate[];
-  /** 'pickup' | 'dropoff' — qué lista de candidatos está activa */
   candidateRole?: "pickup" | "dropoff";
+  /**
+   * MVP: label_plus_whatsapp_location.
+   * Futuro: places_text para resolver origen solo por nombre.
+   */
+  originCapture?: "label_plus_whatsapp_location" | "places_text";
   route?: RouteEstimate;
   quote?: FareQuote;
 };
