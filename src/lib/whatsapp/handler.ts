@@ -10,6 +10,13 @@ import {
   sendDriverCancelCausalMenu,
 } from "@/lib/cancellations";
 import {
+  handleSearchCancel,
+  handleSearchContinue,
+  parseSearchCancelButton,
+  parseSearchContinueButton,
+  processDueSearchTimeouts,
+} from "@/lib/search";
+import {
   handleDriverAccept,
   handleDriverEta,
   handleDriverFinalizarViaje,
@@ -131,6 +138,12 @@ export async function handleIncomingMessage(
 ): Promise<void> {
   console.log("[whatsapp] mensaje recibido:", message);
 
+  try {
+    await processDueSearchTimeouts();
+  } catch (error) {
+    console.error("[search] processDueSearchTimeouts:", error);
+  }
+
   const ratingButton = parseRatingButton(message.button);
 
   if (ratingButton) {
@@ -183,6 +196,20 @@ export async function handleIncomingMessage(
 
   if (yaVoy) {
     await handlePassengerYaVoy(message.phone, yaVoy.tripId);
+    return;
+  }
+
+  const searchContinue = parseSearchContinueButton(message.button);
+
+  if (searchContinue) {
+    await handleSearchContinue(message.phone, searchContinue.tripId);
+    return;
+  }
+
+  const searchCancel = parseSearchCancelButton(message.button);
+
+  if (searchCancel) {
+    await handleSearchCancel(message.phone, searchCancel.tripId);
     return;
   }
 
@@ -341,6 +368,15 @@ export async function handleIncomingMessage(
         tripId: tunnelResult.tripId,
         status: tunnelResult.status,
       });
+      return;
+    }
+
+    // Reasignación / búsqueda en curso: no caer al Core Agent.
+    if (session?.state === "SEARCHING_DRIVER") {
+      await sendTextMessage(
+        message.phone,
+        "Seguimos buscando un conductor para ti. Un momento, por favor.",
+      );
       return;
     }
 

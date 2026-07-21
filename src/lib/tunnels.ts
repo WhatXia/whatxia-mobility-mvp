@@ -1,5 +1,5 @@
 import { getSupabase } from "@/lib/supabase/client";
-import { normalizePhone, samePhone } from "@/lib/trips";
+import { getTrip, normalizePhone, samePhone } from "@/lib/trips";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
 export type TunnelStatus = "active" | "closing" | "closed";
@@ -84,23 +84,26 @@ export async function openTunnel(input: {
       supabase_error_full: error,
     });
 
-    // Ya existe túnel para este viaje.
+    // Ya existe túnel para este viaje → reabrir / reasignar conductor.
     if (error.code === "23505") {
-      const existing = await getTunnelByTripId(input.tripId);
-      if (existing) {
-        console.log("[tunnel:open:insert:duplicate_recovered]", {
+      const rebound = await rebindTunnelDriver({
+        tripId: input.tripId,
+        passengerPhone,
+        driverPhone,
+      });
+      if (rebound) {
+        console.log("[tunnel:open:rebind]", {
           trip_id: input.tripId,
-          tunnel_id: existing.id,
-          status: existing.status,
-          passenger_phone: existing.passenger_phone,
-          driver_phone: existing.driver_phone,
+          tunnel_id: rebound.id,
+          driver_phone: rebound.driver_phone,
+          status: rebound.status,
         });
-        return existing;
+        await Promise.allSettled([
+          sendTextMessage(rebound.passenger_phone, TUNNEL_OPEN_NOTICE),
+          sendTextMessage(rebound.driver_phone, TUNNEL_OPEN_NOTICE),
+        ]);
+        return rebound;
       }
-      console.error(
-        "[tunnel:open:insert:duplicate_but_not_found]",
-        { trip_id: input.tripId },
-      );
     }
     throw error;
   }
@@ -247,6 +250,35 @@ export async function getTunnelByTripId(
 
   if (error) {
     console.error("[tunnel] error al buscar por viaje:", error);
+    throw error;
+  }
+
+  return data ? mapTunnel(data as ConversationTunnel) : null;
+}
+
+/** Reasigna el conductor del túnel y lo deja active (Sprint 21). */
+export async function rebindTunnelDriver(input: {
+  tripId: string;
+  passengerPhone: string;
+  driverPhone: string;
+}): Promise<ConversationTunnel | null> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("conversation_tunnels")
+    .update({
+      passenger_phone: normalizePhone(input.passengerPhone),
+      driver_phone: normalizePhone(input.driverPhone),
+      status: "active",
+      closes_at: null,
+      closed_at: null,
+    })
+    .eq("trip_id", input.tripId)
+    .select("*")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[tunnel] error al rebind:", error);
     throw error;
   }
 
@@ -621,6 +653,23 @@ export async function routeTunnelMessage(
       tripId: null,
       status: null,
       reason: lookup.reason,
+    };
+  }
+
+  // Durante SEARCHING (reasignación) el túnel permanece abierto pero no enruta.
+  const trip = await getTrip(tunnel.trip_id);
+  if (
+    !trip ||
+    trip.status === "SEARCHING" ||
+    trip.status === "CANCELLED" ||
+    trip.status === "COMPLETED"
+  ) {
+    return {
+      outcome: "none",
+      found: true,
+      tripId: tunnel.trip_id,
+      status: tunnel.status,
+      reason: `trip_status_${trip?.status ?? "missing"}`,
     };
   }
 

@@ -11,10 +11,11 @@ import {
   cancelTrip,
   findCancellableTripByPhone,
   getTrip,
+  returnTripToSearching,
   samePhone,
   type Trip,
 } from "@/lib/trips";
-import { clearSession } from "@/lib/sessions";
+import { clearSession, upsertSession } from "@/lib/sessions";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 export type CancelCausal =
@@ -380,7 +381,9 @@ export async function cancelTripAsPassenger(
 }
 
 /**
- * Cancelación del conductor con causal obligatoria.
+ * Cancelación del conductor con causal: reasignación automática (Sprint 21).
+ * No cancela el viaje; vuelve a SEARCHING y republica la oferta.
+ * El Conversation Tunnel permanece abierto (sin enrutar hasta nuevo accept).
  */
 export async function cancelTripAsDriver(
   driverPhone: string,
@@ -407,18 +410,24 @@ export async function cancelTripAsDriver(
     return null;
   }
 
-  const cancelled = await cancelTrip(trip.id);
-  if (!cancelled) {
-    await sendTextMessage(driverPhone, "No se pudo cancelar el servicio.");
+  if (trip.status === "SEARCHING") {
+    await sendTextMessage(
+      driverPhone,
+      "Este servicio ya está en búsqueda de otro conductor.",
+    );
     return null;
   }
 
-  const passenger = cancelled.passengerId
-    ? { id: cancelled.passengerId }
-    : await findPassengerByPhone(cancelled.passengerPhone);
+  const previousDriverId = driver.id;
+  const passengerPhone = trip.passengerPhone;
+  const pickup = trip.pickupNeighborhood;
+
+  const passenger = trip.passengerId
+    ? { id: trip.passengerId }
+    : await findPassengerByPhone(passengerPhone);
 
   await insertCancellation({
-    tripId: cancelled.id,
+    tripId: trip.id,
     cancelledBy: "driver",
     driverId: driver.id,
     passengerId: passenger?.id ?? null,
@@ -435,36 +444,58 @@ export async function cancelTripAsDriver(
 
   const policy = await applyDriverPolicy(driver, causal);
 
-  await closeTunnelForTrip(cancelled.id);
-  await clearSession(cancelled.passengerPhone);
+  const researching = await returnTripToSearching(trip.id);
 
+  if (!researching) {
+    await sendTextMessage(
+      driverPhone,
+      "No se pudo reasignar el servicio. Contacta soporte.",
+    );
+    return null;
+  }
+
+  // Exclusión solo para este trip_id (evita ciclo accept→cancel→misma oferta).
+  const { addTripDriverExclusion } = await import("@/lib/trip-exclusions");
+  await addTripDriverExclusion(researching.id, previousDriverId);
+
+  // Debe quedar disponible de inmediato para OTROS viajes (salvo suspensión).
   if (!policy.suspended) {
     await releaseDriverIfAllowed(driver.id);
   }
+
+  await upsertSession(passengerPhone, {
+    state: "SEARCHING_DRIVER",
+    pickupNeighborhood: pickup,
+  });
 
   const causalLabel = CANCEL_CAUSALS[causal].label;
 
   await Promise.allSettled([
     sendTextMessage(
       driverPhone,
-      `Servicio cancelado (${causalLabel}). El canal se cerró.`,
+      `Servicio cancelado (${causalLabel}). Ya puedes recibir otros servicios.`,
     ),
     sendTextMessage(
-      cancelled.passengerPhone,
-      "El conductor canceló el servicio. El canal de comunicación se cerró. Escribe Hola para solicitar otro.",
+      passengerPhone,
+      "Tu conductor canceló el servicio. Estamos buscando otro conductor para ti. Un momento, por favor.",
     ),
   ]);
 
-  console.log("[cancel:driver]", {
-    tripId: cancelled.id,
+  const { republishTripToDrivers } = await import("@/lib/dispatch");
+  await republishTripToDrivers(researching.id);
+
+  console.log("[cancel:driver:reassign]", {
+    tripId: researching.id,
     driverId: driver.id,
+    excludedFromTrip: previousDriverId,
     causal,
     policyCount: policy.newCount,
     warned: policy.warned,
     suspended: policy.suspended,
+    availableForOtherTrips: !policy.suspended,
   });
 
-  return cancelled;
+  return researching;
 }
 
 /**

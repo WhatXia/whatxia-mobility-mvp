@@ -7,11 +7,13 @@ import {
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import {
   createTrip,
+  clearSearchDeadlinesOnAssign,
   finishTrip,
   getTrip,
   markDriverArrived,
   resolveDriverTrip,
   setTripEta,
+  startSearchCycle,
   startTrip,
   tryAssignTrip,
 } from "@/lib/trips";
@@ -22,6 +24,10 @@ import {
   cancelServicioButtonId,
   yaVoyButtonId,
 } from "@/lib/cancellations";
+import {
+  listExcludedDriverIdsForTrip,
+  filterDriversForTripOffer,
+} from "@/lib/trip-exclusions";
 import {
   diagnoseTunnelVisibility,
   openTunnel,
@@ -188,11 +194,67 @@ export async function offerTripToDrivers(
     passenger.id,
   );
 
+  await publishTripOffer(trip, {
+    excludePhone: passengerPhone,
+    excludeDriverId: requesterDriver?.id,
+  });
+}
+
+/**
+ * Republica un viaje ya en SEARCHING (reasignación o “seguir buscando”).
+ * Respeta exclusiones persistidas por trip_id (conductores que cancelaron ese viaje).
+ */
+export async function republishTripToDrivers(tripId: string): Promise<void> {
+  const trip = await getTrip(tripId);
+  if (!trip || trip.status !== "SEARCHING") {
+    console.warn("[dispatch] republish ignorado", {
+      tripId,
+      status: trip?.status ?? null,
+    });
+    return;
+  }
+
+  await startSearchCycle(trip.id);
+
+  await publishTripOffer(trip, {
+    excludePhone: trip.passengerPhone,
+  });
+}
+
+async function publishTripOffer(
+  trip: { id: string; pickupNeighborhood: string; passengerPhone: string },
+  options?: { excludePhone?: string; excludeDriverId?: string },
+): Promise<void> {
+  const tripExclusions = await listExcludedDriverIdsForTrip(trip.id);
+  const excludedDriverIds = Array.from(
+    new Set([
+      ...tripExclusions,
+      ...(options?.excludeDriverId ? [options.excludeDriverId] : []),
+    ]),
+  );
+
+  const candidates = await listAvailableDrivers({
+    excludePhone: options?.excludePhone,
+  });
+
+  const availableDrivers = filterDriversForTripOffer({
+    drivers: candidates,
+    excludedDriverIds,
+  });
+
+  if (availableDrivers.length === 0) {
+    console.warn("[dispatch] oferta sin conductores elegibles", {
+      tripId: trip.id,
+      excludedDriverIds,
+    });
+    return;
+  }
+
   const body = [
     "🚖 Nuevo servicio",
     "",
     "📍 Recogida:",
-    pickupNeighborhood,
+    trip.pickupNeighborhood,
     "",
     "Aceptar el servicio:",
   ].join("\n");
@@ -204,9 +266,9 @@ export async function offerTripToDrivers(
 
   console.log("[dispatch] enviando oferta a conductores:", {
     tripId: trip.id,
-    pickupNeighborhood,
-    excludedPhone: passengerPhone,
-    excludedDriverId: requesterDriver?.id ?? null,
+    pickupNeighborhood: trip.pickupNeighborhood,
+    excludedPhone: options?.excludePhone ?? null,
+    excludedDriverIds,
     drivers: availableDrivers.map((d) => ({ id: d.id, phone: d.phone })),
   });
 
@@ -284,6 +346,8 @@ export async function handleDriverAccept(
   await upsertSession(assigned.passengerPhone, {
     state: "ASSIGNED",
   });
+
+  await clearSearchDeadlinesOnAssign(assigned.id);
 
   let openedTunnelId: string | null = null;
 

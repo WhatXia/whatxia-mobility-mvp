@@ -20,6 +20,9 @@ export type Trip = {
   assignedDriverName: string | null;
   etaMinutes: number | null;
   rating: number | null;
+  searchDeadlineAt: string | null;
+  continueDeadlineAt: string | null;
+  searchAwaitingContinue: boolean;
 };
 
 type TripRow = {
@@ -33,6 +36,9 @@ type TripRow = {
   driver_name: string | null;
   eta_minutes: number | null;
   rating: number | null;
+  search_deadline_at: string | null;
+  continue_deadline_at: string | null;
+  search_awaiting_continue: boolean | null;
 };
 
 const ACTIVE_STATUSES: TripStatus[] = [
@@ -47,8 +53,13 @@ const CANCELLABLE_STATUSES: TripStatus[] = [
   ...ACTIVE_STATUSES,
 ];
 
+/** Ventana de búsqueda de conductor (Sprint 21). */
+export const SEARCH_WINDOW_MS = 3 * 60 * 1000;
+/** Tiempo para responder “¿seguir buscando?” */
+export const CONTINUE_WINDOW_MS = 2 * 60 * 1000;
+
 const TRIP_COLUMNS =
-  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating";
+  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue";
 
 export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -76,6 +87,9 @@ function mapRow(row: TripRow): Trip {
     assignedDriverName: row.driver_name,
     etaMinutes: row.eta_minutes,
     rating: row.rating,
+    searchDeadlineAt: row.search_deadline_at,
+    continueDeadlineAt: row.continue_deadline_at,
+    searchAwaitingContinue: Boolean(row.search_awaiting_continue),
   };
 }
 
@@ -99,6 +113,9 @@ export async function createTrip(
   passengerId: string,
 ): Promise<Trip> {
   const supabase = getSupabase();
+  const searchDeadline = new Date(
+    Date.now() + SEARCH_WINDOW_MS,
+  ).toISOString();
 
   const { data, error } = await supabase
     .from("trips")
@@ -107,6 +124,9 @@ export async function createTrip(
       passenger_phone: normalizePhone(passengerPhone),
       pickup_neighborhood: pickupNeighborhood,
       status: "SEARCHING",
+      search_deadline_at: searchDeadline,
+      continue_deadline_at: null,
+      search_awaiting_continue: false,
     })
     .select(TRIP_COLUMNS)
     .single();
@@ -122,6 +142,7 @@ export async function createTrip(
     passengerId: trip.passengerId,
     passengerPhone: trip.passengerPhone,
     status: trip.status,
+    searchDeadlineAt: trip.searchDeadlineAt,
   });
   return trip;
 }
@@ -501,6 +522,173 @@ export async function cancelTrip(tripId: string): Promise<Trip | null> {
   const trip = mapRow(data as TripRow);
   logTransition(trip, from, "CANCELLED");
   return trip;
+}
+
+/** Vuelve el viaje a SEARCHING (reasignación tras cancelación del conductor). */
+export async function returnTripToSearching(
+  tripId: string,
+): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const current = await getTrip(tripId);
+
+  if (!current || !ACTIVE_STATUSES.includes(current.status)) {
+    console.warn("[trip:research:rejected]", {
+      tripId,
+      statusFound: current?.status ?? null,
+    });
+    return null;
+  }
+
+  const from = current.status;
+  const searchDeadline = new Date(
+    Date.now() + SEARCH_WINDOW_MS,
+  ).toISOString();
+
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      status: "SEARCHING",
+      driver_id: null,
+      driver_phone: null,
+      driver_name: null,
+      eta_minutes: null,
+      search_deadline_at: searchDeadline,
+      continue_deadline_at: null,
+      search_awaiting_continue: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .in("status", ACTIVE_STATUSES)
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al volver a SEARCHING:", error);
+    throw error;
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  const trip = mapRow(data as TripRow);
+  logTransition(trip, from, "SEARCHING");
+  return trip;
+}
+
+export async function startSearchCycle(tripId: string): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const searchDeadline = new Date(
+    Date.now() + SEARCH_WINDOW_MS,
+  ).toISOString();
+
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      search_deadline_at: searchDeadline,
+      continue_deadline_at: null,
+      search_awaiting_continue: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "SEARCHING")
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al iniciar ciclo de búsqueda:", error);
+    throw error;
+  }
+
+  return data ? mapRow(data as TripRow) : null;
+}
+
+export async function markSearchAwaitingContinue(
+  tripId: string,
+): Promise<Trip | null> {
+  const supabase = getSupabase();
+  const now = Date.now();
+  const continueDeadline = new Date(now + CONTINUE_WINDOW_MS).toISOString();
+
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      search_awaiting_continue: true,
+      continue_deadline_at: continueDeadline,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "SEARCHING")
+    .eq("search_awaiting_continue", false)
+    .lte("search_deadline_at", new Date(now).toISOString())
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al marcar awaiting continue:", error);
+    throw error;
+  }
+
+  return data ? mapRow(data as TripRow) : null;
+}
+
+export async function clearSearchDeadlinesOnAssign(
+  tripId: string,
+): Promise<void> {
+  const supabase = getSupabase();
+  await supabase
+    .from("trips")
+    .update({
+      search_deadline_at: null,
+      continue_deadline_at: null,
+      search_awaiting_continue: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId);
+}
+
+export async function listTripsDueSearchPrompt(
+  nowIso: string = new Date().toISOString(),
+): Promise<Trip[]> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("trips")
+    .select(TRIP_COLUMNS)
+    .eq("status", "SEARCHING")
+    .eq("search_awaiting_continue", false)
+    .not("search_deadline_at", "is", null)
+    .lte("search_deadline_at", nowIso)
+    .limit(50);
+
+  if (error) {
+    console.error("[supabase] error listando prompts de búsqueda:", error);
+    throw error;
+  }
+
+  return (data ?? []).map((row) => mapRow(row as TripRow));
+}
+
+export async function listTripsDueContinueTimeout(
+  nowIso: string = new Date().toISOString(),
+): Promise<Trip[]> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("trips")
+    .select(TRIP_COLUMNS)
+    .eq("status", "SEARCHING")
+    .eq("search_awaiting_continue", true)
+    .not("continue_deadline_at", "is", null)
+    .lte("continue_deadline_at", nowIso)
+    .limit(50);
+
+  if (error) {
+    console.error("[supabase] error listando timeout continue:", error);
+    throw error;
+  }
+
+  return (data ?? []).map((row) => mapRow(row as TripRow));
 }
 
 export async function setTripRating(
