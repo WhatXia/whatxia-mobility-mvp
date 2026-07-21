@@ -262,7 +262,14 @@ async function buildAndSendQuote(
         draft.pickup.location,
         draft.dropoff.location,
       );
-      quote = calculateFare(route);
+      quote = await calculateFare(route, {
+        pickupLabel: pickupDisplayLabel(draft),
+        dropoffLabel: placeLabel(draft.dropoff),
+        pickupLat: draft.pickup.location.lat,
+        pickupLng: draft.pickup.location.lng,
+        dropoffLat: draft.dropoff.location.lat,
+        dropoffLng: draft.dropoff.location.lng,
+      });
     } catch (error) {
       console.error("[booking] Routes/pricing error:", error);
       await sendTextMessage(

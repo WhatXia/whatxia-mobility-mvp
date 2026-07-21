@@ -30,11 +30,22 @@ export type FareQuote = {
   distanceKm: number;
   durationMin: number;
   breakdown: {
-    base: number;
+    flagDrop: number;
     distanceComponent: number;
-    timeComponent: number;
-    raw: number;
+    waitComponent: number;
+    officialRaw: number;
+    officialFare: number;
     minimumApplied: boolean;
+    surchargeNight: number;
+    surchargeSundayHoliday: number;
+    surchargeAirport: number;
+    surchargeWhatxia: number;
+    /** @deprecated alias flagDrop */
+    base: number;
+    /** @deprecated alias waitComponent */
+    timeComponent: number;
+    /** @deprecated alias officialRaw */
+    raw: number;
   };
 };
 
