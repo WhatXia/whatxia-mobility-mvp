@@ -3,7 +3,12 @@ import {
   findDriverByPhone,
   setDriverAvailability,
 } from "@/lib/supabase/drivers";
+import {
+  BLOCKED_AVAILABILITY_MESSAGE,
+  hasExpiredDocuments,
+} from "@/lib/driver-documents";
 import { formatDateForDisplay } from "@/lib/driver-profile-fields";
+import { syncDriverDocumentStatus } from "@/lib/document-jobs";
 import { startDriverUpdate } from "@/lib/driver-update";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
@@ -25,9 +30,11 @@ export async function sendDriverMainMenu(
     ? { id: DRIVER_MENU_IDS.TOGGLE_AVAILABILITY, title: "🔴 No disponible" }
     : { id: DRIVER_MENU_IDS.TOGGLE_AVAILABILITY, title: "🟢 Disponible" };
 
-  const statusLabel = driver.is_available
-    ? "🟢 Disponible para recibir servicios"
-    : "🔴 No disponible para recibir servicios";
+  const statusLabel = driver.documents_blocked
+    ? "⛔ Bloqueado por documentos vencidos"
+    : driver.is_available
+      ? "🟢 Disponible para recibir servicios"
+      : "🔴 No disponible para recibir servicios";
 
   await sendButtonsMessage(
     toPhone ?? driver.phone,
@@ -63,6 +70,21 @@ export async function handleToggleAvailability(phone: string): Promise<void> {
   }
 
   const nextAvailable = !driver.is_available;
+
+  if (nextAvailable && (driver.documents_blocked || driver.status === "inactive")) {
+    await sendTextMessage(phone, BLOCKED_AVAILABILITY_MESSAGE);
+    await sendDriverMainMenu(driver, phone);
+    return;
+  }
+
+  if (nextAvailable && hasExpiredDocuments(driver)) {
+    await syncDriverDocumentStatus(driver, { notifyPhone: phone });
+    const refreshed = (await findDriverByPhone(phone)) ?? driver;
+    await sendTextMessage(phone, BLOCKED_AVAILABILITY_MESSAGE);
+    await sendDriverMainMenu(refreshed, phone);
+    return;
+  }
+
   const updated = await setDriverAvailability(driver.id, nextAvailable);
 
   if (!updated) {
@@ -111,7 +133,8 @@ export async function handleDriverProfile(phone: string): Promise<void> {
     return;
   }
 
-  const status = driver.is_available ? "Disponible" : "No disponible";
+  const availability = driver.is_available ? "Disponible" : "No disponible";
+  const accountStatus = driver.status === "inactive" ? "Inactivo" : "Activo";
   const blocked = driver.documents_blocked ? "Sí" : "No";
 
   await sendButtonsMessage(
@@ -139,7 +162,8 @@ export async function handleDriverProfile(phone: string): Promise<void> {
       `Tecnomecánica: ${formatDateForDisplay(driver.techno_expires_at)}`,
       `Licencia: ${formatDateForDisplay(driver.license_expires_at)}`,
       "",
-      `Estado: ${status}`,
+      `Disponibilidad: ${availability}`,
+      `Cuenta: ${accountStatus}`,
       `Bloqueo docs: ${blocked}`,
     ].join("\n"),
     [

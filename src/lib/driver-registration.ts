@@ -16,6 +16,7 @@ import {
   draftToCreateInput,
   findDriverByPhone,
 } from "@/lib/supabase/drivers";
+import { EXPIRED_DOCS_MESSAGE } from "@/lib/driver-documents";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
 function isFieldKey(value: string | null): value is DriverFieldKey {
@@ -96,8 +97,17 @@ export async function continueDriverRegistration(
       return true;
     }
 
-    await createDriver(input);
+    const { documentsExpired } = await createDriver(input);
     await clearSession(message.phone);
+
+    if (documentsExpired) {
+      await sendTextMessage(message.phone, EXPIRED_DOCS_MESSAGE);
+      await sendTextMessage(
+        message.phone,
+        "Escribe Hola para abrir tu menú y actualizar documentos desde Mis datos.",
+      );
+      return true;
+    }
 
     await sendTextMessage(
       message.phone,

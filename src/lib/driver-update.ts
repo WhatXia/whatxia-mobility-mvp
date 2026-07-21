@@ -17,6 +17,11 @@ import {
   updateDriverField,
   type DriverRow,
 } from "@/lib/supabase/drivers";
+import {
+  EXPIRED_DOCS_MESSAGE,
+  hasExpiredDocuments,
+} from "@/lib/driver-documents";
+import { syncDriverDocumentStatus } from "@/lib/document-jobs";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 export const UPDATE_CATEGORY_IDS = {
@@ -217,6 +222,25 @@ export async function continueDriverUpdate(
       message.phone,
       `✅ ${DRIVER_FIELDS[fieldKey].label} actualizado correctamente.`,
     );
+
+    const isDocumentField =
+      fieldKey === "soat_expires_at" ||
+      fieldKey === "techno_expires_at" ||
+      fieldKey === "license_expires_at";
+
+    if (isDocumentField || hasExpiredDocuments(updated) || updated.documents_blocked) {
+      const sync = await syncDriverDocumentStatus(updated, {
+        notifyPhone: message.phone,
+      });
+
+      if (
+        hasExpiredDocuments(sync.driver) &&
+        !sync.blockedNow &&
+        !sync.unblockedNow
+      ) {
+        await sendTextMessage(message.phone, EXPIRED_DOCS_MESSAGE);
+      }
+    }
 
     return true;
   }

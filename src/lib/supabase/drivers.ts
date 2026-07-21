@@ -1,6 +1,9 @@
 import { getSupabase } from "@/lib/supabase/client";
 import type { DriverDraft, DriverFieldKey } from "@/lib/driver-profile-fields";
+import { hasExpiredDocuments } from "@/lib/driver-documents";
 import { normalizePhone, samePhone } from "@/lib/trips";
+
+export type DriverStatus = "active" | "inactive";
 
 export type DriverRow = {
   id: string;
@@ -20,6 +23,7 @@ export type DriverRow = {
   techno_expires_at: string | null;
   license_expires_at: string | null;
   is_available: boolean;
+  status: DriverStatus;
   documents_blocked: boolean;
   documents_blocked_reason: string | null;
   documents_reminder_sent_at: string | null;
@@ -80,7 +84,8 @@ export async function listAvailableDrivers(options?: {
     .from("drivers")
     .select(DRIVER_COLUMNS)
     .eq("is_available", true)
-    .eq("documents_blocked", false);
+    .eq("documents_blocked", false)
+    .eq("status", "active");
 
   if (error) {
     console.error("[supabase] error al listar conductores:", error);
@@ -131,6 +136,8 @@ export async function markDriverAvailable(driverId: string): Promise<boolean> {
     .from("drivers")
     .update({ is_available: true })
     .eq("id", driverId)
+    .eq("documents_blocked", false)
+    .eq("status", "active")
     .select("id")
     .maybeSingle();
 
@@ -183,8 +190,9 @@ export type CreateDriverInput = {
 
 export async function createDriver(
   input: CreateDriverInput,
-): Promise<DriverRow> {
+): Promise<{ driver: DriverRow; documentsExpired: boolean }> {
   const supabase = getSupabase();
+  const documentsExpired = hasExpiredDocuments(input);
 
   const { data, error } = await supabase
     .from("drivers")
@@ -204,8 +212,12 @@ export async function createDriver(
       soat_expires_at: input.soat_expires_at,
       techno_expires_at: input.techno_expires_at,
       license_expires_at: input.license_expires_at,
-      is_available: true,
-      documents_blocked: false,
+      is_available: !documentsExpired,
+      status: documentsExpired ? "inactive" : "active",
+      documents_blocked: documentsExpired,
+      documents_blocked_reason: documentsExpired
+        ? "Documentos vencidos al registrar"
+        : null,
     })
     .select(DRIVER_COLUMNS)
     .single();
@@ -215,7 +227,10 @@ export async function createDriver(
     throw error;
   }
 
-  return data as DriverRow;
+  return {
+    driver: data as DriverRow,
+    documentsExpired,
+  };
 }
 
 export async function updateDriverField(
