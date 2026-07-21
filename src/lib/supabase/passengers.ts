@@ -5,8 +5,16 @@ export type PassengerRow = {
   id: string;
   phone: string;
   name: string | null;
+  no_show_count: number;
   created_at: string;
 };
+
+function mapPassenger(data: PassengerRow): PassengerRow {
+  return {
+    ...data,
+    no_show_count: data.no_show_count ?? 0,
+  };
+}
 
 export async function findPassengerByPhone(
   phone: string,
@@ -16,7 +24,7 @@ export async function findPassengerByPhone(
 
   const { data, error } = await supabase
     .from("passengers")
-    .select("id, phone, name, created_at")
+    .select("id, phone, name, no_show_count, created_at")
     .eq("phone", normalized)
     .maybeSingle();
 
@@ -25,7 +33,7 @@ export async function findPassengerByPhone(
     throw error;
   }
 
-  return data;
+  return data ? mapPassenger(data as PassengerRow) : null;
 }
 
 export async function findOrCreatePassenger(
@@ -52,7 +60,7 @@ export async function findOrCreatePassenger(
       phone: normalized,
       name: trimmedName,
     })
-    .select("id, phone, name, created_at")
+    .select("id, phone, name, no_show_count, created_at")
     .single();
 
   if (error) {
@@ -73,5 +81,5 @@ export async function findOrCreatePassenger(
     phone: data.phone,
   });
 
-  return data;
+  return mapPassenger(data as PassengerRow);
 }

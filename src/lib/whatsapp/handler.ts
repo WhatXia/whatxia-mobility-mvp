@@ -1,6 +1,15 @@
 import type { IncomingMessage } from "@/types";
 import {
+  cancelTripAsDriver,
+  cancelTripAsPassenger,
   cancelTripByPhone,
+  handlePassengerYaVoy,
+  parseCancelCausalButton,
+  parseCancelServicioButton,
+  parseYaVoyButton,
+  sendDriverCancelCausalMenu,
+} from "@/lib/cancellations";
+import {
   handleDriverAccept,
   handleDriverEta,
   handleDriverFinalizarViaje,
@@ -55,6 +64,7 @@ import {
   notifyIfTunnelClosed,
   routeTunnelMessage,
 } from "@/lib/tunnels";
+import { getTrip, samePhone } from "@/lib/trips";
 
 export const BUTTON_IDS = {
   SOLICITAR_SERVICIO: "solicitar_servicio",
@@ -141,6 +151,38 @@ export async function handleIncomingMessage(
       postRatingButton.action,
       postRatingButton.tripId,
     );
+    return;
+  }
+
+  const cancelServicio = parseCancelServicioButton(message.button);
+
+  if (cancelServicio) {
+    const trip = await getTrip(cancelServicio.tripId);
+
+    if (trip && samePhone(message.phone, trip.passengerPhone)) {
+      await cancelTripAsPassenger(message.phone, cancelServicio.tripId);
+      return;
+    }
+
+    await sendDriverCancelCausalMenu(message.phone, cancelServicio.tripId);
+    return;
+  }
+
+  const cancelCausal = parseCancelCausalButton(message.button);
+
+  if (cancelCausal) {
+    await cancelTripAsDriver(
+      message.phone,
+      cancelCausal.tripId,
+      cancelCausal.causal,
+    );
+    return;
+  }
+
+  const yaVoy = parseYaVoyButton(message.button);
+
+  if (yaVoy) {
+    await handlePassengerYaVoy(message.phone, yaVoy.tripId);
     return;
   }
 

@@ -6,24 +6,23 @@ import {
 } from "@/lib/supabase/drivers";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import {
-  cancelTrip,
   createTrip,
-  findCancellableTripByPhone,
   finishTrip,
   getTrip,
   markDriverArrived,
   resolveDriverTrip,
-  samePhone,
   setTripEta,
   startTrip,
   tryAssignTrip,
-  type Trip,
 } from "@/lib/trips";
 import { upsertSession } from "@/lib/sessions";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
 import {
-  closeTunnelForTrip,
+  cancelServicioButtonId,
+  yaVoyButtonId,
+} from "@/lib/cancellations";
+import {
   diagnoseTunnelVisibility,
   openTunnel,
   scheduleTunnelClose,
@@ -146,6 +145,7 @@ async function sendEtaOptions(driverPhone: string, tripId: string) {
 async function sendArrivedButton(driverPhone: string, tripId: string) {
   await sendButtonsMessage(driverPhone, "Cuando llegues al punto de recogida:", [
     { id: llegueButtonId(tripId), title: "📍 Llegué" },
+    { id: cancelServicioButtonId(tripId), title: "❌ Cancelar servicio" },
   ]);
 }
 
@@ -412,13 +412,18 @@ export async function handleDriverEta(
 
   const driverName = updated.assignedDriverName ?? "tu conductor";
 
-  await Promise.allSettled([
-    sendTextMessage(
-      updated.passengerPhone,
-      `Tu conductor ${driverName} llegará aproximadamente en ${minutes} minutos.`,
-    ),
-    sendTextMessage(driverPhone, "✅ Tiempo informado al pasajero."),
-  ]);
+  await sendButtonsMessage(
+    updated.passengerPhone,
+    `Tu conductor ${driverName} llegará aproximadamente en ${minutes} minutos.`,
+    [
+      {
+        id: cancelServicioButtonId(updated.id),
+        title: "❌ Cancelar servicio",
+      },
+    ],
+  );
+
+  await sendTextMessage(driverPhone, "✅ Tiempo informado al pasajero.");
 
   await sendArrivedButton(driverPhone, updated.id);
 
@@ -464,16 +469,22 @@ export async function handleDriverLlegue(
 
   const driverName = updated.assignedDriverName ?? "tu conductor";
 
-  await Promise.allSettled([
-    sendTextMessage(
-      updated.passengerPhone,
-      `📍 Tu conductor ${driverName} ya llegó al punto de recogida.`,
-    ),
-    sendTextMessage(
-      driverPhone,
-      "✅ Se informó al pasajero que ya llegaste.",
-    ),
-  ]);
+  await sendButtonsMessage(
+    updated.passengerPhone,
+    `📍 Tu conductor ${driverName} ya llegó al punto de recogida.`,
+    [
+      { id: yaVoyButtonId(updated.id), title: "✅ Ya voy" },
+      {
+        id: cancelServicioButtonId(updated.id),
+        title: "❌ Cancelar servicio",
+      },
+    ],
+  );
+
+  await sendTextMessage(
+    driverPhone,
+    "✅ Se informó al pasajero que ya llegaste.",
+  );
 
   await sendStartTripButton(driverPhone, updated.id);
 
@@ -606,52 +617,4 @@ export async function handleDriverFinalizarViaje(
     driverId: updated.assignedDriverId,
     resolveSource: source,
   });
-}
-
-/**
- * Cancela el viaje del participante y cierra el túnel de inmediato.
- * No permite más mensajes por el canal.
- */
-export async function cancelTripByPhone(
-  phone: string,
-): Promise<Trip | null> {
-  const trip = await findCancellableTripByPhone(phone);
-  if (!trip) {
-    return null;
-  }
-
-  const cancelled = await cancelTrip(trip.id);
-  if (!cancelled) {
-    return null;
-  }
-
-  if (cancelled.assignedDriverId) {
-    await markDriverAvailable(cancelled.assignedDriverId);
-  }
-
-  await closeTunnelForTrip(cancelled.id);
-
-  const peerPhone = samePhone(phone, cancelled.passengerPhone)
-    ? cancelled.assignedDriverPhone
-    : cancelled.passengerPhone;
-
-  await Promise.allSettled([
-    sendTextMessage(
-      phone,
-      "Viaje cancelado. El canal de comunicación se cerró.",
-    ),
-    peerPhone
-      ? sendTextMessage(
-          peerPhone,
-          "El viaje fue cancelado. El canal de comunicación se cerró.",
-        )
-      : Promise.resolve(),
-  ]);
-
-  console.log("[dispatch] viaje cancelado:", {
-    tripId: cancelled.id,
-    byPhone: phone,
-  });
-
-  return cancelled;
 }

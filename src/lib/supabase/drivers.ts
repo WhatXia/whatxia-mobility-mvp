@@ -27,6 +27,8 @@ export type DriverRow = {
   documents_blocked: boolean;
   documents_blocked_reason: string | null;
   documents_reminder_sent_at: string | null;
+  cancel_policy_count: number;
+  suspended_until: string | null;
   created_at: string;
 };
 
@@ -79,6 +81,7 @@ export async function listAvailableDrivers(options?: {
   excludeDriverId?: string;
 }): Promise<DriverRow[]> {
   const supabase = getSupabase();
+  const nowIso = new Date().toISOString();
 
   const { data, error } = await supabase
     .from("drivers")
@@ -93,21 +96,44 @@ export async function listAvailableDrivers(options?: {
   }
 
   const drivers = (data ?? []) as DriverRow[];
+  const eligible: DriverRow[] = [];
 
-  return drivers.filter((driver) => {
+  for (const driver of drivers) {
     if (options?.excludeDriverId && driver.id === options.excludeDriverId) {
-      return false;
+      continue;
     }
 
     if (
       options?.excludePhone &&
       samePhone(driver.phone, options.excludePhone)
     ) {
-      return false;
+      continue;
     }
 
-    return true;
-  });
+    if (
+      driver.suspended_until &&
+      new Date(driver.suspended_until).getTime() > Date.now()
+    ) {
+      continue;
+    }
+
+    // Reactivación automática: limpiar suspensión vencida.
+    if (
+      driver.suspended_until &&
+      new Date(driver.suspended_until).getTime() <= Date.now()
+    ) {
+      await supabase
+        .from("drivers")
+        .update({ suspended_until: null })
+        .eq("id", driver.id)
+        .lte("suspended_until", nowIso);
+      driver.suspended_until = null;
+    }
+
+    eligible.push(driver);
+  }
+
+  return eligible;
 }
 
 export async function markDriverUnavailable(driverId: string): Promise<boolean> {
@@ -131,6 +157,15 @@ export async function markDriverUnavailable(driverId: string): Promise<boolean> 
 
 export async function markDriverAvailable(driverId: string): Promise<boolean> {
   const supabase = getSupabase();
+  const nowIso = new Date().toISOString();
+
+  // Limpia suspensión vencida antes de liberar.
+  await supabase
+    .from("drivers")
+    .update({ suspended_until: null })
+    .eq("id", driverId)
+    .not("suspended_until", "is", null)
+    .lte("suspended_until", nowIso);
 
   const { data, error } = await supabase
     .from("drivers")
@@ -138,6 +173,7 @@ export async function markDriverAvailable(driverId: string): Promise<boolean> {
     .eq("id", driverId)
     .eq("documents_blocked", false)
     .eq("status", "active")
+    .or(`suspended_until.is.null,suspended_until.lte.${nowIso}`)
     .select("id")
     .maybeSingle();
 

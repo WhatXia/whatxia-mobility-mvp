@@ -77,6 +77,19 @@ export async function handleToggleAvailability(phone: string): Promise<void> {
     return;
   }
 
+  if (
+    nextAvailable &&
+    driver.suspended_until &&
+    new Date(driver.suspended_until).getTime() > Date.now()
+  ) {
+    const until = new Date(driver.suspended_until).toLocaleString("es-CO");
+    await sendTextMessage(
+      phone,
+      `Estás suspendido hasta ${until}. No puedes activarte manualmente antes.`,
+    );
+    return;
+  }
+
   if (nextAvailable && hasExpiredDocuments(driver)) {
     await syncDriverDocumentStatus(driver);
     await sendExpiredDocumentsPrompt(phone, BLOCKED_AVAILABILITY_MESSAGE);
