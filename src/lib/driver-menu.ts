@@ -1,0 +1,154 @@
+import type { DriverRow } from "@/lib/supabase/drivers";
+import {
+  findDriverByPhone,
+  setDriverAvailability,
+} from "@/lib/supabase/drivers";
+import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+
+export const DRIVER_MENU_IDS = {
+  TOGGLE_AVAILABILITY: "toggle_disponibilidad",
+  SOLICITAR_SERVICIO: "solicitar_servicio",
+  MENU_CONDUCTOR: "menu_conductor",
+  RENDIMIENTO: "menu_rendimiento",
+  MIS_DATOS: "menu_mis_datos",
+  ACTUALIZAR_DATOS: "menu_actualizar_datos",
+  REPORTAR: "menu_reportar",
+} as const;
+
+export async function sendDriverMainMenu(
+  driver: DriverRow,
+  toPhone?: string,
+) {
+  const availabilityButton = driver.is_available
+    ? { id: DRIVER_MENU_IDS.TOGGLE_AVAILABILITY, title: "🔴 No disponible" }
+    : { id: DRIVER_MENU_IDS.TOGGLE_AVAILABILITY, title: "🟢 Disponible" };
+
+  const statusLabel = driver.is_available
+    ? "🟢 Disponible para recibir servicios"
+    : "🔴 No disponible para recibir servicios";
+
+  await sendButtonsMessage(
+    toPhone ?? driver.phone,
+    `¡Hola ${driver.name}!\n\n${statusLabel}\n\n¿Qué deseas hacer?`,
+    [
+      availabilityButton,
+      {
+        id: DRIVER_MENU_IDS.SOLICITAR_SERVICIO,
+        title: "🚖 Solicitar",
+      },
+      {
+        id: DRIVER_MENU_IDS.MENU_CONDUCTOR,
+        title: "🚗 Menú conductor",
+      },
+    ],
+  );
+}
+
+export async function sendDriverSubMenu(driverPhone: string) {
+  await sendButtonsMessage(driverPhone, "Menú del conductor:", [
+    { id: DRIVER_MENU_IDS.RENDIMIENTO, title: "📊 Mi rendimiento" },
+    { id: DRIVER_MENU_IDS.MIS_DATOS, title: "👤 Mis datos" },
+    { id: DRIVER_MENU_IDS.REPORTAR, title: "⚠️ Reportar novedad" },
+  ]);
+}
+
+export async function handleToggleAvailability(phone: string): Promise<void> {
+  const driver = await findDriverByPhone(phone);
+
+  if (!driver) {
+    await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    return;
+  }
+
+  const nextAvailable = !driver.is_available;
+  const updated = await setDriverAvailability(driver.id, nextAvailable);
+
+  if (!updated) {
+    await sendTextMessage(phone, "No se pudo actualizar tu disponibilidad.");
+    return;
+  }
+
+  const confirm = nextAvailable
+    ? "✅ Ahora estás disponible para recibir servicios."
+    : "✅ Ahora no estás disponible para recibir servicios.";
+
+  await sendTextMessage(phone, confirm);
+  await sendDriverMainMenu(updated, phone);
+}
+
+export async function handleDriverSubMenu(phone: string): Promise<void> {
+  const driver = await findDriverByPhone(phone);
+
+  if (!driver) {
+    await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    return;
+  }
+
+  await sendDriverSubMenu(driver.phone);
+}
+
+export async function handleDriverPerformance(phone: string): Promise<void> {
+  await sendTextMessage(
+    phone,
+    "📊 Mi rendimiento\n\nPronto podrás ver aquí tus viajes, calificaciones y estadísticas.",
+  );
+}
+
+export async function handleDriverProfile(phone: string): Promise<void> {
+  const driver = await findDriverByPhone(phone);
+
+  if (!driver) {
+    await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    return;
+  }
+
+  const status = driver.is_available ? "Disponible" : "No disponible";
+
+  // Body con los datos + botón preparado para el Sprint 17.
+  await sendButtonsMessage(
+    phone,
+    [
+      "👤 Mis datos",
+      "",
+      `Nombre: ${driver.name}`,
+      `Placa: ${driver.plate}`,
+      `Teléfono: ${driver.phone}`,
+      `Estado: ${status}`,
+    ].join("\n"),
+    [
+      {
+        id: DRIVER_MENU_IDS.ACTUALIZAR_DATOS,
+        title: "✏️ Actualizar datos",
+      },
+    ],
+  );
+}
+
+export async function handleUpdateDriverData(phone: string): Promise<void> {
+  await sendTextMessage(
+    phone,
+    "Esta funcionalidad estará disponible en el Sprint 17.",
+  );
+}
+
+export async function handleDriverReport(phone: string): Promise<void> {
+  await sendTextMessage(
+    phone,
+    "⚠️ Reportar una novedad\n\nPronto podrás reportar incidencias desde aquí.",
+  );
+}
+
+export function isDriverMenuButton(button: string | null): boolean {
+  if (!button) {
+    return false;
+  }
+
+  return (
+    button === DRIVER_MENU_IDS.TOGGLE_AVAILABILITY ||
+    button === DRIVER_MENU_IDS.MENU_CONDUCTOR ||
+    button === DRIVER_MENU_IDS.RENDIMIENTO ||
+    button === DRIVER_MENU_IDS.MIS_DATOS ||
+    button === DRIVER_MENU_IDS.ACTUALIZAR_DATOS ||
+    button === DRIVER_MENU_IDS.REPORTAR
+  );
+}

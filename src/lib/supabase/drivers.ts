@@ -1,4 +1,5 @@
 import { getSupabase } from "@/lib/supabase/client";
+import { normalizePhone, samePhone } from "@/lib/trips";
 
 export type DriverRow = {
   id: string;
@@ -13,11 +14,12 @@ export async function findDriverByPhone(
   phone: string,
 ): Promise<DriverRow | null> {
   const supabase = getSupabase();
+  const normalized = normalizePhone(phone);
 
   const { data, error } = await supabase
     .from("drivers")
     .select("id, phone, name, plate, is_available, created_at")
-    .eq("phone", phone)
+    .eq("phone", normalized)
     .maybeSingle();
 
   if (error) {
@@ -25,10 +27,36 @@ export async function findDriverByPhone(
     throw error;
   }
 
-  return data;
+  if (data) {
+    return data;
+  }
+
+  // Compatibilidad con registros antiguos sin normalizar.
+  if (phone !== normalized) {
+    const { data: legacy, error: legacyError } = await supabase
+      .from("drivers")
+      .select("id, phone, name, plate, is_available, created_at")
+      .eq("phone", phone)
+      .maybeSingle();
+
+    if (legacyError) {
+      console.error(
+        "[supabase] error al buscar conductor (legacy):",
+        legacyError,
+      );
+      throw legacyError;
+    }
+
+    return legacy;
+  }
+
+  return null;
 }
 
-export async function listAvailableDrivers(): Promise<DriverRow[]> {
+export async function listAvailableDrivers(options?: {
+  excludePhone?: string;
+  excludeDriverId?: string;
+}): Promise<DriverRow[]> {
   const supabase = getSupabase();
 
   const { data, error } = await supabase
@@ -41,7 +69,22 @@ export async function listAvailableDrivers(): Promise<DriverRow[]> {
     throw error;
   }
 
-  return data ?? [];
+  const drivers = data ?? [];
+
+  return drivers.filter((driver) => {
+    if (options?.excludeDriverId && driver.id === options.excludeDriverId) {
+      return false;
+    }
+
+    if (
+      options?.excludePhone &&
+      samePhone(driver.phone, options.excludePhone)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
 export async function markDriverUnavailable(driverId: string): Promise<boolean> {
@@ -81,6 +124,27 @@ export async function markDriverAvailable(driverId: string): Promise<boolean> {
   return data !== null;
 }
 
+export async function setDriverAvailability(
+  driverId: string,
+  isAvailable: boolean,
+): Promise<DriverRow | null> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .update({ is_available: isAvailable })
+    .eq("id", driverId)
+    .select("id, phone, name, plate, is_available, created_at")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al actualizar disponibilidad:", error);
+    throw error;
+  }
+
+  return data;
+}
+
 export async function createDriver(input: {
   phone: string;
   name: string;
@@ -91,7 +155,7 @@ export async function createDriver(input: {
   const { data, error } = await supabase
     .from("drivers")
     .insert({
-      phone: input.phone,
+      phone: normalizePhone(input.phone),
       name: input.name,
       plate: input.plate,
       is_available: true,

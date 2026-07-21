@@ -155,7 +155,12 @@ export async function offerTripToDrivers(
   passengerPhone: string,
   pickupNeighborhood: string,
 ) {
-  const availableDrivers = await listAvailableDrivers();
+  const requesterDriver = await findDriverByPhone(passengerPhone);
+
+  const availableDrivers = await listAvailableDrivers({
+    excludePhone: passengerPhone,
+    excludeDriverId: requesterDriver?.id,
+  });
 
   if (availableDrivers.length === 0) {
     console.warn("[dispatch] no hay conductores disponibles");
@@ -190,6 +195,8 @@ export async function offerTripToDrivers(
   console.log("[dispatch] enviando oferta a conductores:", {
     tripId: trip.id,
     pickupNeighborhood,
+    excludedPhone: passengerPhone,
+    excludedDriverId: requesterDriver?.id ?? null,
     drivers: availableDrivers.map((d) => ({ id: d.id, phone: d.phone })),
   });
 

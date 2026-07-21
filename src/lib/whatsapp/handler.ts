@@ -15,9 +15,20 @@ import {
   startDriverRegistration,
 } from "@/lib/driver-registration";
 import {
+  DRIVER_MENU_IDS,
+  handleDriverPerformance,
+  handleDriverProfile,
+  handleDriverReport,
+  handleDriverSubMenu,
+  handleToggleAvailability,
+  handleUpdateDriverData,
+  sendDriverMainMenu,
+} from "@/lib/driver-menu";
+import {
   handlePassengerRating,
   parseRatingButton,
 } from "@/lib/rating";
+import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import {
@@ -63,11 +74,27 @@ function isDriverIntent(text: string | null): boolean {
   return DRIVER_INTENTS.has(normalizeText(text));
 }
 
-async function sendWelcomeMenu(phone: string) {
+async function sendPassengerWelcomeMenu(phone: string) {
   await sendButtonsMessage(phone, "¡Hola! ¿Qué deseas hacer?", [
     { id: BUTTON_IDS.SOLICITAR_SERVICIO, title: "Solicitar servicio" },
     { id: BUTTON_IDS.CANCELAR, title: "❌ Cancelar" },
   ]);
+}
+
+async function startPassengerRequest(
+  phone: string,
+  name: string,
+): Promise<void> {
+  await findOrCreatePassenger(phone, name);
+
+  upsertSession(phone, {
+    name,
+    state: "WAITING_PICKUP",
+    pickupNeighborhood: null,
+    driverName: null,
+  });
+
+  await sendTextMessage(phone, "¿En qué barrio te vamos a recoger?");
 }
 
 export async function handleIncomingMessage(
@@ -122,20 +149,38 @@ export async function handleIncomingMessage(
     return;
   }
 
+  if (message.button === DRIVER_MENU_IDS.TOGGLE_AVAILABILITY) {
+    await handleToggleAvailability(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.MENU_CONDUCTOR) {
+    await handleDriverSubMenu(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.RENDIMIENTO) {
+    await handleDriverPerformance(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.MIS_DATOS) {
+    await handleDriverProfile(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.ACTUALIZAR_DATOS) {
+    await handleUpdateDriverData(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.REPORTAR) {
+    await handleDriverReport(message.phone);
+    return;
+  }
+
   if (message.button === BUTTON_IDS.SOLICITAR_SERVICIO) {
-    await findOrCreatePassenger(message.phone, message.name);
-
-    upsertSession(message.phone, {
-      name: message.name,
-      state: "WAITING_PICKUP",
-      pickupNeighborhood: null,
-      driverName: null,
-    });
-
-    await sendTextMessage(
-      message.phone,
-      "¿En qué barrio te vamos a recoger?",
-    );
+    await startPassengerRequest(message.phone, message.name);
     return;
   }
 
@@ -196,7 +241,15 @@ export async function handleIncomingMessage(
       pickupNeighborhood: null,
       driverName: null,
     });
-    await sendWelcomeMenu(message.phone);
+
+    const driver = await findDriverByPhone(message.phone);
+
+    if (driver) {
+      await sendDriverMainMenu(driver, message.phone);
+      return;
+    }
+
+    await sendPassengerWelcomeMenu(message.phone);
     return;
   }
 
