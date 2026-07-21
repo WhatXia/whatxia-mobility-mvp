@@ -97,3 +97,28 @@ export async function sendLocationMessage(
     },
   });
 }
+
+/**
+ * Location request message (Meta Cloud API oficial).
+ * Docs: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-messages/location-request-messages/
+ *
+ * Muestra cuerpo + botón nativo "Enviar ubicación" que abre el selector de ubicación.
+ */
+export async function sendLocationRequestMessage(
+  to: string,
+  bodyText: string,
+) {
+  return sendMessage({
+    to,
+    type: "interactive",
+    interactive: {
+      type: "location_request_message",
+      body: {
+        text: bodyText,
+      },
+      action: {
+        name: "send_location",
+      },
+    },
+  });
+}

@@ -19,6 +19,7 @@ import { clearSession, upsertSession } from "@/lib/sessions";
 import {
   sendButtonsMessage,
   sendLocationMessage,
+  sendLocationRequestMessage,
   sendTextMessage,
 } from "@/lib/whatsapp/client";
 
@@ -66,10 +67,13 @@ function pickupDisplayLabel(draft: BookingDraft): string {
 }
 
 const PICKUP_LOCATION_PROMPT = [
-  "Ahora comparte tu ubicación actual (obligatorio).",
-  "",
-  "En WhatsApp: clip 📎 → Ubicación → Enviar tu ubicación actual.",
+  "Perfecto. Ahora comparte tu ubicación actual 📍 para confirmar el punto de recogida y calcular tu tarifa.",
 ].join("\n");
+
+async function askForPickupLocation(phone: string): Promise<void> {
+  // Meta oficial: interactive location_request_message + action send_location
+  await sendLocationRequestMessage(phone, PICKUP_LOCATION_PROMPT);
+}
 
 async function sendPlaceForConfirm(
   phone: string,
@@ -180,11 +184,18 @@ async function resolveTextToPlace(
 
   let candidates: PlaceCandidate[];
   try {
+    console.log("[booking:places] resolveTextToPlace", {
+      role,
+      text,
+      phone,
+    });
     candidates = await searchPlaces(text);
   } catch (error) {
     console.error("[booking] Places error FULL:", error);
     if (error instanceof GoogleMapsError) {
       console.error("[booking] Places GoogleMapsError", {
+        role,
+        text,
         status: error.status,
         body: error.bodySnippet,
         message: error.message,
@@ -401,7 +412,7 @@ export async function handleBookingMessage(
       },
       label,
     );
-    await sendTextMessage(phone, PICKUP_LOCATION_PROMPT);
+    await askForPickupLocation(phone);
     return true;
   }
 
@@ -462,7 +473,7 @@ export async function handleBookingMessage(
     }
 
     if (message.text || message.button === BOOKING_BUTTON_IDS.SHARE_HINT) {
-      await sendTextMessage(phone, PICKUP_LOCATION_PROMPT);
+      await askForPickupLocation(phone);
       return true;
     }
 
