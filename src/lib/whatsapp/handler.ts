@@ -1,7 +1,11 @@
 import type { IncomingMessage } from "@/types";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+import {
+  clearSession,
+  getSession,
+  upsertSession,
+} from "@/lib/sessions";
 
-/** IDs de botones — Fase 4 usará SOLICITAR_SERVICIO para pedir el barrio. */
 export const BUTTON_IDS = {
   SOLICITAR_SERVICIO: "solicitar_servicio",
   CANCELAR: "cancelar",
@@ -27,33 +31,66 @@ function isGreeting(text: string | null): boolean {
 
 async function sendWelcomeMenu(phone: string) {
   // Títulos ≤ 20 caracteres (límite de WhatsApp Cloud API).
-  // El emoji 🚖 + "Solicitar servicio" supera el límite, por eso va sin emoji.
   await sendButtonsMessage(phone, "¡Hola! ¿Qué deseas hacer?", [
     { id: BUTTON_IDS.SOLICITAR_SERVICIO, title: "Solicitar servicio" },
     { id: BUTTON_IDS.CANCELAR, title: "❌ Cancelar" },
   ]);
 }
 
-/**
- * Punto de entrada del bot.
- * Fase 4: al pulsar solicitar_servicio, pedir el barrio de recogida.
- */
 export async function handleIncomingMessage(
   message: IncomingMessage,
 ): Promise<void> {
   console.log("[whatsapp] mensaje recibido:", message);
 
   if (message.button === BUTTON_IDS.SOLICITAR_SERVICIO) {
-    // Fase 4: pedir barrio de recogida.
+    upsertSession(message.phone, {
+      name: message.name,
+      state: "WAITING_PICKUP",
+      pickupNeighborhood: null,
+    });
+
+    await sendTextMessage(
+      message.phone,
+      "¿En qué barrio te vamos a recoger?",
+    );
     return;
   }
 
   if (message.button === BUTTON_IDS.CANCELAR) {
+    clearSession(message.phone);
     await sendTextMessage(message.phone, "Operación cancelada.");
     return;
   }
 
+  const session = getSession(message.phone);
+
+  if (session?.state === "WAITING_PICKUP" && message.text) {
+    const neighborhood = message.text.trim();
+
+    upsertSession(message.phone, {
+      name: message.name,
+      state: "SEARCHING_DRIVER",
+      pickupNeighborhood: neighborhood,
+    });
+
+    console.log("[session] barrio guardado:", {
+      phone: message.phone,
+      pickupNeighborhood: neighborhood,
+    });
+
+    await sendTextMessage(
+      message.phone,
+      "Estamos buscando un conductor. Un momento por favor.",
+    );
+    return;
+  }
+
   if (isGreeting(message.text)) {
+    upsertSession(message.phone, {
+      name: message.name,
+      state: "IDLE",
+      pickupNeighborhood: null,
+    });
     await sendWelcomeMenu(message.phone);
     return;
   }
