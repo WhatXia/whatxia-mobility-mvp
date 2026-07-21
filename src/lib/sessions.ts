@@ -1,4 +1,9 @@
-import type { UserSession, UserState } from "@/types";
+import type {
+  DriverDraft,
+  DriverFieldCategory,
+  UserSession,
+  UserState,
+} from "@/types";
 
 const sessions = new Map<string, UserSession>();
 
@@ -13,6 +18,10 @@ export function upsertSession(
     state: UserState;
     pickupNeighborhood?: string | null;
     driverName?: string | null;
+    driverDraft?: DriverDraft | null;
+    driverFlowStep?: string | null;
+    driverUpdateCategory?: DriverFieldCategory | null;
+    driverUpdateField?: string | null;
   },
 ): UserSession {
   const current = sessions.get(phone);
@@ -29,6 +38,22 @@ export function upsertSession(
       data.driverName !== undefined
         ? data.driverName
         : (current?.driverName ?? null),
+    driverDraft:
+      data.driverDraft !== undefined
+        ? data.driverDraft
+        : (current?.driverDraft ?? null),
+    driverFlowStep:
+      data.driverFlowStep !== undefined
+        ? data.driverFlowStep
+        : (current?.driverFlowStep ?? null),
+    driverUpdateCategory:
+      data.driverUpdateCategory !== undefined
+        ? data.driverUpdateCategory
+        : (current?.driverUpdateCategory ?? null),
+    driverUpdateField:
+      data.driverUpdateField !== undefined
+        ? data.driverUpdateField
+        : (current?.driverUpdateField ?? null),
   };
 
   sessions.set(phone, session);

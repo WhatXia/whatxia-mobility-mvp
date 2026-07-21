@@ -1,4 +1,5 @@
 import { getSupabase } from "@/lib/supabase/client";
+import type { DriverDraft, DriverFieldKey } from "@/lib/driver-profile-fields";
 import { normalizePhone, samePhone } from "@/lib/trips";
 
 export type DriverRow = {
@@ -6,9 +7,26 @@ export type DriverRow = {
   phone: string;
   name: string;
   plate: string;
+  document_id: string | null;
+  address: string | null;
+  city: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  vehicle_brand: string | null;
+  vehicle_model: string | null;
+  vehicle_color: string | null;
+  vehicle_year: number | null;
+  soat_expires_at: string | null;
+  techno_expires_at: string | null;
+  license_expires_at: string | null;
   is_available: boolean;
+  documents_blocked: boolean;
+  documents_blocked_reason: string | null;
+  documents_reminder_sent_at: string | null;
   created_at: string;
 };
+
+const DRIVER_COLUMNS = "*";
 
 export async function findDriverByPhone(
   phone: string,
@@ -18,7 +36,7 @@ export async function findDriverByPhone(
 
   const { data, error } = await supabase
     .from("drivers")
-    .select("id, phone, name, plate, is_available, created_at")
+    .select(DRIVER_COLUMNS)
     .eq("phone", normalized)
     .maybeSingle();
 
@@ -28,14 +46,13 @@ export async function findDriverByPhone(
   }
 
   if (data) {
-    return data;
+    return data as DriverRow;
   }
 
-  // Compatibilidad con registros antiguos sin normalizar.
   if (phone !== normalized) {
     const { data: legacy, error: legacyError } = await supabase
       .from("drivers")
-      .select("id, phone, name, plate, is_available, created_at")
+      .select(DRIVER_COLUMNS)
       .eq("phone", phone)
       .maybeSingle();
 
@@ -47,7 +64,7 @@ export async function findDriverByPhone(
       throw legacyError;
     }
 
-    return legacy;
+    return legacy as DriverRow | null;
   }
 
   return null;
@@ -61,15 +78,16 @@ export async function listAvailableDrivers(options?: {
 
   const { data, error } = await supabase
     .from("drivers")
-    .select("id, phone, name, plate, is_available, created_at")
-    .eq("is_available", true);
+    .select(DRIVER_COLUMNS)
+    .eq("is_available", true)
+    .eq("documents_blocked", false);
 
   if (error) {
     console.error("[supabase] error al listar conductores:", error);
     throw error;
   }
 
-  const drivers = data ?? [];
+  const drivers = (data ?? []) as DriverRow[];
 
   return drivers.filter((driver) => {
     if (options?.excludeDriverId && driver.id === options.excludeDriverId) {
@@ -134,7 +152,7 @@ export async function setDriverAvailability(
     .from("drivers")
     .update({ is_available: isAvailable })
     .eq("id", driverId)
-    .select("id, phone, name, plate, is_available, created_at")
+    .select(DRIVER_COLUMNS)
     .maybeSingle();
 
   if (error) {
@@ -142,14 +160,30 @@ export async function setDriverAvailability(
     throw error;
   }
 
-  return data;
+  return data as DriverRow | null;
 }
 
-export async function createDriver(input: {
+export type CreateDriverInput = {
   phone: string;
   name: string;
   plate: string;
-}): Promise<DriverRow> {
+  document_id: string;
+  address: string;
+  city: string;
+  emergency_contact_name: string;
+  emergency_contact_phone: string;
+  vehicle_brand: string;
+  vehicle_model: string;
+  vehicle_color: string;
+  vehicle_year: number;
+  soat_expires_at: string;
+  techno_expires_at: string;
+  license_expires_at: string;
+};
+
+export async function createDriver(
+  input: CreateDriverInput,
+): Promise<DriverRow> {
   const supabase = getSupabase();
 
   const { data, error } = await supabase
@@ -158,9 +192,22 @@ export async function createDriver(input: {
       phone: normalizePhone(input.phone),
       name: input.name,
       plate: input.plate,
+      document_id: input.document_id,
+      address: input.address,
+      city: input.city,
+      emergency_contact_name: input.emergency_contact_name,
+      emergency_contact_phone: input.emergency_contact_phone,
+      vehicle_brand: input.vehicle_brand,
+      vehicle_model: input.vehicle_model,
+      vehicle_color: input.vehicle_color,
+      vehicle_year: input.vehicle_year,
+      soat_expires_at: input.soat_expires_at,
+      techno_expires_at: input.techno_expires_at,
+      license_expires_at: input.license_expires_at,
       is_available: true,
+      documents_blocked: false,
     })
-    .select("id, phone, name, plate, is_available, created_at")
+    .select(DRIVER_COLUMNS)
     .single();
 
   if (error) {
@@ -168,5 +215,73 @@ export async function createDriver(input: {
     throw error;
   }
 
-  return data;
+  return data as DriverRow;
+}
+
+export async function updateDriverField(
+  driverId: string,
+  field: DriverFieldKey,
+  value: string | number,
+): Promise<DriverRow | null> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .update({ [field]: value })
+    .eq("id", driverId)
+    .select(DRIVER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al actualizar conductor:", error);
+    throw error;
+  }
+
+  return data as DriverRow | null;
+}
+
+export function draftToCreateInput(
+  phone: string,
+  draft: DriverDraft,
+): CreateDriverInput | null {
+  const required: DriverFieldKey[] = [
+    "name",
+    "document_id",
+    "address",
+    "city",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+    "plate",
+    "vehicle_brand",
+    "vehicle_model",
+    "vehicle_color",
+    "vehicle_year",
+    "soat_expires_at",
+    "techno_expires_at",
+    "license_expires_at",
+  ];
+
+  for (const key of required) {
+    if (draft[key] === undefined || draft[key] === "") {
+      return null;
+    }
+  }
+
+  return {
+    phone,
+    name: draft.name!,
+    plate: draft.plate!,
+    document_id: draft.document_id!,
+    address: draft.address!,
+    city: draft.city!,
+    emergency_contact_name: draft.emergency_contact_name!,
+    emergency_contact_phone: draft.emergency_contact_phone!,
+    vehicle_brand: draft.vehicle_brand!,
+    vehicle_model: draft.vehicle_model!,
+    vehicle_color: draft.vehicle_color!,
+    vehicle_year: Number(draft.vehicle_year),
+    soat_expires_at: draft.soat_expires_at!,
+    techno_expires_at: draft.techno_expires_at!,
+    license_expires_at: draft.license_expires_at!,
+  };
 }

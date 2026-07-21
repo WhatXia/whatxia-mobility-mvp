@@ -15,6 +15,12 @@ import {
   startDriverRegistration,
 } from "@/lib/driver-registration";
 import {
+  continueDriverUpdate,
+  getActiveUpdateSession,
+  handleUpdateCategorySelection,
+  UPDATE_CATEGORY_IDS,
+} from "@/lib/driver-update";
+import {
   DRIVER_MENU_IDS,
   handleDriverPerformance,
   handleDriverProfile,
@@ -174,6 +180,15 @@ export async function handleIncomingMessage(
     return;
   }
 
+  if (
+    message.button === UPDATE_CATEGORY_IDS.PERSONAL ||
+    message.button === UPDATE_CATEGORY_IDS.VEHICLE ||
+    message.button === UPDATE_CATEGORY_IDS.DOCUMENTS
+  ) {
+    await handleUpdateCategorySelection(message.phone, message.button);
+    return;
+  }
+
   if (message.button === DRIVER_MENU_IDS.REPORTAR) {
     await handleDriverReport(message.phone);
     return;
@@ -188,6 +203,15 @@ export async function handleIncomingMessage(
     clearSession(message.phone);
     await sendTextMessage(message.phone, "Operación cancelada.");
     return;
+  }
+
+  const updateSession = getActiveUpdateSession(message.phone);
+
+  if (updateSession) {
+    const handled = await continueDriverUpdate(message, updateSession);
+    if (handled) {
+      return;
+    }
   }
 
   const registrationSession = getActiveRegistrationSession(message.phone);
@@ -240,6 +264,10 @@ export async function handleIncomingMessage(
       state: "IDLE",
       pickupNeighborhood: null,
       driverName: null,
+      driverDraft: null,
+      driverFlowStep: null,
+      driverUpdateCategory: null,
+      driverUpdateField: null,
     });
 
     const driver = await findDriverByPhone(message.phone);

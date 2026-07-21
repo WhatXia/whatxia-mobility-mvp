@@ -3,6 +3,8 @@ import {
   findDriverByPhone,
   setDriverAvailability,
 } from "@/lib/supabase/drivers";
+import { formatDateForDisplay } from "@/lib/driver-profile-fields";
+import { startDriverUpdate } from "@/lib/driver-update";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 export const DRIVER_MENU_IDS = {
@@ -84,7 +86,7 @@ export async function handleDriverSubMenu(phone: string): Promise<void> {
     return;
   }
 
-  await sendDriverSubMenu(driver.phone);
+  await sendDriverSubMenu(phone);
 }
 
 export async function handleDriverPerformance(phone: string): Promise<void> {
@@ -92,6 +94,13 @@ export async function handleDriverPerformance(phone: string): Promise<void> {
     phone,
     "📊 Mi rendimiento\n\nPronto podrás ver aquí tus viajes, calificaciones y estadísticas.",
   );
+}
+
+function valueOrDash(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+  return String(value);
 }
 
 export async function handleDriverProfile(phone: string): Promise<void> {
@@ -103,17 +112,35 @@ export async function handleDriverProfile(phone: string): Promise<void> {
   }
 
   const status = driver.is_available ? "Disponible" : "No disponible";
+  const blocked = driver.documents_blocked ? "Sí" : "No";
 
-  // Body con los datos + botón preparado para el Sprint 17.
   await sendButtonsMessage(
     phone,
     [
       "👤 Mis datos",
       "",
-      `Nombre: ${driver.name}`,
-      `Placa: ${driver.plate}`,
-      `Teléfono: ${driver.phone}`,
+      "— Personales —",
+      `Nombre: ${valueOrDash(driver.name)}`,
+      `Cédula: ${valueOrDash(driver.document_id)}`,
+      `Dirección: ${valueOrDash(driver.address)}`,
+      `Ciudad: ${valueOrDash(driver.city)}`,
+      `Teléfono: ${valueOrDash(driver.phone)}`,
+      `Emergencia: ${valueOrDash(driver.emergency_contact_name)} (${valueOrDash(driver.emergency_contact_phone)})`,
+      "",
+      "— Vehículo —",
+      `Placa: ${valueOrDash(driver.plate)}`,
+      `Marca: ${valueOrDash(driver.vehicle_brand)}`,
+      `Modelo: ${valueOrDash(driver.vehicle_model)}`,
+      `Color: ${valueOrDash(driver.vehicle_color)}`,
+      `Año: ${valueOrDash(driver.vehicle_year)}`,
+      "",
+      "— Documentos —",
+      `SOAT: ${formatDateForDisplay(driver.soat_expires_at)}`,
+      `Tecnomecánica: ${formatDateForDisplay(driver.techno_expires_at)}`,
+      `Licencia: ${formatDateForDisplay(driver.license_expires_at)}`,
+      "",
       `Estado: ${status}`,
+      `Bloqueo docs: ${blocked}`,
     ].join("\n"),
     [
       {
@@ -125,10 +152,7 @@ export async function handleDriverProfile(phone: string): Promise<void> {
 }
 
 export async function handleUpdateDriverData(phone: string): Promise<void> {
-  await sendTextMessage(
-    phone,
-    "Esta funcionalidad estará disponible en el Sprint 17.",
-  );
+  await startDriverUpdate(phone);
 }
 
 export async function handleDriverReport(phone: string): Promise<void> {
