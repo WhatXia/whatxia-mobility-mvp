@@ -171,14 +171,48 @@ export async function offerTripToDrivers(
   passengerPhone: string,
   pickupNeighborhood: string,
 ) {
-  const requesterDriver = await findDriverByPhone(passengerPhone);
+  console.log("[dispatch:diag] STEP_1_start", {
+    passengerPhone,
+    pickupNeighborhood,
+  });
 
-  const availableDrivers = await listAvailableDrivers({
-    excludePhone: passengerPhone,
-    excludeDriverId: requesterDriver?.id,
+  const requesterDriver = await findDriverByPhone(passengerPhone);
+  console.log("[dispatch:diag] STEP_2_requesterDriver", {
+    found: Boolean(requesterDriver),
+    requesterDriverId: requesterDriver?.id ?? null,
+  });
+
+  let availableDrivers;
+  try {
+    availableDrivers = await listAvailableDrivers({
+      excludePhone: passengerPhone,
+      excludeDriverId: requesterDriver?.id,
+    });
+  } catch (error) {
+    console.error("[dispatch:diag] STOP_at_listAvailableDrivers", {
+      error,
+      hint: "Posible columna faltante (suspended_until / cancel_policy_count) si migración 010 no aplicada",
+    });
+    throw error;
+  }
+
+  console.log("[dispatch:diag] STEP_3_eligible_count", {
+    count: availableDrivers.length,
+    drivers: availableDrivers.map((d) => ({
+      id: d.id,
+      phone: d.phone,
+      is_available: d.is_available,
+      status: d.status,
+      documents_blocked: d.documents_blocked,
+      suspended_until: d.suspended_until ?? null,
+      cancel_policy_count: d.cancel_policy_count ?? null,
+    })),
   });
 
   if (availableDrivers.length === 0) {
+    console.warn("[dispatch:diag] STOP_at_zero_eligible_before_createTrip", {
+      reason: "listAvailableDrivers devolvió 0 tras filtros excludePhone/excludeDriverId/suspensión",
+    });
     console.warn("[dispatch] no hay conductores disponibles");
     await sendTextMessage(
       passengerPhone,
@@ -187,16 +221,52 @@ export async function offerTripToDrivers(
     return;
   }
 
-  const passenger = await findOrCreatePassenger(passengerPhone);
-  const trip = await createTrip(
-    passengerPhone,
-    pickupNeighborhood,
-    passenger.id,
-  );
+  let passenger;
+  try {
+    passenger = await findOrCreatePassenger(passengerPhone);
+    console.log("[dispatch:diag] STEP_4_passenger", {
+      passengerId: passenger.id,
+      no_show_count: passenger.no_show_count ?? null,
+    });
+  } catch (error) {
+    console.error("[dispatch:diag] STOP_at_findOrCreatePassenger", {
+      error,
+      hint: "Posible columna faltante passengers.no_show_count (migración 010)",
+    });
+    throw error;
+  }
+
+  let trip;
+  try {
+    trip = await createTrip(
+      passengerPhone,
+      pickupNeighborhood,
+      passenger.id,
+    );
+    console.log("[dispatch:diag] STEP_5_trip_created", {
+      tripId: trip.id,
+      status: trip.status,
+      searchDeadlineAt: trip.searchDeadlineAt ?? null,
+    });
+  } catch (error) {
+    console.error("[dispatch:diag] STOP_at_createTrip", {
+      error,
+      hint: "Posibles columnas faltantes search_deadline_at / continue_deadline_at / search_awaiting_continue (migración 011)",
+    });
+    throw error;
+  }
+
+  console.log("[dispatch:diag] STEP_6_calling_publishTripOffer", {
+    tripId: trip.id,
+  });
 
   await publishTripOffer(trip, {
     excludePhone: passengerPhone,
     excludeDriverId: requesterDriver?.id,
+  });
+
+  console.log("[dispatch:diag] STEP_7_publishTripOffer_returned", {
+    tripId: trip.id,
   });
 }
 
@@ -225,7 +295,24 @@ async function publishTripOffer(
   trip: { id: string; pickupNeighborhood: string; passengerPhone: string },
   options?: { excludePhone?: string; excludeDriverId?: string },
 ): Promise<void> {
-  const tripExclusions = await listExcludedDriverIdsForTrip(trip.id);
+  console.log("[dispatch:diag] publish_STEP_A_start", { tripId: trip.id });
+
+  let tripExclusions: string[] = [];
+  try {
+    tripExclusions = await listExcludedDriverIdsForTrip(trip.id);
+    console.log("[dispatch:diag] publish_STEP_B_exclusions", {
+      tripId: trip.id,
+      tripExclusions,
+    });
+  } catch (error) {
+    console.error("[dispatch:diag] STOP_at_listExcludedDriverIdsForTrip", {
+      tripId: trip.id,
+      error,
+      hint: "Tabla trip_driver_exclusions inexistente si migración 012 no aplicada → aquí se corta el despacho",
+    });
+    throw error;
+  }
+
   const excludedDriverIds = Array.from(
     new Set([
       ...tripExclusions,
@@ -233,8 +320,24 @@ async function publishTripOffer(
     ]),
   );
 
-  const candidates = await listAvailableDrivers({
-    excludePhone: options?.excludePhone,
+  let candidates;
+  try {
+    candidates = await listAvailableDrivers({
+      excludePhone: options?.excludePhone,
+    });
+  } catch (error) {
+    console.error("[dispatch:diag] STOP_at_publish_listAvailableDrivers", {
+      tripId: trip.id,
+      error,
+    });
+    throw error;
+  }
+
+  console.log("[dispatch:diag] publish_STEP_C_candidates", {
+    tripId: trip.id,
+    candidateCount: candidates.length,
+    excludedDriverIds,
+    candidateIds: candidates.map((d) => d.id),
   });
 
   const availableDrivers = filterDriversForTripOffer({
@@ -242,7 +345,19 @@ async function publishTripOffer(
     excludedDriverIds,
   });
 
+  console.log("[dispatch:diag] publish_STEP_D_after_exclusion_filter", {
+    tripId: trip.id,
+    eligibleCount: availableDrivers.length,
+    eligibleIds: availableDrivers.map((d) => d.id),
+  });
+
   if (availableDrivers.length === 0) {
+    console.warn("[dispatch:diag] STOP_at_zero_eligible_after_filters", {
+      tripId: trip.id,
+      excludedDriverIds,
+      candidateCount: candidates.length,
+      reason: "Todos los candidatos fueron filtrados (exclusiones / teléfono)",
+    });
     console.warn("[dispatch] oferta sin conductores elegibles", {
       tripId: trip.id,
       excludedDriverIds,
@@ -264,6 +379,12 @@ async function publishTripOffer(
     { id: rejectButtonId(trip.id), title: "❌ Rechazar" },
   ];
 
+  console.log("[dispatch:diag] publish_STEP_E_whatsapp_sendButtonsMessage", {
+    tripId: trip.id,
+    recipientCount: availableDrivers.length,
+    recipients: availableDrivers.map((d) => d.phone),
+  });
+
   console.log("[dispatch] enviando oferta a conductores:", {
     tripId: trip.id,
     pickupNeighborhood: trip.pickupNeighborhood,
@@ -282,8 +403,15 @@ async function publishTripOffer(
     const driver = availableDrivers[index];
 
     if (result.status === "fulfilled") {
+      console.log("[dispatch:diag] publish_STEP_F_whatsapp_ok", {
+        phone: driver.phone,
+      });
       console.log("[dispatch] oferta enviada:", driver.phone);
     } else {
+      console.error("[dispatch:diag] publish_STEP_F_whatsapp_fail", {
+        phone: driver.phone,
+        reason: result.reason,
+      });
       console.error(
         "[dispatch] fallo al notificar:",
         driver.phone,
