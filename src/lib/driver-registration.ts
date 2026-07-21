@@ -26,7 +26,7 @@ export async function startDriverRegistration(phone: string): Promise<void> {
   const existing = await findDriverByPhone(phone);
 
   if (existing) {
-    clearSession(phone);
+    await clearSession(phone);
     await sendTextMessage(
       phone,
       "✅ Ya estás registrado y disponible para recibir servicios.",
@@ -36,7 +36,7 @@ export async function startDriverRegistration(phone: string): Promise<void> {
 
   const firstStep = REGISTRATION_ORDER[0];
 
-  upsertSession(phone, {
+  await upsertSession(phone, {
     state: "DRIVER_REGISTERING",
     pickupNeighborhood: null,
     driverName: null,
@@ -63,7 +63,7 @@ export async function continueDriverRegistration(
 
   const step = session.driverFlowStep;
   if (!isFieldKey(step)) {
-    clearSession(message.phone);
+    await clearSession(message.phone);
     await sendTextMessage(
       message.phone,
       "El registro se interrumpió. Escribe: Quiero ser conductor",
@@ -92,12 +92,12 @@ export async function continueDriverRegistration(
         message.phone,
         "Faltan datos del registro. Escribe: Quiero ser conductor",
       );
-      clearSession(message.phone);
+      await clearSession(message.phone);
       return true;
     }
 
     await createDriver(input);
-    clearSession(message.phone);
+    await clearSession(message.phone);
 
     await sendTextMessage(
       message.phone,
@@ -106,7 +106,7 @@ export async function continueDriverRegistration(
     return true;
   }
 
-  upsertSession(message.phone, {
+  await upsertSession(message.phone, {
     state: "DRIVER_REGISTERING",
     driverDraft: draft,
     driverFlowStep: next,
@@ -124,9 +124,9 @@ export function isDriverRegistrationState(
   return session?.state === "DRIVER_REGISTERING";
 }
 
-export function getActiveRegistrationSession(
+export async function getActiveRegistrationSession(
   phone: string,
-): UserSession | undefined {
-  const session = getSession(phone);
+): Promise<UserSession | undefined> {
+  const session = await getSession(phone);
   return isDriverRegistrationState(session) ? session : undefined;
 }

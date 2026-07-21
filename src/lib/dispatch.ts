@@ -271,7 +271,7 @@ export async function handleDriverAccept(
 
   await markDriverUnavailable(driver.id);
 
-  upsertSession(assigned.passengerPhone, {
+  await upsertSession(assigned.passengerPhone, {
     state: "ASSIGNED",
   });
 
@@ -516,7 +516,7 @@ export async function handleDriverFinalizarViaje(
     await markDriverAvailable(updated.assignedDriverId);
   }
 
-  upsertSession(updated.passengerPhone, {
+  await upsertSession(updated.passengerPhone, {
     state: "IDLE",
   });
 

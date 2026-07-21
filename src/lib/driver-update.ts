@@ -59,7 +59,7 @@ export async function startDriverUpdate(phone: string): Promise<void> {
     return;
   }
 
-  upsertSession(phone, {
+  await upsertSession(phone, {
     state: "DRIVER_UPDATE_CATEGORY",
     driverUpdateCategory: null,
     driverUpdateField: null,
@@ -108,7 +108,7 @@ export async function handleUpdateCategorySelection(
     return `${index + 1}. ${field.label}: ${displayFieldValue(driver, key)}`;
   });
 
-  upsertSession(phone, {
+  await upsertSession(phone, {
     state: "DRIVER_UPDATE_SELECT_FIELD",
     driverUpdateCategory: category,
     driverUpdateField: null,
@@ -139,7 +139,7 @@ export async function continueDriverUpdate(
   if (session.state === "DRIVER_UPDATE_SELECT_FIELD") {
     const category = session.driverUpdateCategory;
     if (!isCategory(category)) {
-      clearSession(message.phone);
+      await clearSession(message.phone);
       await sendTextMessage(
         message.phone,
         "La actualización se interrumpió. Entra a Mis datos y vuelve a intentar.",
@@ -159,7 +159,7 @@ export async function continueDriverUpdate(
     }
 
     const fieldKey = fields[index];
-    upsertSession(message.phone, {
+    await upsertSession(message.phone, {
       state: "DRIVER_UPDATE_VALUE",
       driverUpdateCategory: category,
       driverUpdateField: fieldKey,
@@ -172,7 +172,7 @@ export async function continueDriverUpdate(
   if (session.state === "DRIVER_UPDATE_VALUE") {
     const fieldKey = session.driverUpdateField;
     if (!isFieldKey(fieldKey)) {
-      clearSession(message.phone);
+      await clearSession(message.phone);
       await sendTextMessage(
         message.phone,
         "La actualización se interrumpió. Entra a Mis datos y vuelve a intentar.",
@@ -189,7 +189,7 @@ export async function continueDriverUpdate(
 
     const driver = await findDriverByPhone(message.phone);
     if (!driver) {
-      clearSession(message.phone);
+      await clearSession(message.phone);
       await sendTextMessage(
         message.phone,
         "No encontramos tu registro de conductor.",
@@ -211,7 +211,7 @@ export async function continueDriverUpdate(
       return true;
     }
 
-    clearSession(message.phone);
+    await clearSession(message.phone);
 
     await sendTextMessage(
       message.phone,
@@ -234,9 +234,9 @@ export function isDriverUpdateState(
   );
 }
 
-export function getActiveUpdateSession(
+export async function getActiveUpdateSession(
   phone: string,
-): UserSession | undefined {
-  const session = getSession(phone);
+): Promise<UserSession | undefined> {
+  const session = await getSession(phone);
   return isDriverUpdateState(session) ? session : undefined;
 }

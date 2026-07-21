@@ -93,7 +93,7 @@ async function startPassengerRequest(
 ): Promise<void> {
   await findOrCreatePassenger(phone, name);
 
-  upsertSession(phone, {
+  await upsertSession(phone, {
     name,
     state: "WAITING_PICKUP",
     pickupNeighborhood: null,
@@ -200,12 +200,12 @@ export async function handleIncomingMessage(
   }
 
   if (message.button === BUTTON_IDS.CANCELAR) {
-    clearSession(message.phone);
+    await clearSession(message.phone);
     await sendTextMessage(message.phone, "Operación cancelada.");
     return;
   }
 
-  const updateSession = getActiveUpdateSession(message.phone);
+  const updateSession = await getActiveUpdateSession(message.phone);
 
   if (updateSession) {
     const handled = await continueDriverUpdate(message, updateSession);
@@ -214,7 +214,7 @@ export async function handleIncomingMessage(
     }
   }
 
-  const registrationSession = getActiveRegistrationSession(message.phone);
+  const registrationSession = await getActiveRegistrationSession(message.phone);
 
   if (registrationSession) {
     const handled = await continueDriverRegistration(
@@ -226,12 +226,12 @@ export async function handleIncomingMessage(
     }
   }
 
-  const session = getSession(message.phone);
+  const session = await getSession(message.phone);
 
   if (session?.state === "WAITING_PICKUP" && message.text) {
     const neighborhood = message.text.trim();
 
-    upsertSession(message.phone, {
+    await upsertSession(message.phone, {
       name: message.name,
       state: "SEARCHING_DRIVER",
       pickupNeighborhood: neighborhood,
@@ -259,7 +259,7 @@ export async function handleIncomingMessage(
   if (isGreeting(message.text)) {
     await findOrCreatePassenger(message.phone, message.name);
 
-    upsertSession(message.phone, {
+    await upsertSession(message.phone, {
       name: message.name,
       state: "IDLE",
       pickupNeighborhood: null,
