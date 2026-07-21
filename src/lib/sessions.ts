@@ -4,6 +4,7 @@ import type {
   UserSession,
   UserState,
 } from "@/types";
+import type { BookingDraft } from "@/lib/geo/types";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/trips";
 
@@ -17,6 +18,7 @@ type SessionRow = {
   driver_flow_step: string | null;
   driver_update_category: DriverFieldCategory | null;
   driver_update_field: string | null;
+  booking_draft: BookingDraft | null;
 };
 
 function mapRow(row: SessionRow): UserSession {
@@ -30,8 +32,12 @@ function mapRow(row: SessionRow): UserSession {
     driverFlowStep: row.driver_flow_step,
     driverUpdateCategory: row.driver_update_category,
     driverUpdateField: row.driver_update_field,
+    bookingDraft: row.booking_draft ?? null,
   };
 }
+
+const SESSION_SELECT =
+  "phone, name, state, pickup_neighborhood, driver_name, driver_draft, driver_flow_step, driver_update_category, driver_update_field, booking_draft";
 
 export async function getSession(
   phone: string,
@@ -41,9 +47,7 @@ export async function getSession(
 
   const { data, error } = await supabase
     .from("conversation_sessions")
-    .select(
-      "phone, name, state, pickup_neighborhood, driver_name, driver_draft, driver_flow_step, driver_update_category, driver_update_field",
-    )
+    .select(SESSION_SELECT)
     .eq("phone", normalized)
     .maybeSingle();
 
@@ -70,6 +74,7 @@ export async function upsertSession(
     driverFlowStep?: string | null;
     driverUpdateCategory?: DriverFieldCategory | null;
     driverUpdateField?: string | null;
+    bookingDraft?: BookingDraft | null;
   },
 ): Promise<UserSession> {
   const current = await getSession(phone);
@@ -103,6 +108,10 @@ export async function upsertSession(
       data.driverUpdateField !== undefined
         ? data.driverUpdateField
         : (current?.driverUpdateField ?? null),
+    bookingDraft:
+      data.bookingDraft !== undefined
+        ? data.bookingDraft
+        : (current?.bookingDraft ?? null),
   };
 
   const supabase = getSupabase();
@@ -118,6 +127,7 @@ export async function upsertSession(
       driver_flow_step: session.driverFlowStep,
       driver_update_category: session.driverUpdateCategory,
       driver_update_field: session.driverUpdateField,
+      booking_draft: session.bookingDraft,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "phone" },
@@ -134,6 +144,7 @@ export async function upsertSession(
     driverUpdateCategory: session.driverUpdateCategory,
     driverUpdateField: session.driverUpdateField,
     driverFlowStep: session.driverFlowStep,
+    hasBookingDraft: Boolean(session.bookingDraft),
   });
 
   return session;

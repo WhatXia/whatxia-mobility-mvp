@@ -1,8 +1,9 @@
-import { clearSession, upsertSession } from "@/lib/sessions";
+import { clearSession } from "@/lib/sessions";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import { closeTunnelForTrip } from "@/lib/tunnels";
 import { getTrip, samePhone, setTripRating } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+import { startBookingFlow } from "@/lib/booking/flow";
 
 const RATING_PREFIX = "rating";
 const POST_RATING_PREFIX = "post_rating";
@@ -163,23 +164,9 @@ export async function handlePostRatingChoice(
     return;
   }
 
-  // Nuevo servicio: limpiar contexto e iniciar solicitud (pedir barrio).
+  // Nuevo servicio: cotización geográfica (origen → destino → tarifa).
   await findOrCreatePassenger(passengerPhone, name);
-  await upsertSession(passengerPhone, {
-    name,
-    state: "WAITING_PICKUP",
-    pickupNeighborhood: null,
-    driverName: null,
-    driverDraft: null,
-    driverFlowStep: null,
-    driverUpdateCategory: null,
-    driverUpdateField: null,
-  });
-
-  await sendTextMessage(
-    passengerPhone,
-    "¿En qué barrio te vamos a recoger?",
-  );
+  await startBookingFlow(passengerPhone, name);
 
   console.log("[rating:post] nuevo servicio", { tripId, passengerPhone });
 }

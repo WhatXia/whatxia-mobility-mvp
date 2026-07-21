@@ -9,6 +9,12 @@ type WhatsAppMessage = {
   from?: string;
   type?: string;
   text?: { body?: string };
+  location?: {
+    latitude?: number;
+    longitude?: number;
+    name?: string;
+    address?: string;
+  };
   interactive?: {
     type?: string;
     button_reply?: { id?: string; title?: string };
@@ -55,6 +61,27 @@ function extractButton(message: WhatsAppMessage): string | null {
   return null;
 }
 
+function extractLocation(
+  message: WhatsAppMessage,
+): IncomingMessage["location"] {
+  if (message.type !== "location" || !message.location) {
+    return null;
+  }
+
+  const lat = message.location.latitude;
+  const lng = message.location.longitude;
+  if (typeof lat !== "number" || typeof lng !== "number") {
+    return null;
+  }
+
+  return {
+    lat,
+    lng,
+    name: message.location.name ?? null,
+    address: message.location.address ?? null,
+  };
+}
+
 export function parseIncomingMessages(
   payload: WhatsAppWebhookPayload,
 ): IncomingMessage[] {
@@ -83,6 +110,7 @@ export function parseIncomingMessages(
           name: contactName,
           text: message.text?.body ?? null,
           button: extractButton(message),
+          location: extractLocation(message),
         });
       }
     }

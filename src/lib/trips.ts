@@ -23,6 +23,18 @@ export type Trip = {
   searchDeadlineAt: string | null;
   continueDeadlineAt: string | null;
   searchAwaitingContinue: boolean;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  pickupPlaceId: string | null;
+  pickupLabel: string | null;
+  dropoffLat: number | null;
+  dropoffLng: number | null;
+  dropoffPlaceId: string | null;
+  dropoffLabel: string | null;
+  distanceMeters: number | null;
+  durationSeconds: number | null;
+  quotedFare: number | null;
+  currency: string;
 };
 
 type TripRow = {
@@ -39,6 +51,33 @@ type TripRow = {
   search_deadline_at: string | null;
   continue_deadline_at: string | null;
   search_awaiting_continue: boolean | null;
+  pickup_lat: number | null;
+  pickup_lng: number | null;
+  pickup_place_id: string | null;
+  pickup_label: string | null;
+  dropoff_lat: number | null;
+  dropoff_lng: number | null;
+  dropoff_place_id: string | null;
+  dropoff_label: string | null;
+  distance_meters: number | null;
+  duration_seconds: number | null;
+  quoted_fare: number | null;
+  currency: string | null;
+};
+
+export type CreateTripGeoInput = {
+  pickupLat: number;
+  pickupLng: number;
+  pickupPlaceId: string | null;
+  pickupLabel: string;
+  dropoffLat: number;
+  dropoffLng: number;
+  dropoffPlaceId: string | null;
+  dropoffLabel: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  quotedFare: number;
+  currency?: string;
 };
 
 const ACTIVE_STATUSES: TripStatus[] = [
@@ -59,7 +98,7 @@ export const SEARCH_WINDOW_MS = 3 * 60 * 1000;
 export const CONTINUE_WINDOW_MS = 2 * 60 * 1000;
 
 const TRIP_COLUMNS =
-  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue";
+  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, currency";
 
 export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -90,6 +129,18 @@ function mapRow(row: TripRow): Trip {
     searchDeadlineAt: row.search_deadline_at,
     continueDeadlineAt: row.continue_deadline_at,
     searchAwaitingContinue: Boolean(row.search_awaiting_continue),
+    pickupLat: row.pickup_lat ?? null,
+    pickupLng: row.pickup_lng ?? null,
+    pickupPlaceId: row.pickup_place_id ?? null,
+    pickupLabel: row.pickup_label ?? null,
+    dropoffLat: row.dropoff_lat ?? null,
+    dropoffLng: row.dropoff_lng ?? null,
+    dropoffPlaceId: row.dropoff_place_id ?? null,
+    dropoffLabel: row.dropoff_label ?? null,
+    distanceMeters: row.distance_meters ?? null,
+    durationSeconds: row.duration_seconds ?? null,
+    quotedFare: row.quoted_fare ?? null,
+    currency: row.currency ?? "COP",
   };
 }
 
@@ -111,6 +162,7 @@ export async function createTrip(
   passengerPhone: string,
   pickupNeighborhood: string,
   passengerId: string,
+  geo?: CreateTripGeoInput,
 ): Promise<Trip> {
   const supabase = getSupabase();
   const searchDeadline = new Date(
@@ -127,6 +179,22 @@ export async function createTrip(
       search_deadline_at: searchDeadline,
       continue_deadline_at: null,
       search_awaiting_continue: false,
+      ...(geo
+        ? {
+            pickup_lat: geo.pickupLat,
+            pickup_lng: geo.pickupLng,
+            pickup_place_id: geo.pickupPlaceId,
+            pickup_label: geo.pickupLabel,
+            dropoff_lat: geo.dropoffLat,
+            dropoff_lng: geo.dropoffLng,
+            dropoff_place_id: geo.dropoffPlaceId,
+            dropoff_label: geo.dropoffLabel,
+            distance_meters: geo.distanceMeters,
+            duration_seconds: geo.durationSeconds,
+            quoted_fare: geo.quotedFare,
+            currency: geo.currency ?? "COP",
+          }
+        : {}),
     })
     .select(TRIP_COLUMNS)
     .single();
@@ -143,6 +211,8 @@ export async function createTrip(
     passengerPhone: trip.passengerPhone,
     status: trip.status,
     searchDeadlineAt: trip.searchDeadlineAt,
+    quotedFare: trip.quotedFare,
+    distanceMeters: trip.distanceMeters,
   });
   return trip;
 }

@@ -23,9 +23,14 @@ import {
   handleDriverIniciarViaje,
   handleDriverLlegue,
   handleDriverReject,
-  offerTripToDrivers,
   parseDriverButton,
 } from "@/lib/dispatch";
+import {
+  handleBookingMessage,
+  isBookingState,
+  startBookingFlow,
+  BOOKING_BUTTON_IDS,
+} from "@/lib/booking/flow";
 import {
   continueDriverRegistration,
   getActiveRegistrationSession,
@@ -122,15 +127,7 @@ async function startPassengerRequest(
   name: string,
 ): Promise<void> {
   await findOrCreatePassenger(phone, name);
-
-  await upsertSession(phone, {
-    name,
-    state: "WAITING_PICKUP",
-    pickupNeighborhood: null,
-    driverName: null,
-  });
-
-  await sendTextMessage(phone, "¿En qué barrio te vamos a recoger?");
+  await startBookingFlow(phone, name);
 }
 
 export async function handleIncomingMessage(
@@ -298,6 +295,23 @@ export async function handleIncomingMessage(
     return;
   }
 
+  if (
+    message.button === BOOKING_BUTTON_IDS.REQUEST_TRIP ||
+    message.button === BOOKING_BUTTON_IDS.CANCEL_QUOTE ||
+    message.button === BOOKING_BUTTON_IDS.CONFIRM_PLACE ||
+    message.button === BOOKING_BUTTON_IDS.REJECT_PLACE ||
+    message.button === BOOKING_BUTTON_IDS.SHARE_HINT ||
+    message.button?.startsWith(BOOKING_BUTTON_IDS.CANDIDATE_PREFIX)
+  ) {
+    const bookingSession = await getSession(message.phone);
+    if (bookingSession && isBookingState(bookingSession.state)) {
+      const handled = await handleBookingMessage(message, bookingSession);
+      if (handled) {
+        return;
+      }
+    }
+  }
+
   if (message.button === BUTTON_IDS.CANCELAR) {
     await clearSession(message.phone);
     const cancelled = await cancelTripByPhone(message.phone);
@@ -309,28 +323,12 @@ export async function handleIncomingMessage(
 
   const session = await getSession(message.phone);
 
-  // Barrio: prioriza solicitud de viaje sobre el túnel.
-  if (session?.state === "WAITING_PICKUP" && message.text) {
-    const neighborhood = message.text.trim();
-
-    await upsertSession(message.phone, {
-      name: message.name,
-      state: "SEARCHING_DRIVER",
-      pickupNeighborhood: neighborhood,
-    });
-
-    console.log("[session] barrio guardado:", {
-      phone: message.phone,
-      pickupNeighborhood: neighborhood,
-    });
-
-    await sendTextMessage(
-      message.phone,
-      "Estamos buscando un conductor. Un momento por favor.",
-    );
-
-    await offerTripToDrivers(message.phone, neighborhood);
-    return;
+  // Booking geo/tarifa (texto, ubicación o confirmaciones).
+  if (session && isBookingState(session.state)) {
+    const handled = await handleBookingMessage(message, session);
+    if (handled) {
+      return;
+    }
   }
 
   // Cancelar viaje (texto): cierra el túnel de inmediato y no reenvía el mensaje.
@@ -443,6 +441,7 @@ export async function handleIncomingMessage(
       driverFlowStep: null,
       driverUpdateCategory: null,
       driverUpdateField: null,
+      bookingDraft: null,
     });
 
     const driver = await findDriverByPhone(message.phone);

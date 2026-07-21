@@ -16,6 +16,8 @@ import {
   startSearchCycle,
   startTrip,
   tryAssignTrip,
+  type CreateTripGeoInput,
+  type Trip,
 } from "@/lib/trips";
 import { upsertSession } from "@/lib/sessions";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
@@ -33,7 +35,19 @@ import {
   openTunnel,
   scheduleTunnelClose,
 } from "@/lib/tunnels";
+import type {
+  FareQuote,
+  ResolvedPlace,
+  RouteEstimate,
+} from "@/lib/geo/types";
+import { formatFareCop } from "@/lib/pricing/engine";
 
+export type TripOfferDetails = {
+  pickup: ResolvedPlace;
+  dropoff: ResolvedPlace;
+  route: RouteEstimate;
+  quote: FareQuote;
+};
 export const DRIVER_BUTTON_IDS = {
   ACEPTAR: "aceptar_servicio",
   RECHAZAR: "rechazar_servicio",
@@ -170,10 +184,12 @@ async function sendFinishTripButton(driverPhone: string, tripId: string) {
 export async function offerTripToDrivers(
   passengerPhone: string,
   pickupNeighborhood: string,
+  details?: TripOfferDetails,
 ) {
   console.log("[dispatch:diag] STEP_1_start", {
     passengerPhone,
     pickupNeighborhood,
+    hasGeo: Boolean(details),
   });
 
   const requesterDriver = await findDriverByPhone(passengerPhone);
@@ -236,22 +252,41 @@ export async function offerTripToDrivers(
     throw error;
   }
 
+  const geo: CreateTripGeoInput | undefined = details
+    ? {
+        pickupLat: details.pickup.location.lat,
+        pickupLng: details.pickup.location.lng,
+        pickupPlaceId: details.pickup.placeId,
+        pickupLabel: details.pickup.name || details.pickup.address,
+        dropoffLat: details.dropoff.location.lat,
+        dropoffLng: details.dropoff.location.lng,
+        dropoffPlaceId: details.dropoff.placeId,
+        dropoffLabel: details.dropoff.name || details.dropoff.address,
+        distanceMeters: details.route.distanceMeters,
+        durationSeconds: details.route.durationSeconds,
+        quotedFare: details.quote.amount,
+        currency: details.quote.currency,
+      }
+    : undefined;
+
   let trip;
   try {
     trip = await createTrip(
       passengerPhone,
       pickupNeighborhood,
       passenger.id,
+      geo,
     );
     console.log("[dispatch:diag] STEP_5_trip_created", {
       tripId: trip.id,
       status: trip.status,
       searchDeadlineAt: trip.searchDeadlineAt ?? null,
+      quotedFare: trip.quotedFare,
     });
   } catch (error) {
     console.error("[dispatch:diag] STOP_at_createTrip", {
       error,
-      hint: "Posibles columnas faltantes search_deadline_at / continue_deadline_at / search_awaiting_continue (migración 011)",
+      hint: "Posibles columnas faltantes search_* (011) o geo/fare (014)",
     });
     throw error;
   }
@@ -292,7 +327,7 @@ export async function republishTripToDrivers(tripId: string): Promise<void> {
 }
 
 async function publishTripOffer(
-  trip: { id: string; pickupNeighborhood: string; passengerPhone: string },
+  trip: Trip,
   options?: { excludePhone?: string; excludeDriverId?: string },
 ): Promise<void> {
   console.log("[dispatch:diag] publish_STEP_A_start", { tripId: trip.id });
@@ -365,14 +400,33 @@ async function publishTripOffer(
     return;
   }
 
+  const distanceKm =
+    trip.distanceMeters != null
+      ? (trip.distanceMeters / 1000).toFixed(1)
+      : null;
+  const durationMin =
+    trip.durationSeconds != null
+      ? Math.max(1, Math.round(trip.durationSeconds / 60))
+      : null;
+
   const body = [
     "🚖 Nuevo servicio",
     "",
-    "📍 Recogida:",
-    trip.pickupNeighborhood,
+    "📍 Origen:",
+    trip.pickupLabel ?? trip.pickupNeighborhood,
+    trip.dropoffLabel ? "" : null,
+    trip.dropoffLabel ? "🎯 Destino:" : null,
+    trip.dropoffLabel ?? null,
+    distanceKm ? `🛣️ Distancia: ${distanceKm} km` : null,
+    durationMin ? `⏱️ Tiempo: ${durationMin} min` : null,
+    trip.quotedFare != null
+      ? `💰 Tarifa aprox.: ${formatFareCop(trip.quotedFare)}`
+      : null,
     "",
     "Aceptar el servicio:",
-  ].join("\n");
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
 
   const buttons = [
     { id: acceptButtonId(trip.id), title: "✅ Aceptar" },

@@ -1,8 +1,18 @@
+import type { BookingDraft } from "@/lib/geo/types";
+
+export type IncomingLocation = {
+  lat: number;
+  lng: number;
+  name: string | null;
+  address: string | null;
+};
+
 export type IncomingMessage = {
   phone: string;
   name: string;
   text: string | null;
   button: string | null;
+  location: IncomingLocation | null;
 };
 
 export type DriverFieldCategory = "personal" | "vehicle" | "documents";
@@ -10,6 +20,11 @@ export type DriverFieldCategory = "personal" | "vehicle" | "documents";
 export type UserState =
   | "IDLE"
   | "WAITING_PICKUP"
+  | "WAITING_PICKUP_TEXT"
+  | "WAITING_PICKUP_CONFIRM"
+  | "WAITING_DROPOFF_TEXT"
+  | "WAITING_DROPOFF_CONFIRM"
+  | "WAITING_QUOTE_CONFIRM"
   | "SEARCHING_DRIVER"
   | "ASSIGNED"
   | "DRIVER_REGISTERING"
@@ -48,4 +63,7 @@ export type UserSession = {
   driverFlowStep: string | null;
   driverUpdateCategory: DriverFieldCategory | null;
   driverUpdateField: string | null;
+  bookingDraft: BookingDraft | null;
 };
+
+export type { BookingDraft };

@@ -76,3 +76,24 @@ export async function sendButtonsMessage(
     },
   });
 }
+
+export async function sendLocationMessage(
+  to: string,
+  location: {
+    latitude: number;
+    longitude: number;
+    name?: string;
+    address?: string;
+  },
+) {
+  return sendMessage({
+    to,
+    type: "location",
+    location: {
+      latitude: location.latitude,
+      longitude: location.longitude,
+      name: location.name,
+      address: location.address,
+    },
+  });
+}
