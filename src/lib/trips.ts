@@ -10,6 +10,7 @@ export type TripStatus =
 
 export type Trip = {
   id: string;
+  passengerId: string | null;
   passengerPhone: string;
   pickupNeighborhood: string;
   status: TripStatus;
@@ -22,6 +23,7 @@ export type Trip = {
 
 type TripRow = {
   id: string;
+  passenger_id: string | null;
   passenger_phone: string;
   pickup_neighborhood: string;
   status: TripStatus;
@@ -40,7 +42,7 @@ const ACTIVE_STATUSES: TripStatus[] = [
 ];
 
 const TRIP_COLUMNS =
-  "id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating";
+  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating";
 
 export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -59,6 +61,7 @@ export function samePhone(
 function mapRow(row: TripRow): Trip {
   return {
     id: row.id,
+    passengerId: row.passenger_id,
     passengerPhone: row.passenger_phone,
     pickupNeighborhood: row.pickup_neighborhood,
     status: row.status,
@@ -87,12 +90,14 @@ function logTransition(
 export async function createTrip(
   passengerPhone: string,
   pickupNeighborhood: string,
+  passengerId: string,
 ): Promise<Trip> {
   const supabase = getSupabase();
 
   const { data, error } = await supabase
     .from("trips")
     .insert({
+      passenger_id: passengerId,
       passenger_phone: normalizePhone(passengerPhone),
       pickup_neighborhood: pickupNeighborhood,
       status: "SEARCHING",
@@ -108,6 +113,7 @@ export async function createTrip(
   const trip = mapRow(data as TripRow);
   console.log("[trip:created]", {
     tripId: trip.id,
+    passengerId: trip.passengerId,
     passengerPhone: trip.passengerPhone,
     status: trip.status,
   });

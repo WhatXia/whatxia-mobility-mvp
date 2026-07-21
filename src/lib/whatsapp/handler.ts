@@ -18,6 +18,7 @@ import {
   handlePassengerRating,
   parseRatingButton,
 } from "@/lib/rating";
+import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import {
   clearSession,
@@ -122,6 +123,8 @@ export async function handleIncomingMessage(
   }
 
   if (message.button === BUTTON_IDS.SOLICITAR_SERVICIO) {
+    await findOrCreatePassenger(message.phone, message.name);
+
     upsertSession(message.phone, {
       name: message.name,
       state: "WAITING_PICKUP",
@@ -185,6 +188,8 @@ export async function handleIncomingMessage(
   }
 
   if (isGreeting(message.text)) {
+    await findOrCreatePassenger(message.phone, message.name);
+
     upsertSession(message.phone, {
       name: message.name,
       state: "IDLE",

@@ -4,6 +4,7 @@ import {
   markDriverAvailable,
   markDriverUnavailable,
 } from "@/lib/supabase/drivers";
+import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import {
   createTrip,
   finishTrip,
@@ -165,7 +166,12 @@ export async function offerTripToDrivers(
     return;
   }
 
-  const trip = await createTrip(passengerPhone, pickupNeighborhood);
+  const passenger = await findOrCreatePassenger(passengerPhone);
+  const trip = await createTrip(
+    passengerPhone,
+    pickupNeighborhood,
+    passenger.id,
+  );
 
   const body = [
     "🚖 Nuevo servicio",
@@ -444,7 +450,7 @@ export async function handleDriverIniciarViaje(
   }
 
   await Promise.allSettled([
-    sendTextMessage(updated.passengerPhone, "🚗 Tu viaje ha comenzado."),
+    sendTextMessage(updated.passengerPhone, "🚖 Tu viaje ha comenzado."),
     sendTextMessage(driverPhone, "✅ Viaje iniciado."),
   ]);
 
