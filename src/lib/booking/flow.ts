@@ -153,7 +153,14 @@ async function resolveTextToPlace(
   try {
     candidates = await searchPlaces(text);
   } catch (error) {
-    console.error("[booking] Places error:", error);
+    console.error("[booking] Places error FULL:", error);
+    if (error instanceof GoogleMapsError) {
+      console.error("[booking] Places GoogleMapsError", {
+        status: error.status,
+        body: error.bodySnippet,
+        message: error.message,
+      });
+    }
     await sendTextMessage(
       phone,
       "No pudimos buscar el lugar ahora. Intenta de nuevo en un momento.",

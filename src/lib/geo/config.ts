@@ -10,7 +10,7 @@ function envNumber(name: string, fallback: number): number {
 }
 
 export function getGoogleMapsApiKey(): string {
-  const key = process.env.GOOGLE_MAPS_API_KEY;
+  const key = process.env.GOOGLE_MAPS_API_KEY?.trim();
   if (!key) {
     throw new Error("Falta GOOGLE_MAPS_API_KEY en el entorno.");
   }

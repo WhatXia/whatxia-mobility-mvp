@@ -70,15 +70,21 @@ export async function fetchGoogleJson<T>(
 
     const text = await response.text();
     if (!response.ok) {
-      console.error("[geo:error]", {
+      // Diagnóstico: cuerpo completo (sin filtrar el error de Google).
+      console.error("[geo:error] FULL_RESPONSE", {
         status: response.status,
+        statusText: response.statusText,
         url: url.replace(/key=[^&]+/gi, "key=REDACTED"),
-        bodySnippet: text.slice(0, 300),
+        hasApiKeyHeader: Boolean(headers["X-Goog-Api-Key"]),
+        apiKeyPrefix: headers["X-Goog-Api-Key"]
+          ? `${String(headers["X-Goog-Api-Key"]).slice(0, 8)}…(len=${String(headers["X-Goog-Api-Key"]).length})`
+          : null,
+        body: text,
       });
       throw new GoogleMapsError(
-        `Google API error: ${response.status}`,
+        `Google API error: ${response.status} ${text}`,
         response.status,
-        text.slice(0, 300),
+        text,
       );
     }
 
