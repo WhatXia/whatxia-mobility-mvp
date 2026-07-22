@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { processDueSearchTimeouts } from "@/lib/search";
 
 /**
- * Procesa timeouts de búsqueda (3 min / 2 min).
+ * Procesa timeouts del WaitingFlow (2+2+2 min).
  * Autenticación: Authorization: Bearer CRON_SECRET
- * En Hobby invocar con un cron externo cada minuto si se desea precisión.
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -15,7 +13,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await processDueSearchTimeouts();
+    const { processDueWaitingFlow } = await import("@/lib/waiting-flow");
+    const result = await processDueWaitingFlow();
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("[cron/search] error:", error);

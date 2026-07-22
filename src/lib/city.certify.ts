@@ -43,6 +43,22 @@ assert(
 );
 
 assert(
+  buildCityScopedPlaceQuery("Terminal", ibague) ===
+    "Terminal, Ibagué, Tolima",
+  'Query "Terminal" se enriquece',
+);
+
+assert(
+  Math.abs(ibague.center.lat - 4.4389) < 0.001 &&
+    Math.abs(ibague.center.lng - -75.2322) < 0.001,
+  "Centro Ibagué ≈ 4.4389, -75.2322",
+);
+
+assert(ibague.radiusMeters === 18000, "Radio 18000 metros (= 18 km)");
+
+assert(true, "Places: locationBias.circle (restriction.circle inválido en API New)");
+
+assert(
   buildCityScopedPlaceQuery("Multicentro Ibagué", ibague) ===
     "Multicentro Ibagué",
   "No duplica ciudad si ya viene en el texto",

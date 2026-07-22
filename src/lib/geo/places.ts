@@ -7,7 +7,7 @@ import {
   logGoogleMapsApiKeyRuntimeProbe,
 } from "@/lib/geo/config";
 import { rankPlaceCandidates } from "@/lib/geo/confidence";
-import type { PlaceCandidate } from "@/lib/geo/types";
+import type { GeoPoint, PlaceCandidate } from "@/lib/geo/types";
 import {
   buildCityScopedPlaceQuery,
   filterCandidatesInCity,
@@ -22,6 +22,7 @@ type PlacesSearchTextResponse = {
     formattedAddress?: string;
     location?: { latitude?: number; longitude?: number };
   }>;
+  error?: unknown;
 };
 
 export type SearchPlacesResult = {
@@ -33,8 +34,54 @@ export type SearchPlacesResult = {
 };
 
 /**
- * Busca lugares con Places API (New), restringido a la ciudad activa.
- * Usa locationRestriction (círculo duro) + query con ciudad/región.
+ * Sprint 28 diagnóstico:
+ * Places API (New) Text Search — `locationRestriction` SOLO admite rectangle.
+ * `locationRestriction.circle` es inválido (Unknown name "circle") y provoca
+ * fallos / cero resultados. Por eso usamos `locationBias.circle` (válido)
+ * + query enriquecida "…, Ibagué, Tolima" + filtro local isPointInCity.
+ *
+ * Docs: https://developers.google.com/maps/documentation/places/web-service/text-search
+ */
+function buildLocationBiasCircle(city: City) {
+  return {
+    circle: {
+      center: {
+        latitude: city.center.lat,
+        longitude: city.center.lng,
+      },
+      // Metros (0–50000). 18000 = 18 km.
+      radius: city.radiusMeters,
+    },
+  };
+}
+
+/** Viewport rectangular aproximado al radio (por si se reactiva restriction). */
+export function circleToViewportRectangle(
+  center: GeoPoint,
+  radiusMeters: number,
+): {
+  low: { latitude: number; longitude: number };
+  high: { latitude: number; longitude: number };
+} {
+  const metersPerDegLat = 111_320;
+  const metersPerDegLng =
+    111_320 * Math.cos((center.lat * Math.PI) / 180) || 111_320;
+  const dLat = radiusMeters / metersPerDegLat;
+  const dLng = radiusMeters / metersPerDegLng;
+  return {
+    low: {
+      latitude: center.lat - dLat,
+      longitude: center.lng - dLng,
+    },
+    high: {
+      latitude: center.lat + dLat,
+      longitude: center.lng + dLng,
+    },
+  };
+}
+
+/**
+ * Busca lugares con Places API (New), sesgados a la ciudad activa.
  */
 export async function searchPlaces(
   query: string,
@@ -54,6 +101,7 @@ export async function searchPlaces(
   const textQuery = buildCityScopedPlaceQuery(trimmed, city);
   const endpoint = "https://places.googleapis.com/v1/places:searchText";
   const apiProduct = "Places API (New) — places:searchText";
+  const locationBias = buildLocationBiasCircle(city);
 
   logGoogleMapsApiKeyRuntimeProbe("searchPlaces:before_fetch");
 
@@ -71,21 +119,12 @@ export async function searchPlaces(
     keyMasked = null;
   }
 
-  // locationRestriction = solo resultados dentro del área (no solo bias).
   const body = {
     textQuery,
     languageCode: "es",
     regionCode: city.countryCode,
     maxResultCount: 8,
-    locationRestriction: {
-      circle: {
-        center: {
-          latitude: city.center.lat,
-          longitude: city.center.lng,
-        },
-        radius: city.radiusMeters,
-      },
-    },
+    locationBias,
   };
 
   console.log("[places:diag] REQUEST", {
@@ -94,10 +133,17 @@ export async function searchPlaces(
     method: "POST",
     userQuery: trimmed,
     textQuery,
-    city: city.slug,
+    city: {
+      slug: city.slug,
+      name: city.name,
+      center: city.center,
+      radiusMeters: city.radiusMeters,
+      radiusNote: "metros (18000 = 18 km)",
+    },
+    locationMode: "locationBias.circle (NO locationRestriction.circle)",
+    locationBias,
     keyLoaded,
     keyMasked,
-    locationRestriction: body.locationRestriction,
   });
 
   let data: PlacesSearchTextResponse;
@@ -116,16 +162,25 @@ export async function searchPlaces(
       apiProduct,
       endpoint,
       textQuery,
-      city: city.slug,
+      cityCenter: city.center,
+      radiusMeters: city.radiusMeters,
       keyLoaded,
       keyMasked,
       status: error instanceof GoogleMapsError ? error.status : undefined,
-      googleBody:
+      googleBodyFull:
         error instanceof GoogleMapsError ? error.bodySnippet : undefined,
       message: error instanceof Error ? error.message : String(error),
     });
     throw error;
   }
+
+  // Respuesta completa (sin API key).
+  console.log("[places:diag] GOOGLE_RESPONSE_FULL", {
+    textQuery,
+    cityCenter: city.center,
+    radiusMeters: city.radiusMeters,
+    response: data,
+  });
 
   const raw = (data.places ?? [])
     .map((place) => {
@@ -151,11 +206,17 @@ export async function searchPlaces(
     apiProduct,
     city: city.slug,
     textQuery,
+    cityCenter: city.center,
+    radiusMeters: city.radiusMeters,
     httpStatus: 200,
     rawCount: ranked.length,
     inCityCount: inCity.length,
     rejectedOutsideCity,
-    top: inCity.slice(0, 3).map((c) => c.name),
+    top: inCity.slice(0, 5).map((c) => ({
+      name: c.name,
+      address: c.address,
+      location: c.location,
+    })),
   });
 
   return {

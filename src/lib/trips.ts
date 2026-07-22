@@ -8,7 +8,8 @@ export type TripStatus =
   | "DRIVER_ARRIVED"
   | "IN_PROGRESS"
   | "COMPLETED"
-  | "CANCELLED";
+  | "CANCELLED"
+  | "cancelled_no_driver";
 
 export type Trip = {
   id: string;
@@ -24,6 +25,7 @@ export type Trip = {
   searchDeadlineAt: string | null;
   continueDeadlineAt: string | null;
   searchAwaitingContinue: boolean;
+  searchReminderCount: number;
   pickupLat: number | null;
   pickupLng: number | null;
   pickupPlaceId: string | null;
@@ -53,6 +55,7 @@ type TripRow = {
   search_deadline_at: string | null;
   continue_deadline_at: string | null;
   search_awaiting_continue: boolean | null;
+  search_reminder_count: number | null;
   pickup_lat: number | null;
   pickup_lng: number | null;
   pickup_place_id: string | null;
@@ -95,13 +98,15 @@ const CANCELLABLE_STATUSES: TripStatus[] = [
   ...ACTIVE_STATUSES,
 ];
 
-/** Ventana de búsqueda de conductor (Sprint 21). */
-export const SEARCH_WINDOW_MS = 3 * 60 * 1000;
-/** Tiempo para responder “¿seguir buscando?” */
+/** WaitingFlow: ventana entre recordatorios / búsqueda (2 min). */
+export const SEARCH_WINDOW_MS = 2 * 60 * 1000;
+/** WaitingFlow: tiempo máximo esperando respuesta del pasajero (2 min). */
 export const CONTINUE_WINDOW_MS = 2 * 60 * 1000;
+/** Tras 2 “seguir buscando”, la 3ª ventana de 2 min cierra sin conductor. */
+export const MAX_SEARCH_REMINDER_COUNT = 2;
 
 const TRIP_COLUMNS =
-  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, currency, city_id";
+  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, search_reminder_count, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, currency, city_id";
 
 export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -132,6 +137,7 @@ function mapRow(row: TripRow): Trip {
     searchDeadlineAt: row.search_deadline_at,
     continueDeadlineAt: row.continue_deadline_at,
     searchAwaitingContinue: Boolean(row.search_awaiting_continue),
+    searchReminderCount: row.search_reminder_count ?? 0,
     pickupLat: row.pickup_lat ?? null,
     pickupLng: row.pickup_lng ?? null,
     pickupPlaceId: row.pickup_place_id ?? null,
@@ -184,6 +190,7 @@ export async function createTrip(
       search_deadline_at: searchDeadline,
       continue_deadline_at: null,
       search_awaiting_continue: false,
+      search_reminder_count: 0,
       city_id: city.id,
       ...(geo
         ? {
@@ -561,7 +568,10 @@ export async function findCancellableTripByPhone(
   return asDriver ? mapRow(asDriver as TripRow) : null;
 }
 
-export async function cancelTrip(tripId: string): Promise<Trip | null> {
+export async function cancelTrip(
+  tripId: string,
+  status: "CANCELLED" | "cancelled_no_driver" = "CANCELLED",
+): Promise<Trip | null> {
   const supabase = getSupabase();
   const current = await getTrip(tripId);
 
@@ -578,7 +588,10 @@ export async function cancelTrip(tripId: string): Promise<Trip | null> {
   const { data, error } = await supabase
     .from("trips")
     .update({
-      status: "CANCELLED",
+      status,
+      search_deadline_at: null,
+      continue_deadline_at: null,
+      search_awaiting_continue: false,
       updated_at: new Date().toISOString(),
     })
     .eq("id", tripId)
@@ -596,7 +609,7 @@ export async function cancelTrip(tripId: string): Promise<Trip | null> {
   }
 
   const trip = mapRow(data as TripRow);
-  logTransition(trip, from, "CANCELLED");
+  logTransition(trip, from, status);
   return trip;
 }
 
@@ -631,6 +644,7 @@ export async function returnTripToSearching(
       search_deadline_at: searchDeadline,
       continue_deadline_at: null,
       search_awaiting_continue: false,
+      search_reminder_count: 0,
       updated_at: new Date().toISOString(),
     })
     .eq("id", tripId)
@@ -679,6 +693,46 @@ export async function startSearchCycle(tripId: string): Promise<Trip | null> {
   return data ? mapRow(data as TripRow) : null;
 }
 
+/** Tras “Seguir buscando”: incrementa recordatorio y reinicia ventana de 2 min. */
+export async function continueWaitingSearchCycle(
+  tripId: string,
+): Promise<Trip | null> {
+  const current = await getTrip(tripId);
+  if (!current || current.status !== "SEARCHING") {
+    return null;
+  }
+
+  const nextCount = Math.min(
+    current.searchReminderCount + 1,
+    MAX_SEARCH_REMINDER_COUNT,
+  );
+  const searchDeadline = new Date(
+    Date.now() + SEARCH_WINDOW_MS,
+  ).toISOString();
+
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      search_reminder_count: nextCount,
+      search_deadline_at: searchDeadline,
+      continue_deadline_at: null,
+      search_awaiting_continue: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", tripId)
+    .eq("status", "SEARCHING")
+    .select(TRIP_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al continuar WaitingFlow:", error);
+    throw error;
+  }
+
+  return data ? mapRow(data as TripRow) : null;
+}
+
 export async function markSearchAwaitingContinue(
   tripId: string,
 ): Promise<Trip | null> {
@@ -691,11 +745,14 @@ export async function markSearchAwaitingContinue(
     .update({
       search_awaiting_continue: true,
       continue_deadline_at: continueDeadline,
+      // Evita re-enviar el mismo prompt si el cron/webhook corre otra vez.
+      search_deadline_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", tripId)
     .eq("status", "SEARCHING")
     .eq("search_awaiting_continue", false)
+    .not("search_deadline_at", "is", null)
     .lte("search_deadline_at", new Date(now).toISOString())
     .select(TRIP_COLUMNS)
     .maybeSingle();
@@ -718,6 +775,7 @@ export async function clearSearchDeadlinesOnAssign(
       search_deadline_at: null,
       continue_deadline_at: null,
       search_awaiting_continue: false,
+      search_reminder_count: 0,
       updated_at: new Date().toISOString(),
     })
     .eq("id", tripId);
