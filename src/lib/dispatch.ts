@@ -20,7 +20,11 @@ import {
   type Trip,
 } from "@/lib/trips";
 import { upsertSession } from "@/lib/sessions";
-import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+import {
+  sendButtonsMessage,
+  sendLocationMessage,
+  sendTextMessage,
+} from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
 import {
   cancelServicioButtonId,
@@ -41,7 +45,7 @@ import type {
   RouteEstimate,
 } from "@/lib/geo/types";
 import { formatFareCop } from "@/lib/pricing/engine";
-import { mapsUrlForCoords } from "@/lib/geo/maps-url";
+import { mapsUrlForCoords, mapsUrlForPlaceId } from "@/lib/geo/maps-url";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -178,8 +182,39 @@ async function sendStartTripButton(driverPhone: string, tripId: string) {
 
 async function sendFinishTripButton(driverPhone: string, tripId: string) {
   await sendButtonsMessage(driverPhone, "Cuando lleguen al destino:", [
-    { id: finalizarButtonId(tripId), title: "🏁 Finalizar viaje" },
+    { id: finalizarButtonId(tripId), title: "Terminar viaje" },
   ]);
+}
+
+/** Destino al iniciar viaje: pin WA o enlace Google Maps. */
+async function sendDropoffLocationToDriver(
+  driverPhone: string,
+  trip: Trip,
+): Promise<void> {
+  const label = trip.dropoffLabel?.trim() || "Destino";
+
+  if (trip.dropoffLat != null && trip.dropoffLng != null) {
+    await sendLocationMessage(driverPhone, {
+      latitude: trip.dropoffLat,
+      longitude: trip.dropoffLng,
+      name: label,
+      address: label,
+    });
+    return;
+  }
+
+  if (trip.dropoffPlaceId) {
+    await sendTextMessage(
+      driverPhone,
+      `📍 Destino: ${mapsUrlForPlaceId(trip.dropoffPlaceId, label)}`,
+    );
+    return;
+  }
+
+  if (trip.dropoffLabel) {
+    const mapsLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trip.dropoffLabel)}`;
+    await sendTextMessage(driverPhone, `📍 Destino: ${mapsLink}`);
+  }
 }
 
 export async function offerTripToDrivers(
@@ -778,6 +813,9 @@ export async function handleDriverIniciarViaje(
     return;
   }
 
+  // Orden UX: destino → confirmación → Terminar viaje (sin pedir más datos).
+  await sendDropoffLocationToDriver(driverPhone, updated);
+
   await Promise.allSettled([
     sendTextMessage(updated.passengerPhone, "🚖 Tu viaje ha comenzado."),
     sendTextMessage(driverPhone, "✅ Viaje iniciado."),
@@ -789,6 +827,8 @@ export async function handleDriverIniciarViaje(
     tripId: updated.id,
     driverPhone,
     resolveSource: source,
+    dropoffLat: updated.dropoffLat,
+    dropoffLng: updated.dropoffLng,
   });
 }
 
