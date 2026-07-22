@@ -181,12 +181,13 @@ async function sendStartTripButton(driverPhone: string, tripId: string) {
 }
 
 async function sendFinishTripButton(driverPhone: string, tripId: string) {
-  await sendButtonsMessage(driverPhone, "Cuando lleguen al destino:", [
+  // Cuerpo mínimo: WhatsApp exige body; no mostrar "Cuando lleguen al destino:".
+  await sendButtonsMessage(driverPhone, "\u200B", [
     { id: finalizarButtonId(tripId), title: "Terminar viaje" },
   ]);
 }
 
-/** Destino al iniciar viaje: pin WA o enlace Google Maps. */
+/** Destino al iniciar viaje: pin WA o enlace Google Maps (sin texto extra). */
 async function sendDropoffLocationToDriver(
   driverPhone: string,
   trip: Trip,
@@ -206,14 +207,16 @@ async function sendDropoffLocationToDriver(
   if (trip.dropoffPlaceId) {
     await sendTextMessage(
       driverPhone,
-      `📍 Destino: ${mapsUrlForPlaceId(trip.dropoffPlaceId, label)}`,
+      mapsUrlForPlaceId(trip.dropoffPlaceId, label),
     );
     return;
   }
 
   if (trip.dropoffLabel) {
-    const mapsLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trip.dropoffLabel)}`;
-    await sendTextMessage(driverPhone, `📍 Destino: ${mapsLink}`);
+    await sendTextMessage(
+      driverPhone,
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trip.dropoffLabel)}`,
+    );
   }
 }
 
@@ -813,15 +816,18 @@ export async function handleDriverIniciarViaje(
     return;
   }
 
-  // Orden UX: destino → confirmación → Terminar viaje (sin pedir más datos).
+  // Orden UX conductor: iniciado → etiqueta destino → mapa → Terminar viaje.
+  await sendTextMessage(driverPhone, "✅ Viaje iniciado.");
+  await sendTextMessage(driverPhone, "📍 Ubicación del destino:");
   await sendDropoffLocationToDriver(driverPhone, updated);
-
-  await Promise.allSettled([
-    sendTextMessage(updated.passengerPhone, "🚖 Tu viaje ha comenzado."),
-    sendTextMessage(driverPhone, "✅ Viaje iniciado."),
-  ]);
-
   await sendFinishTripButton(driverPhone, updated.id);
+
+  await sendTextMessage(
+    updated.passengerPhone,
+    "🚖 Tu viaje ha comenzado.",
+  ).catch((error) => {
+    console.error("[dispatch] no se pudo avisar al pasajero al iniciar:", error);
+  });
 
   console.log("[dispatch] viaje iniciado:", {
     tripId: updated.id,
