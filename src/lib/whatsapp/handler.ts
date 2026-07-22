@@ -301,6 +301,8 @@ export async function handleIncomingMessage(
     message.button === BOOKING_BUTTON_IDS.CONFIRM_PLACE ||
     message.button === BOOKING_BUTTON_IDS.REJECT_PLACE ||
     message.button === BOOKING_BUTTON_IDS.SHARE_HINT ||
+    message.button === BOOKING_BUTTON_IDS.SHARE_DROPOFF_LOCATION ||
+    message.button === BOOKING_BUTTON_IDS.RETRY_DROPOFF_TEXT ||
     message.button?.startsWith(BOOKING_BUTTON_IDS.CANDIDATE_PREFIX)
   ) {
     const bookingSession = await getSession(message.phone);

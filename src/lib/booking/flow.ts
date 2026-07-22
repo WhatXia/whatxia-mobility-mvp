@@ -40,6 +40,10 @@ export const BOOKING_BUTTON_IDS = {
   CONFIRM_PLACE: "booking_confirm_place",
   REJECT_PLACE: "booking_reject_place",
   SHARE_HINT: "booking_share_hint",
+  /** Destino no encontrado: pedir pin del mapa. */
+  SHARE_DROPOFF_LOCATION: "booking_share_dropoff",
+  /** Destino no encontrado: volver a escribir. */
+  RETRY_DROPOFF_TEXT: "booking_retry_dropoff",
   REQUEST_TRIP: "booking_request_trip",
   CANCEL_QUOTE: "booking_cancel_quote",
   CANDIDATE_PREFIX: "booking_cand:",
@@ -50,10 +54,23 @@ const BOOKING_STATES: UserState[] = [
   "WAITING_PICKUP_TEXT",
   "WAITING_PICKUP_CONFIRM",
   "WAITING_DROPOFF_TEXT",
+  "WAITING_DROPOFF_LOCATION",
   "WAITING_DROPOFF_CONFIRM",
   "WAITING_QUOTE_CONFIRM",
   "WAITING_PICKUP",
 ];
+
+const DROPOFF_NOT_FOUND_BODY = [
+  "Ups, no logramos encontrar ese destino.",
+  "",
+  "Puedes intentar una de estas opciones:",
+  "",
+  "📍 Compartir la ubicación en el mapa.",
+  "✍️ Escribir nuevamente el destino.",
+].join("\n");
+
+const DROPOFF_LOCATION_PROMPT =
+  "Comparte la ubicación del destino en el mapa 📍 para continuar con tu cotización.";
 
 export function isBookingState(state: UserState | undefined): boolean {
   return Boolean(state && BOOKING_STATES.includes(state));
@@ -78,6 +95,75 @@ const PICKUP_LOCATION_PROMPT = [
 async function askForPickupLocation(phone: string): Promise<void> {
   // Meta oficial: interactive location_request_message + action send_location
   await sendLocationRequestMessage(phone, PICKUP_LOCATION_PROMPT);
+}
+
+async function askForDropoffLocation(phone: string): Promise<void> {
+  await sendLocationRequestMessage(phone, DROPOFF_LOCATION_PROMPT);
+}
+
+/**
+ * Sprint 29: destino no encontrado → alternativas, sin culpar al usuario
+ * ni reiniciar origen / conversación.
+ */
+async function offerDropoffNotFoundOptions(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+): Promise<void> {
+  const next: BookingDraft = {
+    ...draft,
+    dropoff: undefined,
+    candidates: undefined,
+    candidateRole: undefined,
+    route: undefined,
+    quote: undefined,
+  };
+  // Conserva pickup / pickupLabel / pickupLocation.
+  await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", next);
+  await sendButtonsMessage(phone, DROPOFF_NOT_FOUND_BODY, [
+    {
+      id: BOOKING_BUTTON_IDS.SHARE_DROPOFF_LOCATION,
+      title: "Ubicación en mapa",
+    },
+    {
+      id: BOOKING_BUTTON_IDS.RETRY_DROPOFF_TEXT,
+      title: "Escribir destino",
+    },
+  ]);
+}
+
+async function applyDropoffFromWhatsAppLocation(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+  location: { lat: number; lng: number; name: string | null; address: string | null },
+): Promise<void> {
+  const dropoffLocation = { lat: location.lat, lng: location.lng };
+  const city = await getActiveCity();
+
+  if (!isPointInCity(dropoffLocation, city)) {
+    await sendTextMessage(phone, outOfCityServiceMessage(city));
+    await offerDropoffNotFoundOptions(phone, name, draft);
+    return;
+  }
+
+  const dropoff: ResolvedPlace = {
+    placeId: null,
+    name: location.name?.trim() || "Destino en el mapa",
+    address:
+      location.address?.trim() ||
+      `${dropoffLocation.lat.toFixed(5)}, ${dropoffLocation.lng.toFixed(5)}`,
+    location: dropoffLocation,
+  };
+
+  await afterDropoffConfirmed(phone, name, {
+    ...draft,
+    dropoff,
+    candidates: undefined,
+    candidateRole: undefined,
+    route: undefined,
+    quote: undefined,
+  });
 }
 
 async function sendPlaceForConfirm(
@@ -206,6 +292,10 @@ async function resolveTextToPlace(
         message: error.message,
       });
     }
+    if (role === "dropoff") {
+      await offerDropoffNotFoundOptions(phone, name, draft);
+      return;
+    }
     await sendTextMessage(
       phone,
       "No pudimos buscar el lugar ahora. Intenta de nuevo en un momento.",
@@ -218,6 +308,23 @@ async function resolveTextToPlace(
   if (candidates.length === 0) {
     if (rejectedOutsideCity > 0) {
       await sendTextMessage(phone, outOfCityServiceMessage(city));
+      if (role === "dropoff") {
+        await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", {
+          ...draft,
+          dropoff: undefined,
+          candidates: undefined,
+          route: undefined,
+          quote: undefined,
+        });
+        await sendTextMessage(
+          phone,
+          "Puedes escribir otro destino dentro de la ciudad o compartir la ubicación en el mapa.",
+        );
+      }
+      return;
+    }
+    if (role === "dropoff") {
+      await offerDropoffNotFoundOptions(phone, name, draft);
       return;
     }
     await sendTextMessage(
@@ -509,9 +616,63 @@ export async function handleBookingMessage(
     return true;
   }
 
-  // --- Destino: texto Places ---
-  if (session.state === "WAITING_DROPOFF_TEXT" && message.text) {
-    await resolveTextToPlace(phone, name, message.text, "dropoff", session);
+  // --- Destino: texto Places, ubicación mapa, o recuperación Sprint 29 ---
+  if (
+    session.state === "WAITING_DROPOFF_TEXT" ||
+    session.state === "WAITING_DROPOFF_LOCATION"
+  ) {
+    if (message.button === BOOKING_BUTTON_IDS.SHARE_DROPOFF_LOCATION) {
+      await persistDraft(phone, name, "WAITING_DROPOFF_LOCATION", {
+        ...draft,
+        dropoff: undefined,
+        route: undefined,
+        quote: undefined,
+      });
+      await askForDropoffLocation(phone);
+      return true;
+    }
+
+    if (message.button === BOOKING_BUTTON_IDS.RETRY_DROPOFF_TEXT) {
+      await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", {
+        ...draft,
+        dropoff: undefined,
+        candidates: undefined,
+        route: undefined,
+        quote: undefined,
+      });
+      await sendTextMessage(phone, "Escribe nuevamente tu destino:");
+      return true;
+    }
+
+    if (message.location) {
+      await applyDropoffFromWhatsAppLocation(
+        phone,
+        name,
+        draft,
+        message.location,
+      );
+      return true;
+    }
+
+    if (session.state === "WAITING_DROPOFF_LOCATION") {
+      // Sigue esperando pin; texto → nueva búsqueda Places.
+      if (message.text) {
+        await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);
+        await resolveTextToPlace(phone, name, message.text, "dropoff", {
+          ...session,
+          bookingDraft: draft,
+        });
+        return true;
+      }
+      await askForDropoffLocation(phone);
+      return true;
+    }
+
+    if (message.text) {
+      await resolveTextToPlace(phone, name, message.text, "dropoff", session);
+      return true;
+    }
+
     return true;
   }
 
@@ -523,11 +684,7 @@ export async function handleBookingMessage(
       draft.candidateRole = undefined;
       draft.route = undefined;
       draft.quote = undefined;
-      await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);
-      await sendTextMessage(
-        phone,
-        "¿Cuál es tu destino? Escribe el lugar de nuevo.",
-      );
+      await offerDropoffNotFoundOptions(phone, name, draft);
       return true;
     }
 
