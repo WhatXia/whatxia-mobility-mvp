@@ -181,9 +181,8 @@ async function sendStartTripButton(driverPhone: string, tripId: string) {
 }
 
 async function sendFinishTripButton(driverPhone: string, tripId: string) {
-  // Cuerpo mínimo: WhatsApp exige body; no mostrar "Cuando lleguen al destino:".
-  await sendButtonsMessage(driverPhone, "\u200B", [
-    { id: finalizarButtonId(tripId), title: "Terminar viaje" },
+  await sendButtonsMessage(driverPhone, "🏁 Al llegar a tu destino:", [
+    { id: finalizarButtonId(tripId), title: "Termina tu viaje" },
   ]);
 }
 
@@ -816,7 +815,7 @@ export async function handleDriverIniciarViaje(
     return;
   }
 
-  // Orden UX conductor: iniciado → etiqueta destino → mapa → Terminar viaje.
+  // Orden UX: iniciado → etiqueta destino → mapa → Al llegar… → Termina tu viaje.
   await sendTextMessage(driverPhone, "✅ Viaje iniciado.");
   await sendTextMessage(driverPhone, "📍 Ubicación del destino:");
   await sendDropoffLocationToDriver(driverPhone, updated);
