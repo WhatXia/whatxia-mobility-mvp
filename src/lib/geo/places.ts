@@ -3,13 +3,17 @@ import {
   GoogleMapsError,
 } from "@/lib/geo/client";
 import {
-  getCityBias,
-  getCityRadiusMeters,
   getGoogleMapsApiKey,
   logGoogleMapsApiKeyRuntimeProbe,
 } from "@/lib/geo/config";
 import { rankPlaceCandidates } from "@/lib/geo/confidence";
-import type { GeoPoint, PlaceCandidate } from "@/lib/geo/types";
+import type { PlaceCandidate } from "@/lib/geo/types";
+import {
+  buildCityScopedPlaceQuery,
+  filterCandidatesInCity,
+  getActiveCity,
+  type City,
+} from "@/lib/city/context";
 
 type PlacesSearchTextResponse = {
   places?: Array<{
@@ -20,23 +24,37 @@ type PlacesSearchTextResponse = {
   }>;
 };
 
+export type SearchPlacesResult = {
+  city: City;
+  queryUsed: string;
+  candidates: PlaceCandidate[];
+  /** Candidatos que Google devolvió pero quedaron fuera del radio. */
+  rejectedOutsideCity: number;
+};
+
 /**
- * Busca lugares con Places API (New) Text Search.
- * Endpoint: POST https://places.googleapis.com/v1/places:searchText
+ * Busca lugares con Places API (New), restringido a la ciudad activa.
+ * Usa locationRestriction (círculo duro) + query con ciudad/región.
  */
 export async function searchPlaces(
   query: string,
-  bias?: GeoPoint,
-): Promise<PlaceCandidate[]> {
+): Promise<SearchPlacesResult> {
   const trimmed = query.trim();
   if (!trimmed) {
-    return [];
+    const city = await getActiveCity();
+    return {
+      city,
+      queryUsed: "",
+      candidates: [],
+      rejectedOutsideCity: 0,
+    };
   }
 
+  const city = await getActiveCity();
+  const textQuery = buildCityScopedPlaceQuery(trimmed, city);
   const endpoint = "https://places.googleapis.com/v1/places:searchText";
   const apiProduct = "Places API (New) — places:searchText";
 
-  // TEMP: verificar valor exacto leído en runtime (nunca la key completa).
   logGoogleMapsApiKeyRuntimeProbe("searchPlaces:before_fetch");
 
   let keyLoaded = false;
@@ -53,20 +71,19 @@ export async function searchPlaces(
     keyMasked = null;
   }
 
-  const center = bias ?? getCityBias();
-  const radius = getCityRadiusMeters();
-
+  // locationRestriction = solo resultados dentro del área (no solo bias).
   const body = {
-    textQuery: trimmed,
+    textQuery,
     languageCode: "es",
-    maxResultCount: 5,
-    locationBias: {
+    regionCode: city.countryCode,
+    maxResultCount: 8,
+    locationRestriction: {
       circle: {
         center: {
-          latitude: center.lat,
-          longitude: center.lng,
+          latitude: city.center.lat,
+          longitude: city.center.lng,
         },
-        radius,
+        radius: city.radiusMeters,
       },
     },
   };
@@ -75,13 +92,12 @@ export async function searchPlaces(
     apiProduct,
     endpoint,
     method: "POST",
-    textQuery: trimmed,
+    userQuery: trimmed,
+    textQuery,
+    city: city.slug,
     keyLoaded,
     keyMasked,
-    authHeader: "X-Goog-Api-Key",
-    fieldMask:
-      "places.id,places.displayName,places.formattedAddress,places.location",
-    locationBias: body.locationBias,
+    locationRestriction: body.locationRestriction,
   });
 
   let data: PlacesSearchTextResponse;
@@ -99,7 +115,8 @@ export async function searchPlaces(
     console.error("[places:diag] FAIL", {
       apiProduct,
       endpoint,
-      textQuery: trimmed,
+      textQuery,
+      city: city.slug,
       keyLoaded,
       keyMasked,
       status: error instanceof GoogleMapsError ? error.status : undefined,
@@ -109,15 +126,6 @@ export async function searchPlaces(
     });
     throw error;
   }
-
-  console.log("[places:diag] OK", {
-    apiProduct,
-    endpoint,
-    textQuery: trimmed,
-    httpStatus: 200,
-    resultCount: data.places?.length ?? 0,
-    responsePreview: JSON.stringify(data).slice(0, 2000),
-  });
 
   const raw = (data.places ?? [])
     .map((place) => {
@@ -135,5 +143,25 @@ export async function searchPlaces(
     })
     .filter((p): p is NonNullable<typeof p> => p !== null && Boolean(p.placeId));
 
-  return rankPlaceCandidates(raw);
+  const ranked = rankPlaceCandidates(raw);
+  const inCity = filterCandidatesInCity(ranked, city);
+  const rejectedOutsideCity = ranked.length - inCity.length;
+
+  console.log("[places:diag] OK", {
+    apiProduct,
+    city: city.slug,
+    textQuery,
+    httpStatus: 200,
+    rawCount: ranked.length,
+    inCityCount: inCity.length,
+    rejectedOutsideCity,
+    top: inCity.slice(0, 3).map((c) => c.name),
+  });
+
+  return {
+    city,
+    queryUsed: textQuery,
+    candidates: inCity,
+    rejectedOutsideCity,
+  };
 }

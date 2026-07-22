@@ -1,5 +1,6 @@
 import { getSupabase } from "@/lib/supabase/client";
 import type { FareRules } from "@/lib/pricing/types";
+import { getActiveCity } from "@/lib/city/context";
 
 type FareRulesRow = {
   id: string;
@@ -57,7 +58,8 @@ export function mapFareRulesRow(row: FareRulesRow): FareRules {
 }
 
 const CACHE_TTL_MS = 60_000;
-let cached: { rules: FareRules; loadedAt: number } | null = null;
+let cached: { cityId: string; rules: FareRules; loadedAt: number } | null =
+  null;
 
 /** Invalida cache (tests / admin). */
 export function clearFareRulesCache(): void {
@@ -65,11 +67,17 @@ export function clearFareRulesCache(): void {
 }
 
 /**
- * Carga la fila activa de fare_rules.
+ * Carga la fila activa de fare_rules para la ciudad activa.
  * Sin defaults en código: si no hay fila, falla.
  */
 export async function getActiveFareRules(): Promise<FareRules> {
-  if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {
+  const city = await getActiveCity();
+
+  if (
+    cached &&
+    cached.cityId === city.id &&
+    Date.now() - cached.loadedAt < CACHE_TTL_MS
+  ) {
     return cached.rules;
   }
 
@@ -80,6 +88,7 @@ export async function getActiveFareRules(): Promise<FareRules> {
       "id, currency, flag_drop, minimum_fare, min_distance_meters, increment_meters, increment_amount, wait_seconds, wait_amount, surcharge_night, surcharge_sunday_holiday, surcharge_airport, surcharge_whatxia, night_start_hour, night_end_hour, holiday_dates, airport_keywords, airport_center_lat, airport_center_lng, airport_radius_meters",
     )
     .eq("active", true)
+    .eq("city_id", city.id)
     .maybeSingle();
 
   if (error) {
@@ -89,11 +98,11 @@ export async function getActiveFareRules(): Promise<FareRules> {
 
   if (!data) {
     throw new Error(
-      "No hay fila activa en fare_rules. Aplica la migración 015_fare_rules.sql.",
+      `No hay fare_rules activas para la ciudad ${city.slug}. Aplica migraciones 015–017.`,
     );
   }
 
   const rules = mapFareRulesRow(data as FareRulesRow);
-  cached = { rules, loadedAt: Date.now() };
+  cached = { cityId: city.id, rules, loadedAt: Date.now() };
   return rules;
 }

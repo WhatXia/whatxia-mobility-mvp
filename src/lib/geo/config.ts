@@ -81,16 +81,16 @@ export function logGoogleMapsApiKeyRuntimeProbe(context: string): void {
   });
 }
 
-/** Centro de bias para Places (default: Cali, CO). */
+/** Centro de bias legacy — preferir getActiveCity() (Sprint 26). */
 export function getCityBias(): GeoPoint {
   return {
-    lat: envNumber("GEO_CITY_LAT", 3.4516),
-    lng: envNumber("GEO_CITY_LNG", -76.532),
+    lat: envNumber("GEO_CITY_LAT", 4.4389),
+    lng: envNumber("GEO_CITY_LNG", -75.2322),
   };
 }
 
 export function getCityRadiusMeters(): number {
-  return envNumber("GEO_CITY_RADIUS_M", 25000);
+  return envNumber("GEO_CITY_RADIUS_M", 18000);
 }
 
 export function getPlaceConfidenceThreshold(): number {

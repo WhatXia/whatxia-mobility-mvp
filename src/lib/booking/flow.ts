@@ -17,6 +17,11 @@ import { calculateFare, formatFareCop } from "@/lib/pricing/engine";
 import { offerTripToDrivers } from "@/lib/dispatch";
 import { clearSession, upsertSession } from "@/lib/sessions";
 import {
+  getActiveCity,
+  isPointInCity,
+  outOfCityServiceMessage,
+} from "@/lib/city/context";
+import {
   sendButtonsMessage,
   sendLocationMessage,
   sendLocationRequestMessage,
@@ -182,14 +187,14 @@ async function resolveTextToPlace(
 ): Promise<void> {
   const draft: BookingDraft = { ...(session.bookingDraft ?? {}) };
 
-  let candidates: PlaceCandidate[];
+  let searchResult;
   try {
     console.log("[booking:places] resolveTextToPlace", {
       role,
       text,
       phone,
     });
-    candidates = await searchPlaces(text);
+    searchResult = await searchPlaces(text);
   } catch (error) {
     console.error("[booking] Places error FULL:", error);
     if (error instanceof GoogleMapsError) {
@@ -208,10 +213,16 @@ async function resolveTextToPlace(
     return;
   }
 
+  const { candidates, city, rejectedOutsideCity } = searchResult;
+
   if (candidates.length === 0) {
+    if (rejectedOutsideCity > 0) {
+      await sendTextMessage(phone, outOfCityServiceMessage(city));
+      return;
+    }
     await sendTextMessage(
       phone,
-      "No encontramos ese lugar. Escribe una dirección o punto de referencia más claro.",
+      `No encontramos ese lugar en ${city.name}. Escribe una dirección o punto de referencia más claro.`,
     );
     return;
   }
@@ -221,6 +232,10 @@ async function resolveTextToPlace(
 
   if (isHighConfidenceMatch(candidates)) {
     const resolved = candidateToResolved(candidates[0]);
+    if (!isPointInCity(resolved.location, city)) {
+      await sendTextMessage(phone, outOfCityServiceMessage(city));
+      return;
+    }
     if (role === "pickup") {
       draft.pickup = resolved;
       draft.pickupLabel = resolved.name;
@@ -442,6 +457,13 @@ export async function handleBookingMessage(
         lng: message.location.lng,
       };
 
+      const city = await getActiveCity();
+      if (!isPointInCity(pickupLocation, city)) {
+        await sendTextMessage(phone, outOfCityServiceMessage(city));
+        await askForPickupLocation(phone);
+        return true;
+      }
+
       const pickup: ResolvedPlace = {
         placeId: null,
         name: label,
@@ -511,6 +533,14 @@ export async function handleBookingMessage(
 
     if (message.button === BOOKING_BUTTON_IDS.CONFIRM_PLACE) {
       if (!draft.dropoff) {
+        await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);
+        await sendTextMessage(phone, "¿Cuál es tu destino?");
+        return true;
+      }
+      const city = await getActiveCity();
+      if (!isPointInCity(draft.dropoff.location, city)) {
+        await sendTextMessage(phone, outOfCityServiceMessage(city));
+        draft.dropoff = undefined;
         await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);
         await sendTextMessage(phone, "¿Cuál es tu destino?");
         return true;

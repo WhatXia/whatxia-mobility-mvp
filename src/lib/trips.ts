@@ -1,4 +1,5 @@
 import { getSupabase } from "@/lib/supabase/client";
+import { getActiveCity } from "@/lib/city/context";
 
 export type TripStatus =
   | "SEARCHING"
@@ -35,6 +36,7 @@ export type Trip = {
   durationSeconds: number | null;
   quotedFare: number | null;
   currency: string;
+  cityId: string | null;
 };
 
 type TripRow = {
@@ -63,6 +65,7 @@ type TripRow = {
   duration_seconds: number | null;
   quoted_fare: number | null;
   currency: string | null;
+  city_id: string | null;
 };
 
 export type CreateTripGeoInput = {
@@ -98,7 +101,7 @@ export const SEARCH_WINDOW_MS = 3 * 60 * 1000;
 export const CONTINUE_WINDOW_MS = 2 * 60 * 1000;
 
 const TRIP_COLUMNS =
-  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, currency";
+  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, currency, city_id";
 
 export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -141,6 +144,7 @@ function mapRow(row: TripRow): Trip {
     durationSeconds: row.duration_seconds ?? null,
     quotedFare: row.quoted_fare ?? null,
     currency: row.currency ?? "COP",
+    cityId: row.city_id ?? null,
   };
 }
 
@@ -165,6 +169,7 @@ export async function createTrip(
   geo?: CreateTripGeoInput,
 ): Promise<Trip> {
   const supabase = getSupabase();
+  const city = await getActiveCity();
   const searchDeadline = new Date(
     Date.now() + SEARCH_WINDOW_MS,
   ).toISOString();
@@ -179,6 +184,7 @@ export async function createTrip(
       search_deadline_at: searchDeadline,
       continue_deadline_at: null,
       search_awaiting_continue: false,
+      city_id: city.id,
       ...(geo
         ? {
             pickup_lat: geo.pickupLat,

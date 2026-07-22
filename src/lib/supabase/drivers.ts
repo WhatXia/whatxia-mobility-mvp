@@ -2,6 +2,7 @@ import { getSupabase } from "@/lib/supabase/client";
 import type { DriverDraft, DriverFieldKey } from "@/lib/driver-profile-fields";
 import { hasExpiredDocuments } from "@/lib/driver-documents";
 import { normalizePhone, samePhone } from "@/lib/trips";
+import { getActiveCity } from "@/lib/city/context";
 
 export type DriverStatus = "active" | "inactive";
 
@@ -29,6 +30,7 @@ export type DriverRow = {
   documents_reminder_sent_at: string | null;
   cancel_policy_count: number;
   suspended_until: string | null;
+  city_id: string | null;
   created_at: string;
 };
 
@@ -81,6 +83,7 @@ export async function listAvailableDrivers(options?: {
   excludeDriverId?: string;
 }): Promise<DriverRow[]> {
   const supabase = getSupabase();
+  const city = await getActiveCity();
   const nowIso = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -88,7 +91,8 @@ export async function listAvailableDrivers(options?: {
     .select(DRIVER_COLUMNS)
     .eq("is_available", true)
     .eq("documents_blocked", false)
-    .eq("status", "active");
+    .eq("status", "active")
+    .eq("city_id", city.id);
 
   if (error) {
     console.error("[supabase] error al listar conductores:", error);
@@ -228,6 +232,7 @@ export async function createDriver(
   input: CreateDriverInput,
 ): Promise<{ driver: DriverRow; documentsExpired: boolean }> {
   const supabase = getSupabase();
+  const city = await getActiveCity();
   const documentsExpired = hasExpiredDocuments(input);
 
   const { data, error } = await supabase
@@ -239,6 +244,7 @@ export async function createDriver(
       document_id: input.document_id,
       address: input.address,
       city: input.city,
+      city_id: city.id,
       emergency_contact_name: input.emergency_contact_name,
       emergency_contact_phone: input.emergency_contact_phone,
       vehicle_brand: input.vehicle_brand,
