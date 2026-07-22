@@ -29,7 +29,7 @@ const RULES: FareRules = {
   flagDrop: 4500,
   minimumFare: 6600,
   minDistanceMeters: 1600,
-  incrementMeters: 60,
+  incrementMeters: 80,
   incrementAmount: 105,
   waitSeconds: 40,
   waitAmount: 90,
@@ -57,21 +57,20 @@ assert(short.breakdown.surchargeWhatxia === 1000, "Corto: WhatXia 1000");
 assert(short.amount === 7600, "Corto: total 7600");
 assert(short.breakdown.minimumApplied === true, "Corto: mínimo aplicado");
 
-// Distancia con 47 incrementos: 4500 + 47*105 = 9435 (+ WhatXia → 10435)
-// (El ejemplo comercial “9450” ilustra la forma official + 1000.)
+// Distancia con 35 incrementos de 80 m: 4500 + 35*105 = 8175 (+ WhatXia → 9175)
 assert(
-  distanceIncrementUnits(4420, RULES) === 47,
-  "47 incrementos a 4420 m",
+  distanceIncrementUnits(4400, RULES) === 35,
+  "35 incrementos a 4400 m (tick 80 m)",
 );
 const mid = calculateFareWithRules(
-  { distanceMeters: 4420, durationSeconds: 600 },
+  { distanceMeters: 4400, durationSeconds: 600 },
   RULES,
   { at: new Date("2026-07-21T10:00:00"), waitSeconds: 0 },
 );
-assert(mid.breakdown.officialRaw === 9435, "Calcula 9435 oficial raw");
-assert(mid.breakdown.officialFare === 9435, "Sin mínimo (9435 > 6600)");
+assert(mid.breakdown.officialRaw === 8175, "Calcula 8175 oficial raw");
+assert(mid.breakdown.officialFare === 8175, "Sin mínimo (8175 > 6600)");
 assert(mid.breakdown.surchargeWhatxia === 1000, "WhatXia 1000");
-assert(mid.amount === 10435, "Total = oficial + WhatXia");
+assert(mid.amount === 9175, "Total = oficial + WhatXia");
 
 // Espera: 80s → 2*90 = 180
 const withWait = calculateFareWithRules(
