@@ -55,6 +55,7 @@ assert(
 
 assert(true, "Paso 1: texto libre → pickupLabel (sin Places)");
 assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta)");
+assert(true, "Entrada: destino primero (texto o intent); luego share location");
 assert(true, "Destino no encontrado → opciones mapa / reescribir (sin culpa)");
 assert(true, "Ubicación WA como destino → cotización directa (sin re-pedir origen)");
 assert(true, "Reescritura → nueva búsqueda Places; si falla, mismas opciones");

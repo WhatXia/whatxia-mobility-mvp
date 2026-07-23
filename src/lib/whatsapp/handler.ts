@@ -28,9 +28,10 @@ import {
 import {
   handleBookingMessage,
   isBookingState,
-  startBookingFlow,
+  startBookingDestinationFirst,
   BOOKING_BUTTON_IDS,
 } from "@/lib/booking/flow";
+import { parseMobilityIntent } from "@/lib/booking/intent";
 import {
   continueDriverRegistration,
   getActiveRegistrationSession,
@@ -125,9 +126,10 @@ async function sendPassengerWelcomeMenu(phone: string) {
 async function startPassengerRequest(
   phone: string,
   name: string,
+  destinationText: string | null = null,
 ): Promise<void> {
   await findOrCreatePassenger(phone, name);
-  await startBookingFlow(phone, name);
+  await startBookingDestinationFirst(phone, name, destinationText);
 }
 
 export async function handleIncomingMessage(
@@ -457,16 +459,43 @@ export async function handleIncomingMessage(
     return;
   }
 
-  // Texto no-saludo con túnel cerrado → aviso de canal no disponible.
+  // Intención de servicio sin depender de "Hola" (Agent Zero).
+  if (message.text && !message.button) {
+    const mobility = parseMobilityIntent(message.text);
+    if (mobility.isServiceIntent) {
+      const driver = await findDriverByPhone(message.phone);
+      if (driver) {
+        // Conductores siguen con menú; no forzar booking de pasajero.
+        await sendDriverMainMenu(driver, message.phone);
+        return;
+      }
+
+      console.log("[core-agent] intención de servicio detectada", {
+        phone: message.phone,
+        destinationText: mobility.destinationText,
+      });
+      await startPassengerRequest(
+        message.phone,
+        message.name,
+        mobility.destinationText,
+      );
+      return;
+    }
+  }
+
+  // Texto no-saludo / sin intención con túnel cerrado → aviso de canal.
   if (message.text) {
     const closed = await notifyIfTunnelClosed(message.phone);
     if (closed) {
       return;
     }
 
-    console.log("[core-agent] Escribe Hola para comenzar", {
+    console.log("[core-agent] sin intención clara", {
       phone: message.phone,
     });
-    await sendTextMessage(message.phone, "Escribe Hola para comenzar.");
+    await sendTextMessage(
+      message.phone,
+      'Puedes escribir, por ejemplo: "Necesito un servicio al aeropuerto" o di Hola para ver el menú.',
+    );
   }
 }
