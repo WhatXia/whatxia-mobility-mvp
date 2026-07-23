@@ -23,6 +23,7 @@ import { upsertSession } from "@/lib/sessions";
 import {
   sendButtonsMessage,
   sendCtaUrlMessage,
+  sendLocationMessage,
   sendTextMessage,
 } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
@@ -49,7 +50,7 @@ import {
   formatTariffCop,
 } from "@/lib/tariff";
 import { getActiveCity } from "@/lib/city/context";
-import { mapsNavigationUrl, mapsUrlForCoords } from "@/lib/geo/maps-url";
+import { mapsNavigationUrl } from "@/lib/geo/maps-url";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -438,16 +439,13 @@ async function publishTripOffer(
       : null;
 
   const pickupLabel = trip.pickupLabel ?? trip.pickupNeighborhood;
-  const mapsLink =
-    trip.pickupLat != null && trip.pickupLng != null
-      ? mapsUrlForCoords({ lat: trip.pickupLat, lng: trip.pickupLng })
-      : null;
+  const hasPickupCoords = trip.pickupLat != null && trip.pickupLng != null;
 
+  // Prueba UX: pin nativo antes de la oferta; sin URL de Maps en el texto.
   const body = [
     "🚖 Nuevo servicio",
     "",
     `📍 Recoger en: ${pickupLabel}`,
-    mapsLink ? `🧭 Ubicación de WhatsApp: ${mapsLink}` : "🧭 Ubicación de WhatsApp: (no disponible)",
     trip.dropoffLabel ? `🎯 Destino: ${trip.dropoffLabel}` : null,
     distanceKm ? `📏 Distancia estimada: ${distanceKm} km` : null,
     durationMin ? `⏱️ Tiempo estimado: ${durationMin} min` : null,
@@ -469,6 +467,7 @@ async function publishTripOffer(
     tripId: trip.id,
     recipientCount: availableDrivers.length,
     recipients: availableDrivers.map((d) => d.phone),
+    nativePickupLocation: hasPickupCoords,
   });
 
   console.log("[dispatch] enviando oferta a conductores:", {
@@ -480,9 +479,17 @@ async function publishTripOffer(
   });
 
   const results = await Promise.allSettled(
-    availableDrivers.map((driver) =>
-      sendButtonsMessage(driver.phone, body, buttons),
-    ),
+    availableDrivers.map(async (driver) => {
+      if (hasPickupCoords) {
+        await sendLocationMessage(driver.phone, {
+          latitude: trip.pickupLat as number,
+          longitude: trip.pickupLng as number,
+          name: pickupLabel,
+          address: pickupLabel,
+        });
+      }
+      await sendButtonsMessage(driver.phone, body, buttons);
+    }),
   );
 
   results.forEach((result, index) => {
