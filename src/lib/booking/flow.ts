@@ -98,15 +98,23 @@ const PICKUP_LOCATION_PROMPT = [
 
 const DEFAULT_PICKUP_LABEL = "Punto de recogida";
 
-const ASK_DESTINATION = "¿Hacia dónde deseas ir?";
+const ASK_DESTINATION = "¿Hacia dónde vamos?";
+
+function askDestinationAfterPickup(label: string): string {
+  return `Te recogeremos en ${label}. ${ASK_DESTINATION}`;
+}
 
 async function askForPickupLocation(
   phone: string,
-  dropoffLabel?: string | null,
+  pickupLabel?: string | null,
 ): Promise<void> {
   // Meta oficial: interactive location_request_message + action send_location
-  const body = dropoffLabel?.trim()
-    ? [`Destino: ${dropoffLabel.trim()}`, "", PICKUP_LOCATION_PROMPT].join("\n")
+  const body = pickupLabel?.trim()
+    ? [
+        `Recoger en: ${pickupLabel.trim()}`,
+        "",
+        PICKUP_LOCATION_PROMPT,
+      ].join("\n")
     : PICKUP_LOCATION_PROMPT;
   await sendLocationRequestMessage(phone, body);
 }
@@ -261,55 +269,154 @@ export async function startBookingFlow(
   phone: string,
   name: string,
 ): Promise<void> {
-  await startBookingDestinationFirst(phone, name, null);
+  await startBookingFromIntent(phone, name, {
+    pickupText: null,
+    destinationText: null,
+  });
 }
 
+export type BookingIntentSlots = {
+  pickupText: string | null;
+  destinationText: string | null;
+};
+
 /**
- * Entrada natural: destino primero (opcionalmente ya extraído del texto).
- * Luego solo pide ubicación de recogida (share location).
+ * Entrada natural (Agent Zero):
+ * - Un lugar → origen (label) + pedir share location → luego destino
+ * - Origen + destino claros → Places ambos → cotización (sin pedir ubicación)
+ * - Solo intención → pedir share location y luego destino
  */
+export async function startBookingFromIntent(
+  phone: string,
+  name: string,
+  slots: BookingIntentSlots,
+): Promise<void> {
+  const pickupText = slots.pickupText?.trim() || null;
+  const destinationText = slots.destinationText?.trim() || null;
+
+  if (pickupText && destinationText) {
+    const quoted = await tryQuoteFromBothPlaces(
+      phone,
+      name,
+      pickupText,
+      destinationText,
+    );
+    if (quoted) {
+      return;
+    }
+    // Fallback: origen por ubicación WA; destino pendiente o a preguntar.
+    await startPickupLocationStep(phone, name, {
+      pickupLabel: pickupText,
+      pendingDropoffText: destinationText,
+    });
+    return;
+  }
+
+  if (pickupText) {
+    await startPickupLocationStep(phone, name, {
+      pickupLabel: pickupText,
+    });
+    return;
+  }
+
+  await startPickupLocationStep(phone, name, {
+    pickupLabel: DEFAULT_PICKUP_LABEL,
+  });
+}
+
+/** @deprecated Usar startBookingFromIntent (origen primero). */
 export async function startBookingDestinationFirst(
   phone: string,
   name: string,
   destinationText: string | null,
 ): Promise<void> {
+  await startBookingFromIntent(phone, name, {
+    pickupText: destinationText,
+    destinationText: null,
+  });
+}
+
+async function startPickupLocationStep(
+  phone: string,
+  name: string,
+  opts: { pickupLabel: string; pendingDropoffText?: string },
+): Promise<void> {
   const draft: BookingDraft = {
     originCapture: "label_plus_whatsapp_location",
-    pickupLabel: DEFAULT_PICKUP_LABEL,
+    pickupLabel: opts.pickupLabel.trim() || DEFAULT_PICKUP_LABEL,
+    pendingDropoffText: opts.pendingDropoffText?.trim() || undefined,
   };
 
-  await upsertSession(phone, {
-    name,
-    state: "WAITING_DROPOFF_TEXT",
-    pickupNeighborhood: null,
-    bookingDraft: draft,
-    driverName: null,
+  await persistDraft(phone, name, "WAITING_PICKUP_LOCATION", draft, draft.pickupLabel);
+  await askForPickupLocation(phone, draft.pickupLabel);
+}
+
+/**
+ * Resuelve origen y destino con Places (alta confianza) y cotiza.
+ * @returns true si se envió cotización; false si hay que caer al flujo con ubicación.
+ */
+async function tryQuoteFromBothPlaces(
+  phone: string,
+  name: string,
+  pickupText: string,
+  destinationText: string,
+): Promise<boolean> {
+  console.log("[booking] resolución dual origen+destino", {
+    phone,
+    pickupText,
+    destinationText,
   });
 
-  if (destinationText?.trim()) {
-    const session: UserSession = {
-      phone,
-      name,
-      state: "WAITING_DROPOFF_TEXT",
-      pickupNeighborhood: null,
-      driverName: null,
-      driverDraft: null,
-      driverFlowStep: null,
-      driverUpdateCategory: null,
-      driverUpdateField: null,
-      bookingDraft: draft,
-    };
-    await resolveTextToPlace(
-      phone,
-      name,
-      destinationText.trim(),
-      "dropoff",
-      session,
-    );
-    return;
+  let pickupSearch;
+  let dropoffSearch;
+  try {
+    pickupSearch = await searchPlaces(pickupText);
+    dropoffSearch = await searchPlaces(destinationText);
+  } catch (error) {
+    console.error("[booking] Places dual error:", error);
+    return false;
   }
 
-  await sendTextMessage(phone, ASK_DESTINATION);
+  const city = await getActiveCity();
+
+  const pickupResolved = pickResolvedPlace(pickupSearch.candidates, city);
+  const dropoffResolved = pickResolvedPlace(dropoffSearch.candidates, city);
+
+  if (!pickupResolved || !dropoffResolved) {
+    console.log("[booking] dual Places: sin alta confianza o fuera de ciudad", {
+      pickupOk: Boolean(pickupResolved),
+      dropoffOk: Boolean(dropoffResolved),
+    });
+    return false;
+  }
+
+  const draft: BookingDraft = {
+    originCapture: "places_text",
+    pickupLabel: placeLabel(pickupResolved),
+    pickupLocation: pickupResolved.location,
+    pickup: pickupResolved,
+    dropoff: dropoffResolved,
+  };
+
+  await buildAndSendQuote(phone, name, draft);
+  return true;
+}
+
+function pickResolvedPlace(
+  candidates: PlaceCandidate[],
+  city: Awaited<ReturnType<typeof getActiveCity>>,
+): ResolvedPlace | null {
+  if (candidates.length === 0) {
+    return null;
+  }
+  if (!isHighConfidenceMatch(candidates) && candidates.length > 1) {
+    return null;
+  }
+  const resolved = candidateToResolved(candidates[0]);
+  if (!isPointInCity(resolved.location, city)) {
+    return null;
+  }
+  return resolved;
 }
 
 async function proceedAfterDropoffReady(
@@ -322,6 +429,7 @@ async function proceedAfterDropoffReady(
       ...draft,
       candidates: undefined,
       candidateRole: undefined,
+      pendingDropoffText: undefined,
     });
     return;
   }
@@ -335,10 +443,7 @@ async function proceedAfterDropoffReady(
     quote: undefined,
   };
   await persistDraft(phone, name, "WAITING_PICKUP_LOCATION", next);
-  await askForPickupLocation(
-    phone,
-    next.dropoff ? placeLabel(next.dropoff) : null,
-  );
+  await askForPickupLocation(phone, next.pickupLabel);
 }
 
 /** Solo destino en MVP; origen Places si ORIGIN_CAPTURE_MODE === places_text. */
@@ -636,8 +741,12 @@ export async function handleBookingMessage(
   if (session.state === "WAITING_PICKUP_LOCATION") {
     if (message.location) {
       const label =
-        draft.pickupLabel?.trim() ||
+        (draft.pickupLabel?.trim() &&
+        draft.pickupLabel.trim() !== DEFAULT_PICKUP_LABEL
+          ? draft.pickupLabel.trim()
+          : null) ||
         message.location.name?.trim() ||
+        draft.pickupLabel?.trim() ||
         DEFAULT_PICKUP_LABEL;
 
       const pickupLocation = {
@@ -673,22 +782,31 @@ export async function handleBookingMessage(
 
       await persistDraft(phone, name, "WAITING_PICKUP_LOCATION", nextDraft, label);
 
-      // Destino ya en slots → cotizar; si no, pedir destino.
+      // Destino ya resuelto → cotizar.
       if (nextDraft.dropoff?.location) {
         await buildAndSendQuote(phone, name, nextDraft);
         return true;
       }
 
+      // Destino mencionado al inicio (falló dual) → Places ahora.
+      const pendingDropoff = nextDraft.pendingDropoffText?.trim();
+      if (pendingDropoff) {
+        const cleared: BookingDraft = {
+          ...nextDraft,
+          pendingDropoffText: undefined,
+        };
+        await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", cleared, label);
+        await sendTextMessage(phone, `Te recogeremos en ${label}.`);
+        await resolveTextToPlace(phone, name, pendingDropoff, "dropoff", {
+          ...session,
+          state: "WAITING_DROPOFF_TEXT",
+          bookingDraft: cleared,
+        });
+        return true;
+      }
+
       await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", nextDraft, label);
-      await sendTextMessage(
-        phone,
-        [
-          `Recoger en: ${label}`,
-          "Ubicación recibida ✅",
-          "",
-          ASK_DESTINATION,
-        ].join("\n"),
-      );
+      await sendTextMessage(phone, askDestinationAfterPickup(label));
       return true;
     }
 

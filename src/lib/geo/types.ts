@@ -60,6 +60,11 @@ export type BookingDraft = {
    */
   pickup?: ResolvedPlace;
   dropoff?: ResolvedPlace;
+  /**
+   * Destino mencionado al inicio pero aún no resuelto con Places
+   * (p. ej. falló resolución dual origen+destino).
+   */
+  pendingDropoffText?: string;
   candidates?: PlaceCandidate[];
   candidateRole?: "pickup" | "dropoff";
   /**

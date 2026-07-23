@@ -28,10 +28,13 @@ import {
 import {
   handleBookingMessage,
   isBookingState,
-  startBookingDestinationFirst,
+  startBookingFromIntent,
   BOOKING_BUTTON_IDS,
 } from "@/lib/booking/flow";
-import { parseMobilityIntent } from "@/lib/booking/intent";
+import {
+  parseMobilityIntent,
+  type MobilityIntentResult,
+} from "@/lib/booking/intent";
 import {
   continueDriverRegistration,
   getActiveRegistrationSession,
@@ -126,10 +129,13 @@ async function sendPassengerWelcomeMenu(phone: string) {
 async function startPassengerRequest(
   phone: string,
   name: string,
-  destinationText: string | null = null,
+  intent: MobilityIntentResult | null = null,
 ): Promise<void> {
   await findOrCreatePassenger(phone, name);
-  await startBookingDestinationFirst(phone, name, destinationText);
+  await startBookingFromIntent(phone, name, {
+    pickupText: intent?.pickupText ?? null,
+    destinationText: intent?.destinationText ?? null,
+  });
 }
 
 export async function handleIncomingMessage(
@@ -472,13 +478,10 @@ export async function handleIncomingMessage(
 
       console.log("[core-agent] intención de servicio detectada", {
         phone: message.phone,
+        pickupText: mobility.pickupText,
         destinationText: mobility.destinationText,
       });
-      await startPassengerRequest(
-        message.phone,
-        message.name,
-        mobility.destinationText,
-      );
+      await startPassengerRequest(message.phone, message.name, mobility);
       return;
     }
   }
@@ -495,7 +498,7 @@ export async function handleIncomingMessage(
     });
     await sendTextMessage(
       message.phone,
-      'Puedes escribir, por ejemplo: "Necesito un servicio al aeropuerto" o di Hola para ver el menú.',
+      'Puedes escribir, por ejemplo: "Necesito un servicio en Jordán" o "Estoy en la 60 y voy para Multicentro". También puedes decir Hola para ver el menú.',
     );
   }
 }
