@@ -36,12 +36,25 @@ export function isNightTime(at: Date, config: CityTariffConfig): boolean {
   return hour >= start && hour < end;
 }
 
-export function isSundayOrHoliday(at: Date, config: CityTariffConfig): boolean {
-  if (at.getDay() === 0) return true;
-  const yyyy = at.getFullYear();
-  const mm = String(at.getMonth() + 1).padStart(2, "0");
-  const dd = String(at.getDate()).padStart(2, "0");
-  return config.holidayDates.includes(`${yyyy}-${mm}-${dd}`);
+/**
+ * ¿Aplica recargo domingo/festivo?
+ * Domingo O festivo (flag desde public.holidays) → una sola vez.
+ * No lee fare_rules.holiday_dates.
+ */
+export function appliesSundayHolidaySurcharge(
+  at: Date,
+  isPublicHoliday: boolean,
+): boolean {
+  return at.getDay() === 0 || isPublicHoliday;
+}
+
+/** @deprecated Usar appliesSundayHolidaySurcharge + isPublicHoliday(Supabase). */
+export function isSundayOrHoliday(
+  at: Date,
+  _config: CityTariffConfig,
+  isPublicHoliday = false,
+): boolean {
+  return appliesSundayHolidaySurcharge(at, isPublicHoliday);
 }
 
 function textMatchesAirport(
@@ -130,6 +143,8 @@ export type CalculateTariffParams = {
   waitSeconds: number;
   waitSource: TariffBreakdown["waitSource"];
   at: Date;
+  /** Festivo según public.holidays (resuelto fuera del calculator). */
+  isPublicHoliday: boolean;
   origin?: GeoRef;
   destination?: GeoRef;
   provider: string;
@@ -159,7 +174,10 @@ export function calculateTariff(params: CalculateTariffParams): TariffQuote {
   const officialFare = Math.max(config.minimumFare, officialRaw);
 
   const surchargeNight = isNightTime(at, config) ? config.surcharges.night : 0;
-  const surchargeSundayHoliday = isSundayOrHoliday(at, config)
+  const surchargeSundayHoliday = appliesSundayHolidaySurcharge(
+    at,
+    params.isPublicHoliday,
+  )
     ? config.surcharges.sundayHoliday
     : 0;
   const surchargeAirport = isAirportTrip(

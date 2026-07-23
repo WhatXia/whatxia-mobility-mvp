@@ -9,6 +9,7 @@ import type { CityTariffConfig } from "@/lib/tariff/types";
 export const ibagueTariff: CityTariffConfig = {
   citySlug: "ibague",
   cityName: "Ibagué",
+  countryCode: "CO",
   currency: "COP",
   flagDrop: 4500,
   minimumFare: 6600,
@@ -28,7 +29,7 @@ export const ibagueTariff: CityTariffConfig = {
   },
   nightStartHour: 19,
   nightEndHour: 6,
-  holidayDates: ["2026-01-01"],
+  holidayDates: [],
   airport: {
     keywords: ["aeropuerto", "perales"],
     centerLat: 4.4214,

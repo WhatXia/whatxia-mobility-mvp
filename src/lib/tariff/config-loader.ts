@@ -32,6 +32,7 @@ export type FareRulesDbRow = {
   cities: {
     slug: string;
     name: string;
+    country_code: string;
   } | null;
 };
 
@@ -53,15 +54,17 @@ export function mapFareRulesRowToCityTariff(
 ): CityTariffConfig {
   const slug = row.cities?.slug;
   const name = row.cities?.name;
-  if (!slug || !name) {
+  const countryCode = row.cities?.country_code;
+  if (!slug || !name || !countryCode) {
     throw new Error(
-      "Tariff config: fila fare_rules sin ciudad asociada (cities).",
+      "Tariff config: fila fare_rules sin ciudad/country_code asociados.",
     );
   }
 
   return {
     citySlug: slug,
     cityName: name,
+    countryCode: countryCode.toUpperCase(),
     currency: "COP",
     flagDrop: row.flag_drop,
     minimumFare: row.minimum_fare,
@@ -81,7 +84,7 @@ export function mapFareRulesRowToCityTariff(
     },
     nightStartHour: row.night_start_hour,
     nightEndHour: row.night_end_hour,
-    holidayDates: asStringArray(row.holiday_dates),
+    holidayDates: [],
     airport: {
       keywords: asStringArray(row.airport_keywords),
       centerLat: row.airport_center_lat,
@@ -139,7 +142,7 @@ export async function loadCityTariffConfig(
       airport_center_lat,
       airport_center_lng,
       airport_radius_meters,
-      cities!inner ( slug, name )
+      cities!inner ( slug, name, country_code )
     `,
     )
     .eq("active", true)

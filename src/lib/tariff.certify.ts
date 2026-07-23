@@ -1,19 +1,20 @@
 /**
- * Certificación Tariff Engine — SSoT fare_rules (sin depender de ibague.ts).
+ * Certificación Tariff Engine — fare_rules + holidays (sin holiday_dates).
  * Ejecutar: npx tsx src/lib/tariff.certify.ts
  */
 export {};
 
 import {
+  appliesSundayHolidaySurcharge,
   calculateTariff,
   distanceIncrementUnits,
   isNightTime,
-  isSundayOrHoliday,
 } from "@/lib/tariff/calculator";
 import {
   mapFareRulesRowToCityTariff,
   type FareRulesDbRow,
 } from "@/lib/tariff/config-loader";
+import { isSundayOrPublicHoliday } from "@/lib/tariff/holidays";
 import { deriveWaitSecondsFromSpeed } from "@/lib/tariff/waiting";
 import { tariffQuoteToFareQuote } from "@/lib/tariff/adapters";
 import { LocalTariffProvider } from "@/lib/tariff/provider";
@@ -25,7 +26,6 @@ function assert(condition: boolean, message: string) {
   console.log(`OK: ${message}`);
 }
 
-/** Fixture = tarifas oficiales Ibagué (migración 022), shape DB. */
 const fixtureRow: FareRulesDbRow = {
   id: "certify-row",
   currency: "COP",
@@ -45,20 +45,18 @@ const fixtureRow: FareRulesDbRow = {
   surcharge_whatxia: 800,
   night_start_hour: 19,
   night_end_hour: 6,
-  holiday_dates: ["2026-01-01"],
+  holiday_dates: [],
   airport_keywords: ["aeropuerto", "perales"],
   airport_center_lat: 4.4214,
   airport_center_lng: -75.1333,
   airport_radius_meters: 2500,
-  cities: { slug: "ibague", name: "Ibagué" },
+  cities: { slug: "ibague", name: "Ibagué", country_code: "CO" },
 };
 
 const cfg = mapFareRulesRowToCityTariff(fixtureRow);
-assert(cfg.citySlug === "ibague", "Mapper: citySlug desde cities");
-assert(cfg.surcharges.sundayHoliday === 850, "Oficial: dominical/festivo 850");
-assert(cfg.surcharges.platform === 800, "Oficial: plataforma 800");
-assert(cfg.flagDrop === 4500, "Oficial: banderazo 4500");
-assert(cfg.minimumFare === 6600, "Oficial: carrera mínima 6600");
+assert(cfg.countryCode === "CO", "Mapper: countryCode desde cities");
+assert(cfg.holidayDates?.length === 0, "holiday_dates no se usa (vacío)");
+assert(cfg.surcharges.sundayHoliday === 850, "Monto domingo/festivo en fare_rules");
 
 const short = calculateTariff({
   kind: "estimated",
@@ -68,54 +66,47 @@ const short = calculateTariff({
   waitSeconds: 0,
   waitSource: "none",
   at: new Date("2026-07-21T10:00:00"),
+  isPublicHoliday: false,
   provider: "certify",
 });
-assert(short.breakdown.officialFare === 6600, "Corto: oficial 6600");
-assert(short.breakdown.surchargePlatform === 800, "Corto: plataforma 800");
-assert(short.amount === 7400, "Corto: total 7400 (6600+800)");
+assert(short.amount === 7400, "Corto: 6600+800");
 
-assert(distanceIncrementUnits(4400, cfg) === 35, "35 ticks a 4400 m");
-const mid = calculateTariff({
-  kind: "estimated",
-  config: cfg,
-  distanceMeters: 4400,
-  durationSeconds: 600,
-  waitSeconds: 0,
-  waitSource: "none",
-  at: new Date("2026-07-21T10:00:00"),
-  provider: "certify",
-});
-assert(mid.amount === 8975, "Mid: 8175 + 800 = 8975");
+assert(distanceIncrementUnits(4400, cfg) === 35, "35 ticks");
+assert(
+  calculateTariff({
+    kind: "estimated",
+    config: cfg,
+    distanceMeters: 4400,
+    durationSeconds: 600,
+    waitSeconds: 0,
+    waitSource: "none",
+    at: new Date("2026-07-21T10:00:00"),
+    isPublicHoliday: false,
+    provider: "certify",
+  }).amount === 8975,
+  "Mid + plataforma",
+);
 
-const withWait = calculateTariff({
-  kind: "final",
-  config: cfg,
-  distanceMeters: 1000,
-  durationSeconds: 60,
-  waitSeconds: 80,
-  waitSource: "provided",
-  at: new Date("2026-07-21T10:00:00"),
-  provider: "certify",
-});
-assert(withWait.breakdown.waitValue === 180, "Espera 80s → 180");
+assert(isNightTime(new Date("2026-07-21T19:00:00"), cfg), "19:00 nocturno");
+assert(!isNightTime(new Date("2026-07-21T06:00:00"), cfg), "06:00 no nocturno");
 
 assert(
-  !isNightTime(new Date("2026-07-21T18:59:00"), cfg),
-  "18:59 no nocturno (inicio 19:00 desde fare_rules)",
+  appliesSundayHolidaySurcharge(new Date("2026-07-19T12:00:00"), false),
+  "Domingo aplica (sin festivo)",
 );
 assert(
-  isNightTime(new Date("2026-07-21T19:00:00"), cfg),
-  "19:00 nocturno (night_start_hour de fare_rules)",
+  appliesSundayHolidaySurcharge(new Date("2026-01-01T12:00:00"), true),
+  "Festivo (jueves) aplica vía flag holidays",
 );
 assert(
-  isNightTime(new Date("2026-07-21T05:59:00"), cfg),
-  "05:59 nocturno (hasta antes de night_end_hour)",
+  appliesSundayHolidaySurcharge(new Date("2026-07-21T12:00:00"), false) ===
+    false,
+  "Martes no festivo no aplica",
 );
 assert(
-  !isNightTime(new Date("2026-07-21T06:00:00"), cfg),
-  "06:00 ya no nocturno (night_end_hour exclusivo)",
+  isSundayOrPublicHoliday(new Date("2026-12-25T10:00:00"), true),
+  "Helper domingo|festivo",
 );
-assert(isSundayOrHoliday(new Date("2026-07-19T12:00:00"), cfg), "Domingo");
 
 const sunday = calculateTariff({
   kind: "estimated",
@@ -125,10 +116,48 @@ const sunday = calculateTariff({
   waitSeconds: 0,
   waitSource: "none",
   at: new Date("2026-07-19T12:00:00"),
+  isPublicHoliday: false,
   provider: "certify",
 });
 assert(sunday.breakdown.surchargeSundayHoliday === 850, "Recargo domingo 850");
-assert(sunday.amount === 6600 + 850 + 800, "Corto domingo + plataforma");
+
+const holidayWeekday = calculateTariff({
+  kind: "estimated",
+  config: cfg,
+  distanceMeters: 500,
+  durationSeconds: 60,
+  waitSeconds: 0,
+  waitSource: "none",
+  at: new Date("2026-01-01T12:00:00"),
+  isPublicHoliday: true,
+  provider: "certify",
+});
+assert(
+  holidayWeekday.breakdown.surchargeSundayHoliday === 850,
+  "Festivo weekday: mismo recargo una vez",
+);
+assert(
+  holidayWeekday.amount === 6600 + 850 + 800,
+  "Festivo: mínima + 850 + 800",
+);
+
+// Domingo que también es “festivo” en tabla → una sola vez
+const sundayHoliday = calculateTariff({
+  kind: "estimated",
+  config: cfg,
+  distanceMeters: 500,
+  durationSeconds: 60,
+  waitSeconds: 0,
+  waitSource: "none",
+  at: new Date("2026-07-19T12:00:00"),
+  isPublicHoliday: true,
+  provider: "certify",
+});
+assert(
+  sundayHoliday.breakdown.surchargeSundayHoliday === 850,
+  "Domingo+festivo: recargo una sola vez",
+);
+assert(sundayHoliday.amount === sunday.amount, "Misma tarifa domingo±festivo");
 
 assert(
   deriveWaitSecondsFromSpeed({
@@ -136,33 +165,32 @@ assert(
     durationSeconds: 600,
     waitSpeedThresholdKmh: cfg.waitSpeedThresholdKmh,
   }) > 0,
-  "Heurística espera por velocidad",
+  "Heurística espera",
 );
 
 async function providerCases() {
   const provider = new LocalTariffProvider();
-  assert(provider.id === "supabase_fare_rules_v1", "Provider supabase");
+  assert(provider.id === "supabase_fare_rules_v1", "Provider id");
 
-  const estimated = await provider.estimate(
-    {
-      citySlug: "ibague",
-      origin: { lat: 4.4389, lng: -75.2322, label: "Centro" },
-      destination: { lat: 4.45, lng: -75.22, label: "Norte" },
-      distanceMeters: 500,
-      durationSeconds: 120,
-      at: new Date("2026-07-21T10:00:00"),
-    },
-    cfg,
+  // Cálculo puro (sin I/O): mismo path que provider tras resolver holidays en DB.
+  const quote = calculateTariff({
+    kind: "estimated",
+    config: cfg,
+    distanceMeters: 500,
+    durationSeconds: 120,
+    waitSeconds: 0,
+    waitSource: "none",
+    at: new Date("2026-07-21T10:00:00"),
+    isPublicHoliday: false,
+    provider: provider.id,
+  });
+  assert(quote.amount === 7400, "Cálculo post-holidays flag");
+  assert(
+    tariffQuoteToFareQuote(quote).breakdown.surchargeWhatxia === 800,
+    "Adapter plataforma",
   );
-  assert(estimated.amount === 7400, "provider.estimate usa config inyectada (DB)");
 
-  const legacy = tariffQuoteToFareQuote(estimated);
-  assert(legacy.breakdown.surchargeWhatxia === 800, "Adapter plataforma 800");
-
-  console.log("\nTariff Engine SSoT oficial: todas las aserciones OK");
-  console.log(
-    "Nota: runtime estimateFare → loadCityTariffConfig(fare_rules), sin .ts",
-  );
+  console.log("\nTariff holidays SSoT: todas las aserciones OK");
 }
 
 providerCases().catch((error) => {

@@ -15,6 +15,8 @@ export type GeoRef = {
 export type CityTariffConfig = {
   citySlug: string;
   cityName: string;
+  /** ISO country (cities.country_code) — para lookup en public.holidays. */
+  countryCode: string;
   currency: "COP";
   /** Banderazo / bajada de bandera. */
   flagDrop: number;
@@ -55,7 +57,11 @@ export type CityTariffConfig = {
    * Ej. fin 05:59:59 → nightEndHour = 6.
    */
   nightEndHour: number;
-  holidayDates: string[];
+  /**
+   * @deprecated No usar. Festivos viven en public.holidays.
+   * Se mantiene vacío por compat de tipos legados.
+   */
+  holidayDates?: string[];
   airport: {
     keywords: string[];
     centerLat: number | null;

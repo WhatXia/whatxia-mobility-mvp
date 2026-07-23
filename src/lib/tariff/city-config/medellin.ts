@@ -7,6 +7,7 @@ import type { CityTariffConfig } from "@/lib/tariff/types";
 export const medellinTariff: CityTariffConfig = {
   citySlug: "medellin",
   cityName: "Medellín",
+  countryCode: "CO",
   currency: "COP",
   flagDrop: 0,
   minimumFare: 0,

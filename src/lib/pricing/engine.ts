@@ -1,6 +1,6 @@
 /**
  * Compatibilidad — Mobility debe preferir `@/lib/tariff`.
- * Este módulo delega al Tariff Engine (config = Supabase fare_rules).
+ * Este módulo delega al Tariff Engine (config = Supabase fare_rules + holidays).
  */
 import type { FareQuote, RouteEstimate } from "@/lib/geo/types";
 import { getActiveCity } from "@/lib/city/context";
@@ -11,6 +11,7 @@ import {
   tariffQuoteToFareQuote,
   type CityTariffConfig,
 } from "@/lib/tariff";
+import { isPublicHoliday, toIsoDateLocal } from "@/lib/tariff/holidays";
 import type { FareContext, FareRules } from "@/lib/pricing/types";
 
 export type { FareRules, FareContext };
@@ -27,6 +28,7 @@ function fareRulesToCityConfig(
   return {
     citySlug,
     cityName: citySlug,
+    countryCode: "CO",
     currency: "COP",
     flagDrop: rules.flagDrop,
     minimumFare: rules.minimumFare,
@@ -46,7 +48,7 @@ function fareRulesToCityConfig(
     },
     nightStartHour: rules.nightStartHour,
     nightEndHour: rules.nightEndHour,
-    holidayDates: rules.holidayDates,
+    holidayDates: [],
     airport: {
       keywords: rules.airportKeywords,
       centerLat: rules.airportCenterLat,
@@ -58,7 +60,7 @@ function fareRulesToCityConfig(
 
 /**
  * @deprecated Preferir estimateFare / calculateTariff desde @/lib/tariff.
- * Mantiene firma Sprint 25 para certify (inyecta FareRules fixture).
+ * Para certify: simula festivo con rules.holidayDates (no es runtime SSoT).
  */
 export function calculateFareWithRules(
   route: RouteEstimate,
@@ -67,6 +69,10 @@ export function calculateFareWithRules(
 ): FareQuote {
   const config = fareRulesToCityConfig(rules, "legacy");
   const waitSeconds = context.waitSeconds ?? 0;
+  const at = context.at ?? new Date();
+  const iso = toIsoDateLocal(at);
+  const isHoliday = (rules.holidayDates ?? []).includes(iso);
+
   const quote = calculateTariff({
     kind: "estimated",
     config,
@@ -74,7 +80,8 @@ export function calculateFareWithRules(
     durationSeconds: route.durationSeconds,
     waitSeconds,
     waitSource: waitSeconds > 0 ? "provided" : "none",
-    at: context.at ?? new Date(),
+    at,
+    isPublicHoliday: isHoliday,
     origin: {
       lat: context.pickupLat ?? 0,
       lng: context.pickupLng ?? 0,
@@ -90,7 +97,7 @@ export function calculateFareWithRules(
   return tariffQuoteToFareQuote(quote);
 }
 
-/** Cotización vía Tariff Engine (config Supabase de la ciudad activa). */
+/** Cotización vía Tariff Engine (fare_rules + holidays en Supabase). */
 export async function calculateFare(
   route: RouteEstimate,
   context: FareContext = {},
@@ -98,6 +105,9 @@ export async function calculateFare(
   const city = await getActiveCity();
   const config = await loadCityTariffConfig(city.slug);
   const waitSeconds = context.waitSeconds ?? 0;
+  const at = context.at ?? new Date();
+  const holiday = await isPublicHoliday(config.countryCode, at);
+
   const quote = calculateTariff({
     kind: "estimated",
     config,
@@ -105,7 +115,8 @@ export async function calculateFare(
     durationSeconds: route.durationSeconds,
     waitSeconds,
     waitSource: waitSeconds > 0 ? "provided" : "none",
-    at: context.at ?? new Date(),
+    at,
+    isPublicHoliday: holiday,
     origin: {
       lat: context.pickupLat ?? 0,
       lng: context.pickupLng ?? 0,

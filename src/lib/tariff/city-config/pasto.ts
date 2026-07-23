@@ -7,6 +7,7 @@ import type { CityTariffConfig } from "@/lib/tariff/types";
 export const pastoTariff: CityTariffConfig = {
   citySlug: "pasto",
   cityName: "Pasto",
+  countryCode: "CO",
   currency: "COP",
   flagDrop: 0,
   minimumFare: 0,

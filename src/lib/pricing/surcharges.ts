@@ -37,11 +37,18 @@ export function isNightTime(at: Date, rules: FareRules): boolean {
   return hour >= start && hour < end;
 }
 
-export function isSundayOrHoliday(at: Date, rules: FareRules): boolean {
+export function isSundayOrHoliday(
+  at: Date,
+  rules: FareRules,
+  isPublicHoliday = false,
+): boolean {
   if (at.getDay() === 0) {
     return true;
   }
-
+  if (isPublicHoliday) {
+    return true;
+  }
+  // DEPRECATED: solo fixtures de certify; runtime usa public.holidays.
   const yyyy = at.getFullYear();
   const mm = String(at.getMonth() + 1).padStart(2, "0");
   const dd = String(at.getDate()).padStart(2, "0");

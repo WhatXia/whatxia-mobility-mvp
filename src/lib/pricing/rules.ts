@@ -37,7 +37,7 @@ export async function getActiveFareRules(): Promise<FareRules> {
     surchargeWhatxia: config.surcharges.platform,
     nightStartHour: config.nightStartHour,
     nightEndHour: config.nightEndHour,
-    holidayDates: config.holidayDates,
+    holidayDates: config.holidayDates ?? [],
     airportKeywords: config.airport.keywords,
     airportCenterLat: config.airport.centerLat,
     airportCenterLng: config.airport.centerLng,

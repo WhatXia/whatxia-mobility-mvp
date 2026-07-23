@@ -1,13 +1,10 @@
 /**
  * Tariff Engine — punto de entrada.
  *
- * Config SSoT: únicamente Supabase `public.fare_rules`
- * (vía `loadCityTariffConfig`). No hay dependencia operativa de city-config/*.ts.
- *
- * Nueva ciudad: insertar en `cities` + fila activa en `fare_rules` (sin código).
- *
- * @example
- * import { estimateFare, finalizeFare } from "@/lib/tariff";
+ * SSoT en cálculo:
+ * - Parámetros: `public.fare_rules`
+ * - Festivos: `public.holidays` (por country_code)
+ * Sin APIs ni date-holidays en runtime.
  */
 
 export {
@@ -19,12 +16,20 @@ export {
   resetTariffProvider,
 } from "@/lib/tariff/engine";
 
-export { calculateTariff } from "@/lib/tariff/calculator";
+export {
+  calculateTariff,
+  appliesSundayHolidaySurcharge,
+} from "@/lib/tariff/calculator";
 export {
   loadCityTariffConfig,
   clearTariffConfigCache,
   mapFareRulesRowToCityTariff,
 } from "@/lib/tariff/config-loader";
+export {
+  isPublicHoliday,
+  isSundayOrPublicHoliday,
+  toIsoDateLocal,
+} from "@/lib/tariff/holidays";
 export { tariffQuoteToFareQuote } from "@/lib/tariff/adapters";
 export { deriveWaitSecondsFromSpeed } from "@/lib/tariff/waiting";
 

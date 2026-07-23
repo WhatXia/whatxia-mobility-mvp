@@ -1,4 +1,8 @@
 import { calculateTariff } from "@/lib/tariff/calculator";
+import {
+  isPublicHoliday,
+  isSundayOrPublicHoliday,
+} from "@/lib/tariff/holidays";
 import type {
   CityTariffConfig,
   EstimateFareInput,
@@ -9,8 +13,7 @@ import type {
 import { resolveWaitSeconds } from "@/lib/tariff/waiting";
 
 /**
- * Proveedor local: aplica fórmulas sobre config ya resuelta (Supabase).
- * Futuros: TaximeterProvider, ExternalTariffProvider, DynamicPricingProvider.
+ * Proveedor local: fórmulas sobre config fare_rules + festivos en public.holidays.
  */
 export class LocalTariffProvider implements TariffProvider {
   readonly id = "supabase_fare_rules_v1";
@@ -19,14 +22,16 @@ export class LocalTariffProvider implements TariffProvider {
     input: EstimateFareInput,
     config: CityTariffConfig,
   ): Promise<TariffQuote> {
+    const at = input.at ?? new Date();
     const wait = resolveWaitSeconds({
       config,
       distanceMeters: input.distanceMeters,
       durationSeconds: input.durationSeconds,
       providedWaitSeconds: input.waitSeconds,
-      // Estimada: no inventar espera por velocidad salvo que venga explícita.
       deriveFromSpeed: false,
     });
+
+    const holiday = await isPublicHoliday(config.countryCode, at);
 
     return calculateTariff({
       kind: "estimated",
@@ -35,7 +40,8 @@ export class LocalTariffProvider implements TariffProvider {
       durationSeconds: input.durationSeconds,
       waitSeconds: wait.waitSeconds,
       waitSource: wait.source,
-      at: input.at ?? new Date(),
+      at,
+      isPublicHoliday: holiday,
       origin: input.origin,
       destination: input.destination,
       provider: this.id,
@@ -54,6 +60,8 @@ export class LocalTariffProvider implements TariffProvider {
       deriveFromSpeed: input.deriveWaitFromSpeed !== false,
     });
 
+    const holiday = await isPublicHoliday(config.countryCode, input.startedAt);
+
     return calculateTariff({
       kind: "final",
       config,
@@ -62,6 +70,7 @@ export class LocalTariffProvider implements TariffProvider {
       waitSeconds: wait.waitSeconds,
       waitSource: wait.source,
       at: input.startedAt,
+      isPublicHoliday: holiday,
       origin: input.origin,
       destination: input.destination,
       provider: this.id,
@@ -71,7 +80,6 @@ export class LocalTariffProvider implements TariffProvider {
 
 let activeProvider: TariffProvider = new LocalTariffProvider();
 
-/** Permite inyectar taxímetro / motor externo sin rediseñar Mobility. */
 export function setTariffProvider(provider: TariffProvider): void {
   activeProvider = provider;
 }
@@ -83,3 +91,5 @@ export function getTariffProvider(): TariffProvider {
 export function resetTariffProvider(): void {
   activeProvider = new LocalTariffProvider();
 }
+
+export { isSundayOrPublicHoliday };
