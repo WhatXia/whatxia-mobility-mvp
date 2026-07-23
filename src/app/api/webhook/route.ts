@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleIncomingMessage } from "@/lib/whatsapp/handler";
+import { normalizeParsedMessage } from "@/lib/whatsapp/normalize-incoming";
 import { parseIncomingMessages } from "@/lib/whatsapp/parse";
 import { verifyWhatsAppSignature } from "@/lib/whatsapp/verify";
 
@@ -27,10 +28,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = JSON.parse(rawBody);
-    const messages = parseIncomingMessages(payload);
+    const parsed = parseIncomingMessages(payload);
 
-    for (const message of messages) {
-      await handleIncomingMessage(message);
+    for (const item of parsed) {
+      const normalized = await normalizeParsedMessage(item);
+      if (normalized.kind === "skip") {
+        continue;
+      }
+      await handleIncomingMessage(normalized.message);
     }
   } catch (error) {
     console.error("[whatsapp] error al procesar webhook:", error);
