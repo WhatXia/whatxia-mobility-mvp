@@ -23,6 +23,10 @@ assert(isTaximeterActivationText(" 🚖 "), "trim emoji");
 assert(!isTaximeterActivationText("hola"), "no activa con hola");
 assert(!isTaximeterActivationText("necesito un servicio"), "no Mobility");
 
+assert(
+  isTaximeterButton(TAXIMETER_BUTTON_IDS.SEND_LOCATION),
+  "botón enviar ubicación",
+);
 assert(isTaximeterButton(TAXIMETER_BUTTON_IDS.FINISH), "botón terminar");
 assert(isTaximeterButton(TAXIMETER_BUTTON_IDS.CALLE), "botón calle");
 assert(isTaximeterButton(TAXIMETER_BUTTON_IDS.SATELITAL), "botón satelital");

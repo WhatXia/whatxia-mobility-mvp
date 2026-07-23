@@ -23,6 +23,8 @@ export type TaximeterRouteSnapshot = {
   durationSecondsRoute: number | null;
   polylineEncoded: string | null;
   fallback: "haversine" | null;
+  /** Puntos compartidos durante el recorrido (Cloud API solo envía pins estáticos). */
+  trackPoints?: Array<{ lat: number; lng: number; at: string }>;
 };
 
 export type TaximeterTestSession = {

@@ -1,6 +1,13 @@
 /**
  * Taxímetro de prueba — flujo WhatsApp independiente de Mobility.
  * No crea trips, no despacha, no usa booking.
+ *
+ * Nota Cloud API: no hay stream de live location; el inicio/fin usan pins
+ * vía location_request_message (o el botón 📍 Enviar ubicación).
+ *
+ * Activación: marca pendiente en taximeter_test_sessions solo para enrutar
+ * webhooks. Si cancela antes del pin de inicio, se borra sin crear corrida.
+ * La medición “real” (startedAt + punto inicial) empieza al compartir ubicación.
  */
 
 import type { IncomingMessage } from "@/types";
@@ -36,6 +43,7 @@ import {
 } from "@/lib/whatsapp/client";
 
 export const TAXIMETER_BUTTON_IDS = {
+  SEND_LOCATION: "taximeter_send_location",
   FINISH: "taximeter_finish",
   CALLE: "taximeter_calle",
   SATELITAL: "taximeter_satelital",
@@ -45,8 +53,18 @@ const ACTIVATION_EMOJI = "🚖";
 
 const ACTIVATION_BODY = [
   "✅ Taxímetro de prueba activado.",
-  "La medición comenzó desde tu ubicación actual.",
-  "Cuando finalices el recorrido, presiona 🏁 Terminar.",
+  "Comparte tu ubicación para iniciar la medición o presiona 🏁 Terminar si finalmente no vas a realizar el recorrido.",
+].join("\n");
+
+const START_LOCATION_PROMPT =
+  "📍 Comparte tu ubicación para iniciar la medición del taxímetro de prueba.";
+
+const END_LOCATION_PROMPT =
+  "📍 Comparte tu ubicación actual para finalizar la medición.";
+
+const MEASURING_BODY = [
+  "📍 Inicio registrado.",
+  "Realiza el recorrido y cuando finalices presiona 🏁 Terminar.",
 ].join("\n");
 
 function haversineMeters(a: GeoPoint, b: GeoPoint): number {
@@ -75,6 +93,7 @@ export function isTaximeterButton(button: string | null): boolean {
     return false;
   }
   return (
+    button === TAXIMETER_BUTTON_IDS.SEND_LOCATION ||
     button === TAXIMETER_BUTTON_IDS.FINISH ||
     button === TAXIMETER_BUTTON_IDS.CALLE ||
     button === TAXIMETER_BUTTON_IDS.SATELITAL
@@ -98,26 +117,45 @@ export function parseMeterValue(text: string): number | null {
   return n;
 }
 
-async function askStartLocation(phone: string): Promise<void> {
-  await sendLocationRequestMessage(
-    phone,
-    "📍 Comparte tu ubicación de inicio para el taxímetro de prueba.",
+function hasStartedMeasurement(session: TaximeterTestSession): boolean {
+  return (
+    session.startLat != null &&
+    session.startLng != null &&
+    Boolean(session.startedAt)
   );
+}
+
+async function askStartLocation(phone: string): Promise<void> {
+  await sendLocationRequestMessage(phone, START_LOCATION_PROMPT);
 }
 
 async function askEndLocation(phone: string): Promise<void> {
-  await sendLocationRequestMessage(
-    phone,
-    "📍 Comparte tu ubicación final para cerrar la medición.",
-  );
+  await sendLocationRequestMessage(phone, END_LOCATION_PROMPT);
 }
 
-async function sendActivationWithFinish(phone: string): Promise<void> {
+async function sendActivationPrompt(phone: string): Promise<void> {
   await sendButtonsMessage(phone, ACTIVATION_BODY, [
+    { id: TAXIMETER_BUTTON_IDS.SEND_LOCATION, title: "📍 Enviar ubicación" },
     { id: TAXIMETER_BUTTON_IDS.FINISH, title: "🏁 Terminar" },
   ]);
 }
 
+async function sendMeasuringWithFinish(phone: string): Promise<void> {
+  await sendButtonsMessage(phone, MEASURING_BODY, [
+    { id: TAXIMETER_BUTTON_IDS.FINISH, title: "🏁 Terminar" },
+  ]);
+}
+
+async function cancelBeforeStart(phone: string): Promise<void> {
+  await clearTaximeterSession(phone);
+  await sendTextMessage(phone, "✅ Taxímetro de prueba cancelado.");
+  console.log("[taximeter-test] cancelado antes de iniciar", { phone });
+}
+
+/**
+ * Activa el modo pendiente (sin medición). La corrida solo nace al compartir
+ * el pin de inicio; si cancela, se borra la marca pendiente sin runs.
+ */
 export async function startTaximeterTest(
   phone: string,
   driver: { id: string; name: string | null },
@@ -126,7 +164,7 @@ export async function startTaximeterTest(
     driverId: driver.id,
     driverName: driver.name,
     state: "awaiting_start_location",
-    startedAt: new Date().toISOString(),
+    startedAt: null,
     startLat: null,
     startLng: null,
     endLat: null,
@@ -136,14 +174,61 @@ export async function startTaximeterTest(
     durationSeconds: null,
     whatxiaFare: null,
     meterValue: null,
+    routeProvider: null,
+    routePolyline: null,
+    route: null,
   });
 
-  await sendActivationWithFinish(phone);
-  await askStartLocation(phone);
+  await sendActivationPrompt(phone);
 
-  console.log("[taximeter-test] activado", {
+  console.log("[taximeter-test] activado (pendiente de inicio)", {
     phone,
     driverId: driver.id,
+  });
+}
+
+async function beginMeasurement(
+  phone: string,
+  session: TaximeterTestSession,
+  point: GeoPoint,
+): Promise<void> {
+  const startedAt = new Date().toISOString();
+  const startPoint = { lat: point.lat, lng: point.lng, at: startedAt };
+
+  await upsertTaximeterSession(phone, {
+    driverId: session.driverId,
+    driverName: session.driverName,
+    state: "measuring",
+    startLat: point.lat,
+    startLng: point.lng,
+    startedAt,
+    endLat: null,
+    endLng: null,
+    finishedAt: null,
+    distanceMeters: null,
+    durationSeconds: null,
+    whatxiaFare: null,
+    meterValue: null,
+    routeProvider: null,
+    routePolyline: null,
+    route: {
+      provider: ROUTE_PROVIDER_GOOGLE,
+      origin: { lat: startPoint.lat, lng: startPoint.lng },
+      destination: { lat: startPoint.lat, lng: startPoint.lng },
+      distanceMeters: 0,
+      durationSecondsWall: 0,
+      durationSecondsRoute: null,
+      polylineEncoded: null,
+      fallback: null,
+      trackPoints: [startPoint],
+    },
+  });
+
+  await sendMeasuringWithFinish(phone);
+  console.log("[taximeter-test] medición iniciada", {
+    phone,
+    startLat: startPoint.lat,
+    startLng: startPoint.lng,
   });
 }
 
@@ -152,19 +237,15 @@ async function completeMeasurement(
   session: TaximeterTestSession,
   end: GeoPoint,
 ): Promise<void> {
-  if (session.startLat == null || session.startLng == null || !session.startedAt) {
-    await sendTextMessage(
-      phone,
-      "Falta la ubicación de inicio. Compártela para continuar.",
-    );
-    await askStartLocation(phone);
+  if (!hasStartedMeasurement(session)) {
+    await sendActivationPrompt(phone);
     await upsertTaximeterSession(phone, { state: "awaiting_start_location" });
     return;
   }
 
-  const start: GeoPoint = { lat: session.startLat, lng: session.startLng };
+  const start: GeoPoint = { lat: session.startLat!, lng: session.startLng! };
   const finishedAt = new Date();
-  const startedAt = new Date(session.startedAt);
+  const startedAt = new Date(session.startedAt!);
   const wallSeconds = Math.max(
     1,
     Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000),
@@ -198,6 +279,10 @@ async function completeMeasurement(
     durationSecondsRoute,
     polylineEncoded: routePolyline,
     fallback,
+    trackPoints: [
+      ...(session.route?.trackPoints ?? []),
+      { lat: end.lat, lng: end.lng, at: finishedAt.toISOString() },
+    ],
   };
 
   const city = await getActiveCity();
@@ -240,7 +325,6 @@ async function completeMeasurement(
   await sendTextMessage(
     phone,
     [
-      "✅ Recorrido finalizado.",
       `💰 Tarifa WhatXia: ${formatTariffCop(whatxiaFare)}`,
       "¿Cuál fue el valor que marcó el taxímetro?",
     ].join("\n"),
@@ -337,12 +421,9 @@ async function persistRun(
 
   await sendTextMessage(
     phone,
-    [
-      "✅ Prueba registrada correctamente.",
-      "El taxímetro de prueba ha sido cerrado.",
-      "",
-      "Para una nueva prueba, envía nuevamente 🚖.",
-    ].join("\n"),
+    ["✅ Prueba registrada correctamente.", "Gracias por tu tiempo."].join(
+      "\n",
+    ),
   );
 
   console.log("[taximeter-test] corrida guardada", {
@@ -391,41 +472,40 @@ export async function handleTaximeterMessage(
     return false;
   }
 
-  // Solo conductores con sesión activa
   const driver = await findDriverByPhone(phone);
   if (!driver) {
     await clearTaximeterSession(phone);
     return false;
   }
 
-  // Ubicación de inicio
-  if (
-    message.location &&
-    (session.state === "awaiting_start_location" ||
-      (session.state === "measuring" && session.startLat == null))
-  ) {
-    await upsertTaximeterSession(phone, {
-      state: "measuring",
-      startLat: message.location.lat,
-      startLng: message.location.lng,
-      startedAt: session.startedAt ?? new Date().toISOString(),
-    });
-    await sendTextMessage(
-      phone,
-      "📍 Inicio registrado. Realiza el recorrido y presiona 🏁 Terminar.",
-    );
+  // Botón 📍 Enviar ubicación → location_request nativo de WhatsApp
+  if (message.button === TAXIMETER_BUTTON_IDS.SEND_LOCATION) {
+    if (hasStartedMeasurement(session)) {
+      await sendMeasuringWithFinish(phone);
+      return true;
+    }
+    await upsertTaximeterSession(phone, { state: "awaiting_start_location" });
+    await askStartLocation(phone);
     return true;
   }
 
-  // Botón Terminar
+  // Ubicación de inicio → aquí nace la medición / sesión real
+  if (
+    message.location &&
+    (session.state === "awaiting_start_location" ||
+      (session.state === "measuring" && !hasStartedMeasurement(session)))
+  ) {
+    await beginMeasurement(phone, session, {
+      lat: message.location.lat,
+      lng: message.location.lng,
+    });
+    return true;
+  }
+
+  // Botón 🏁 Terminar
   if (message.button === TAXIMETER_BUTTON_IDS.FINISH) {
-    if (session.startLat == null || session.startLng == null) {
-      await upsertTaximeterSession(phone, { state: "awaiting_start_location" });
-      await sendTextMessage(
-        phone,
-        "Primero comparte la ubicación de inicio.",
-      );
-      await askStartLocation(phone);
+    if (!hasStartedMeasurement(session)) {
+      await cancelBeforeStart(phone);
       return true;
     }
     await upsertTaximeterSession(phone, { state: "awaiting_end_location" });
@@ -439,6 +519,12 @@ export async function handleTaximeterMessage(
       lat: message.location.lat,
       lng: message.location.lng,
     });
+    return true;
+  }
+
+  // Durante medición: ubicaciones extra no cierran el recorrido
+  if (message.location && session.state === "measuring") {
+    await sendMeasuringWithFinish(phone);
     return true;
   }
 
@@ -479,17 +565,13 @@ export async function handleTaximeterMessage(
     return true;
   }
 
-  // Cualquier otro mensaje con sesión activa: reorientar
+  // Reorientar según estado
   if (session.state === "awaiting_start_location") {
-    await askStartLocation(phone);
+    await sendActivationPrompt(phone);
     return true;
   }
   if (session.state === "measuring") {
-    await sendButtonsMessage(
-      phone,
-      "Taxímetro de prueba en curso. Cuando termines el recorrido:",
-      [{ id: TAXIMETER_BUTTON_IDS.FINISH, title: "🏁 Terminar" }],
-    );
+    await sendMeasuringWithFinish(phone);
     return true;
   }
   if (session.state === "awaiting_end_location") {
