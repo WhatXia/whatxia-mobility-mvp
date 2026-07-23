@@ -22,7 +22,7 @@ import {
 import { upsertSession } from "@/lib/sessions";
 import {
   sendButtonsMessage,
-  sendLocationMessage,
+  sendCtaUrlMessage,
   sendTextMessage,
 } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
@@ -49,7 +49,7 @@ import {
   formatTariffCop,
 } from "@/lib/tariff";
 import { getActiveCity } from "@/lib/city/context";
-import { mapsUrlForCoords, mapsUrlForPlaceId } from "@/lib/geo/maps-url";
+import { mapsNavigationUrl, mapsUrlForCoords } from "@/lib/geo/maps-url";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -63,6 +63,7 @@ export const DRIVER_BUTTON_IDS = {
   ETA: "eta",
   LLEGUE: "llegue",
   INICIAR: "iniciar_viaje",
+  NAVEGAR: "navegar_destino",
   FINALIZAR: "finalizar_viaje",
 } as const;
 
@@ -74,6 +75,7 @@ type DriverButtonAction =
   | { action: "eta"; tripId: string; minutes: number }
   | { action: "llegue"; tripId: string }
   | { action: "iniciar"; tripId: string }
+  | { action: "navegar"; tripId: string }
   | { action: "finalizar"; tripId: string };
 
 function acceptButtonId(tripId: string) {
@@ -94,6 +96,10 @@ function llegueButtonId(tripId: string) {
 
 function iniciarButtonId(tripId: string) {
   return `${DRIVER_BUTTON_IDS.INICIAR}:${tripId}`;
+}
+
+function navegarButtonId(tripId: string) {
+  return `${DRIVER_BUTTON_IDS.NAVEGAR}:${tripId}`;
 }
 
 function finalizarButtonId(tripId: string) {
@@ -148,6 +154,13 @@ export function parseDriverButton(
     };
   }
 
+  if (button.startsWith(`${DRIVER_BUTTON_IDS.NAVEGAR}:`)) {
+    return {
+      action: "navegar",
+      tripId: button.slice(DRIVER_BUTTON_IDS.NAVEGAR.length + 1),
+    };
+  }
+
   if (button.startsWith(`${DRIVER_BUTTON_IDS.FINALIZAR}:`)) {
     return {
       action: "finalizar",
@@ -184,43 +197,16 @@ async function sendStartTripButton(driverPhone: string, tripId: string) {
   ]);
 }
 
-async function sendFinishTripButton(driverPhone: string, tripId: string) {
-  await sendButtonsMessage(driverPhone, "🏁 Al llegar a tu destino:", [
-    { id: finalizarButtonId(tripId), title: "Termina tu viaje" },
-  ]);
-}
-
-/** Destino al iniciar viaje: pin WA o enlace Google Maps (sin texto extra). */
-async function sendDropoffLocationToDriver(
+/** Pantalla operativa en viaje: destino + navegar + terminar (sin mapa embebido). */
+async function sendInProgressTripScreen(
   driverPhone: string,
   trip: Trip,
 ): Promise<void> {
   const label = trip.dropoffLabel?.trim() || "Destino";
-
-  if (trip.dropoffLat != null && trip.dropoffLng != null) {
-    await sendLocationMessage(driverPhone, {
-      latitude: trip.dropoffLat,
-      longitude: trip.dropoffLng,
-      name: label,
-      address: label,
-    });
-    return;
-  }
-
-  if (trip.dropoffPlaceId) {
-    await sendTextMessage(
-      driverPhone,
-      mapsUrlForPlaceId(trip.dropoffPlaceId, label),
-    );
-    return;
-  }
-
-  if (trip.dropoffLabel) {
-    await sendTextMessage(
-      driverPhone,
-      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(trip.dropoffLabel)}`,
-    );
-  }
+  await sendButtonsMessage(driverPhone, `🎯 Destino: ${label}`, [
+    { id: navegarButtonId(trip.id), title: "Navegar al destino" },
+    { id: finalizarButtonId(trip.id), title: "Terminar viaje" },
+  ]);
 }
 
 export async function offerTripToDrivers(
@@ -628,10 +614,6 @@ export async function handleDriverAccept(
         `Placa: ${driver.plate}`,
       ].join("\n"),
     ),
-    sendTextMessage(
-      driverPhone,
-      `✅ Servicio asignado.\n\n📍 Recogida: ${assigned.pickupNeighborhood}`,
-    ),
   ]);
 
   // Diagnóstico: justo después de informar al pasajero (conductor / vehículo).
@@ -643,6 +625,7 @@ export async function handleDriverAccept(
     phase: "after_passenger_assignment_message",
   });
 
+  // Siguiente acción operativa (sin confirmación "Servicio asignado").
   await sendEtaOptions(driverPhone, assigned.id);
 
   console.log("[dispatch] viaje asignado:", {
@@ -715,8 +698,7 @@ export async function handleDriverEta(
     ],
   );
 
-  await sendTextMessage(driverPhone, "✅ Tiempo informado al pasajero.");
-
+  // Siguiente acción operativa (sin confirmación al conductor).
   await sendArrivedButton(driverPhone, updated.id);
 
   console.log("[dispatch] ETA informado:", {
@@ -773,11 +755,7 @@ export async function handleDriverLlegue(
     ],
   );
 
-  await sendTextMessage(
-    driverPhone,
-    "✅ Se informó al pasajero que ya llegaste.",
-  );
-
+  // Siguiente acción operativa (sin confirmación al conductor).
   await sendStartTripButton(driverPhone, updated.id);
 
   console.log("[dispatch] conductor llegó al punto de recogida:", {
@@ -819,11 +797,8 @@ export async function handleDriverIniciarViaje(
     return;
   }
 
-  // Orden UX: iniciado → etiqueta destino → mapa → Al llegar… → Termina tu viaje.
-  await sendTextMessage(driverPhone, "✅ Viaje iniciado.");
-  await sendTextMessage(driverPhone, "📍 Ubicación del destino:");
-  await sendDropoffLocationToDriver(driverPhone, updated);
-  await sendFinishTripButton(driverPhone, updated.id);
+  // Pantalla operativa: destino + navegar + terminar (sin mapa ni textos técnicos).
+  await sendInProgressTripScreen(driverPhone, updated);
 
   await sendTextMessage(
     updated.passengerPhone,
@@ -838,6 +813,61 @@ export async function handleDriverIniciarViaje(
     resolveSource: source,
     dropoffLat: updated.dropoffLat,
     dropoffLng: updated.dropoffLng,
+  });
+}
+
+export async function handleDriverNavegarDestino(
+  driverPhone: string,
+  tripId: string,
+): Promise<void> {
+  const { trip, source } = await resolveDriverTrip(tripId, driverPhone);
+
+  if (!trip) {
+    console.error("[dispatch] Navegar sin viaje activo", {
+      tripId,
+      driverPhone,
+      source,
+    });
+    await sendTextMessage(
+      driverPhone,
+      "No encontramos un servicio activo asignado a ti.",
+    );
+    return;
+  }
+
+  if (trip.status !== "IN_PROGRESS") {
+    await sendTextMessage(
+      driverPhone,
+      "La navegación está disponible cuando el viaje está en curso.",
+    );
+    return;
+  }
+
+  const label = trip.dropoffLabel?.trim() || "Destino";
+  const url = mapsNavigationUrl({
+    lat: trip.dropoffLat,
+    lng: trip.dropoffLng,
+    placeId: trip.dropoffPlaceId,
+    label,
+  });
+
+  if (!url) {
+    await sendTextMessage(
+      driverPhone,
+      "No hay coordenadas de destino para navegar.",
+    );
+    return;
+  }
+
+  await sendCtaUrlMessage(driverPhone, `🎯 Destino: ${label}`, {
+    displayText: "Abrir Google Maps",
+    url,
+  });
+
+  console.log("[dispatch] navegación enviada al conductor:", {
+    tripId: trip.id,
+    driverPhone,
+    resolveSource: source,
   });
 }
 

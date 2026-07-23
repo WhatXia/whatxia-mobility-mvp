@@ -45,11 +45,41 @@ async function sendMessage(payload: Record<string, unknown>) {
   return response.json();
 }
 
-export async function sendTextMessage(to: string, text: string) {
+export async function sendTextMessage(
+  to: string,
+  text: string,
+  options?: { previewUrl?: boolean },
+) {
   return sendMessage({
     to,
     type: "text",
-    text: { preview_url: false, body: text },
+    text: { preview_url: Boolean(options?.previewUrl), body: text },
+  });
+}
+
+/**
+ * Botón CTA con URL (abre el enlace nativamente, p. ej. Google Maps).
+ * Docs: interactive type cta_url
+ */
+export async function sendCtaUrlMessage(
+  to: string,
+  bodyText: string,
+  cta: { displayText: string; url: string },
+) {
+  return sendMessage({
+    to,
+    type: "interactive",
+    interactive: {
+      type: "cta_url",
+      body: { text: bodyText },
+      action: {
+        name: "cta_url",
+        parameters: {
+          display_text: cta.displayText.slice(0, 20),
+          url: cta.url,
+        },
+      },
+    },
   });
 }
 

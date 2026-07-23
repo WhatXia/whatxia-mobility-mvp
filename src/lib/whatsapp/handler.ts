@@ -22,6 +22,7 @@ import {
   handleDriverFinalizarViaje,
   handleDriverIniciarViaje,
   handleDriverLlegue,
+  handleDriverNavegarDestino,
   handleDriverReject,
   parseDriverButton,
 } from "@/lib/dispatch";
@@ -246,6 +247,11 @@ export async function handleIncomingMessage(
 
   if (driverButton?.action === "iniciar") {
     await handleDriverIniciarViaje(message.phone, driverButton.tripId);
+    return;
+  }
+
+  if (driverButton?.action === "navegar") {
+    await handleDriverNavegarDestino(message.phone, driverButton.tripId);
     return;
   }
 

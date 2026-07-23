@@ -32,9 +32,6 @@ export type TunnelMessage = {
 export const TUNNEL_CLOSED_MESSAGE =
   "Este canal de comunicación ya no está disponible.";
 
-const TUNNEL_OPEN_NOTICE =
-  "💬 Canal WhatXia activo. Puedes escribir mensajes aquí: se reenviarán automáticamente sin compartir números.";
-
 const CLOSE_AFTER_MS = 5 * 60 * 1000;
 
 const OPEN_STATUSES: TunnelStatus[] = ["active", "closing"];
@@ -98,10 +95,7 @@ export async function openTunnel(input: {
           driver_phone: rebound.driver_phone,
           status: rebound.status,
         });
-        await Promise.allSettled([
-          sendTextMessage(rebound.passenger_phone, TUNNEL_OPEN_NOTICE),
-          sendTextMessage(rebound.driver_phone, TUNNEL_OPEN_NOTICE),
-        ]);
+        // Reapertura silenciosa: sin aviso "Canal WhatXia activo".
         return rebound;
       }
     }
@@ -128,11 +122,7 @@ export async function openTunnel(input: {
     phase: "right_after_insert",
   });
 
-  await Promise.allSettled([
-    sendTextMessage(tunnel.passenger_phone, TUNNEL_OPEN_NOTICE),
-    sendTextMessage(tunnel.driver_phone, TUNNEL_OPEN_NOTICE),
-  ]);
-
+  // Túnel abierto en silencio: sin aviso técnico al pasajero ni al conductor.
   console.log("[tunnel:open]", {
     tunnelId: tunnel.id,
     tripId: tunnel.trip_id,
