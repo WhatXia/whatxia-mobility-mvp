@@ -1,96 +1,122 @@
+/**
+ * Compatibilidad — Mobility debe preferir `@/lib/tariff`.
+ * Este módulo delega al Tariff Engine (config = Supabase fare_rules).
+ */
 import type { FareQuote, RouteEstimate } from "@/lib/geo/types";
-import { getActiveFareRules } from "@/lib/pricing/rules";
+import { getActiveCity } from "@/lib/city/context";
 import {
-  distanceIncrementUnits,
-  isAirportTrip,
-  isNightTime,
-  isSundayOrHoliday,
-  waitIncrementUnits,
-} from "@/lib/pricing/surcharges";
+  calculateTariff,
+  formatTariffCop,
+  loadCityTariffConfig,
+  tariffQuoteToFareQuote,
+  type CityTariffConfig,
+} from "@/lib/tariff";
 import type { FareContext, FareRules } from "@/lib/pricing/types";
 
 export type { FareRules, FareContext };
 
+export function formatFareCop(amount: number): string {
+  return formatTariffCop(amount);
+}
+
+/** @deprecated Usar CityTariffConfig vía @/lib/tariff */
+function fareRulesToCityConfig(
+  rules: FareRules,
+  citySlug: string,
+): CityTariffConfig {
+  return {
+    citySlug,
+    cityName: citySlug,
+    currency: "COP",
+    flagDrop: rules.flagDrop,
+    minimumFare: rules.minimumFare,
+    minDistanceMeters: rules.minDistanceMeters,
+    incrementMeters: rules.incrementMeters,
+    incrementAmount: rules.incrementAmount,
+    timeUnitSeconds: 0,
+    timeAmount: 0,
+    waitUnitSeconds: rules.waitSeconds,
+    waitAmount: rules.waitAmount,
+    waitSpeedThresholdKmh: 5,
+    surcharges: {
+      night: rules.surchargeNight,
+      sundayHoliday: rules.surchargeSundayHoliday,
+      airport: rules.surchargeAirport,
+      platform: rules.surchargeWhatxia,
+    },
+    nightStartHour: rules.nightStartHour,
+    nightEndHour: rules.nightEndHour,
+    holidayDates: rules.holidayDates,
+    airport: {
+      keywords: rules.airportKeywords,
+      centerLat: rules.airportCenterLat,
+      centerLng: rules.airportCenterLng,
+      radiusMeters: rules.airportRadiusMeters,
+    },
+  };
+}
+
 /**
- * Cálculo puro de tarifa WhatXia (Sprint 25).
- *
- * 1) Tarifa oficial = banderazo + dist + espera
- * 2) Si < carrera mínima → carrera mínima
- * 3) Recargos oficiales aplicables
- * 4) + recargo WhatXia
+ * @deprecated Preferir estimateFare / calculateTariff desde @/lib/tariff.
+ * Mantiene firma Sprint 25 para certify (inyecta FareRules fixture).
  */
 export function calculateFareWithRules(
   route: RouteEstimate,
   rules: FareRules,
   context: FareContext = {},
 ): FareQuote {
-  const at = context.at ?? new Date();
+  const config = fareRulesToCityConfig(rules, "legacy");
   const waitSeconds = context.waitSeconds ?? 0;
-
-  const distUnits = distanceIncrementUnits(route.distanceMeters, rules);
-  const waitUnits = waitIncrementUnits(waitSeconds, rules);
-
-  const distanceComponent = distUnits * rules.incrementAmount;
-  const waitComponent = waitUnits * rules.waitAmount;
-  const officialRaw = rules.flagDrop + distanceComponent + waitComponent;
-
-  const minimumApplied = officialRaw < rules.minimumFare;
-  const officialFare = Math.max(rules.minimumFare, officialRaw);
-
-  const applyNight = isNightTime(at, rules);
-  const applySundayHoliday = isSundayOrHoliday(at, rules);
-  const applyAirport = isAirportTrip(context, rules);
-
-  const surchargeNight = applyNight ? rules.surchargeNight : 0;
-  const surchargeSundayHoliday = applySundayHoliday
-    ? rules.surchargeSundayHoliday
-    : 0;
-  const surchargeAirport = applyAirport ? rules.surchargeAirport : 0;
-  const surchargeWhatxia = rules.surchargeWhatxia;
-
-  const amount =
-    officialFare +
-    surchargeNight +
-    surchargeSundayHoliday +
-    surchargeAirport +
-    surchargeWhatxia;
-
-  const distanceKm = Math.round((route.distanceMeters / 1000) * 10) / 10;
-  const durationMin = Math.max(1, Math.round(route.durationSeconds / 60));
-
-  return {
-    amount,
-    currency: "COP",
-    distanceKm,
-    durationMin,
-    breakdown: {
-      flagDrop: rules.flagDrop,
-      distanceComponent,
-      waitComponent,
-      officialRaw,
-      officialFare,
-      minimumApplied,
-      surchargeNight,
-      surchargeSundayHoliday,
-      surchargeAirport,
-      surchargeWhatxia,
-      // compat logs legacy
-      base: rules.flagDrop,
-      timeComponent: waitComponent,
-      raw: officialRaw,
+  const quote = calculateTariff({
+    kind: "estimated",
+    config,
+    distanceMeters: route.distanceMeters,
+    durationSeconds: route.durationSeconds,
+    waitSeconds,
+    waitSource: waitSeconds > 0 ? "provided" : "none",
+    at: context.at ?? new Date(),
+    origin: {
+      lat: context.pickupLat ?? 0,
+      lng: context.pickupLng ?? 0,
+      label: context.pickupLabel,
     },
-  };
+    destination: {
+      lat: context.dropoffLat ?? 0,
+      lng: context.dropoffLng ?? 0,
+      label: context.dropoffLabel,
+    },
+    provider: "pricing_compat",
+  });
+  return tariffQuoteToFareQuote(quote);
 }
 
-/** Carga reglas activas desde fare_rules y cotiza. */
+/** Cotización vía Tariff Engine (config Supabase de la ciudad activa). */
 export async function calculateFare(
   route: RouteEstimate,
   context: FareContext = {},
 ): Promise<FareQuote> {
-  const rules = await getActiveFareRules();
-  return calculateFareWithRules(route, rules, context);
-}
-
-export function formatFareCop(amount: number): string {
-  return `$${amount.toLocaleString("es-CO")} COP`;
+  const city = await getActiveCity();
+  const config = await loadCityTariffConfig(city.slug);
+  const waitSeconds = context.waitSeconds ?? 0;
+  const quote = calculateTariff({
+    kind: "estimated",
+    config,
+    distanceMeters: route.distanceMeters,
+    durationSeconds: route.durationSeconds,
+    waitSeconds,
+    waitSource: waitSeconds > 0 ? "provided" : "none",
+    at: context.at ?? new Date(),
+    origin: {
+      lat: context.pickupLat ?? 0,
+      lng: context.pickupLng ?? 0,
+      label: context.pickupLabel,
+    },
+    destination: {
+      lat: context.dropoffLat ?? 0,
+      lng: context.dropoffLng ?? 0,
+      label: context.dropoffLabel,
+    },
+    provider: "pricing_compat",
+  });
+  return tariffQuoteToFareQuote(quote);
 }

@@ -37,6 +37,11 @@ export type Trip = {
   distanceMeters: number | null;
   durationSeconds: number | null;
   quotedFare: number | null;
+  /** Tarifa oficial al finalizar (Tariff Engine). */
+  finalFare: number | null;
+  waitSeconds: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
   currency: string;
   cityId: string | null;
 };
@@ -67,6 +72,10 @@ type TripRow = {
   distance_meters: number | null;
   duration_seconds: number | null;
   quoted_fare: number | null;
+  final_fare: number | null;
+  wait_seconds: number | null;
+  started_at: string | null;
+  finished_at: string | null;
   currency: string | null;
   city_id: string | null;
 };
@@ -106,7 +115,7 @@ export const CONTINUE_WINDOW_MS = 2 * 60 * 1000;
 export const MAX_SEARCH_REMINDER_COUNT = 2;
 
 const TRIP_COLUMNS =
-  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, search_reminder_count, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, currency, city_id";
+  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, search_reminder_count, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, final_fare, wait_seconds, started_at, finished_at, currency, city_id";
 
 export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -149,6 +158,10 @@ function mapRow(row: TripRow): Trip {
     distanceMeters: row.distance_meters ?? null,
     durationSeconds: row.duration_seconds ?? null,
     quotedFare: row.quoted_fare ?? null,
+    finalFare: row.final_fare ?? null,
+    waitSeconds: row.wait_seconds ?? null,
+    startedAt: row.started_at ?? null,
+    finishedAt: row.finished_at ?? null,
     currency: row.currency ?? "COP",
     cityId: row.city_id ?? null,
   };
@@ -464,11 +477,13 @@ export async function startTrip(tripId: string): Promise<Trip | null> {
     return null;
   }
 
+  const now = new Date().toISOString();
   const { data, error } = await supabase
     .from("trips")
     .update({
       status: "IN_PROGRESS",
-      updated_at: new Date().toISOString(),
+      started_at: now,
+      updated_at: now,
     })
     .eq("id", tripId)
     .eq("status", "DRIVER_ARRIVED")
@@ -489,7 +504,16 @@ export async function startTrip(tripId: string): Promise<Trip | null> {
   return trip;
 }
 
-export async function finishTrip(tripId: string): Promise<Trip | null> {
+export type FinishTripFareInput = {
+  finalFare: number;
+  waitSeconds?: number;
+  finishedAt?: string;
+};
+
+export async function finishTrip(
+  tripId: string,
+  fare?: FinishTripFareInput,
+): Promise<Trip | null> {
   const supabase = getSupabase();
   const current = await getTrip(tripId);
 
@@ -502,11 +526,19 @@ export async function finishTrip(tripId: string): Promise<Trip | null> {
     return null;
   }
 
+  const now = fare?.finishedAt ?? new Date().toISOString();
   const { data, error } = await supabase
     .from("trips")
     .update({
       status: "COMPLETED",
-      updated_at: new Date().toISOString(),
+      finished_at: now,
+      updated_at: now,
+      ...(fare
+        ? {
+            final_fare: fare.finalFare,
+            wait_seconds: fare.waitSeconds ?? 0,
+          }
+        : {}),
     })
     .eq("id", tripId)
     .eq("status", "IN_PROGRESS")

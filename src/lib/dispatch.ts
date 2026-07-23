@@ -44,7 +44,11 @@ import type {
   ResolvedPlace,
   RouteEstimate,
 } from "@/lib/geo/types";
-import { formatFareCop } from "@/lib/pricing/engine";
+import {
+  finalizeFare,
+  formatTariffCop,
+} from "@/lib/tariff";
+import { getActiveCity } from "@/lib/city/context";
 import { mapsUrlForCoords, mapsUrlForPlaceId } from "@/lib/geo/maps-url";
 
 export type TripOfferDetails = {
@@ -462,7 +466,7 @@ async function publishTripOffer(
     distanceKm ? `📏 Distancia estimada: ${distanceKm} km` : null,
     durationMin ? `⏱️ Tiempo estimado: ${durationMin} min` : null,
     trip.quotedFare != null
-      ? `💰 Valor del servicio: ${formatFareCop(trip.quotedFare)}`
+      ? `💰 Valor del servicio: ${formatTariffCop(trip.quotedFare)}`
       : null,
     "",
     "Aceptar el servicio:",
@@ -872,7 +876,57 @@ export async function handleDriverFinalizarViaje(
     return;
   }
 
-  const updated = await finishTrip(trip.id);
+  // Tarifa final: Mobility solo solicita al Tariff Engine (sin fórmulas propias).
+  const city = await getActiveCity();
+  const finishedAt = new Date();
+  const startedAt = trip.startedAt
+    ? new Date(trip.startedAt)
+    : finishedAt;
+  const distanceMeters = trip.distanceMeters ?? 0;
+  const durationSeconds =
+    trip.durationSeconds ??
+    Math.max(1, Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000));
+
+  let finalQuote;
+  try {
+    finalQuote = await finalizeFare({
+      citySlug: city.slug,
+      origin:
+        trip.pickupLat != null && trip.pickupLng != null
+          ? {
+              lat: trip.pickupLat,
+              lng: trip.pickupLng,
+              label: trip.pickupLabel ?? trip.pickupNeighborhood,
+            }
+          : undefined,
+      destination:
+        trip.dropoffLat != null && trip.dropoffLng != null
+          ? {
+              lat: trip.dropoffLat,
+              lng: trip.dropoffLng,
+              label: trip.dropoffLabel ?? undefined,
+            }
+          : undefined,
+      distanceMeters,
+      durationSeconds,
+      startedAt,
+      finishedAt,
+      deriveWaitFromSpeed: true,
+    });
+  } catch (error) {
+    console.error("[dispatch] Tariff Engine finalizeFare error:", error);
+    await sendTextMessage(
+      driverPhone,
+      "No se pudo calcular la tarifa final. Intenta de nuevo en un momento.",
+    );
+    return;
+  }
+
+  const updated = await finishTrip(trip.id, {
+    finalFare: finalQuote.amount,
+    waitSeconds: finalQuote.breakdown.waitSecondsUsed,
+    finishedAt: finishedAt.toISOString(),
+  });
 
   if (!updated) {
     await sendTextMessage(driverPhone, "No se pudo finalizar el viaje.");
@@ -887,14 +941,23 @@ export async function handleDriverFinalizarViaje(
     state: "IDLE",
   });
 
+  const fareLine = `💰 Tarifa final: ${formatTariffCop(finalQuote.amount)}`;
+
   await Promise.allSettled([
     sendTextMessage(
       updated.passengerPhone,
-      "🎉 Tu viaje ha finalizado. Gracias por elegir WhatXia Mobility.",
+      [
+        "🎉 Tu viaje ha finalizado. Gracias por elegir WhatXia Mobility.",
+        fareLine,
+      ].join("\n"),
     ),
     sendTextMessage(
       driverPhone,
-      "✅ Viaje finalizado. Ya estás disponible para recibir nuevos servicios.",
+      [
+        "✅ Viaje finalizado.",
+        fareLine,
+        "Ya estás disponible para recibir nuevos servicios.",
+      ].join("\n"),
     ),
   ]);
 
@@ -912,5 +975,8 @@ export async function handleDriverFinalizarViaje(
     driverPhone,
     driverId: updated.assignedDriverId,
     resolveSource: source,
+    finalFare: finalQuote.amount,
+    quotedFare: trip.quotedFare,
+    waitSeconds: finalQuote.breakdown.waitSecondsUsed,
   });
 }

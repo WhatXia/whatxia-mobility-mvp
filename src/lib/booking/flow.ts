@@ -13,7 +13,11 @@ import { mapsUrlForCoords, mapsUrlForPlaceId } from "@/lib/geo/maps-url";
 import { searchPlaces } from "@/lib/geo/places";
 import { estimateRoute } from "@/lib/geo/routes";
 import { GoogleMapsError } from "@/lib/geo/client";
-import { calculateFare, formatFareCop } from "@/lib/pricing/engine";
+import {
+  estimateFare,
+  formatTariffCop,
+  tariffQuoteToFareQuote,
+} from "@/lib/tariff";
 import { offerTripToDrivers } from "@/lib/dispatch";
 import { clearSession, upsertSession } from "@/lib/sessions";
 import {
@@ -384,16 +388,25 @@ async function buildAndSendQuote(
         draft.pickup.location,
         draft.dropoff.location,
       );
-      quote = await calculateFare(route, {
-        pickupLabel: pickupDisplayLabel(draft),
-        dropoffLabel: placeLabel(draft.dropoff),
-        pickupLat: draft.pickup.location.lat,
-        pickupLng: draft.pickup.location.lng,
-        dropoffLat: draft.dropoff.location.lat,
-        dropoffLng: draft.dropoff.location.lng,
+      const city = await getActiveCity();
+      const tariff = await estimateFare({
+        citySlug: city.slug,
+        origin: {
+          lat: draft.pickup.location.lat,
+          lng: draft.pickup.location.lng,
+          label: pickupDisplayLabel(draft),
+        },
+        destination: {
+          lat: draft.dropoff.location.lat,
+          lng: draft.dropoff.location.lng,
+          label: placeLabel(draft.dropoff),
+        },
+        distanceMeters: route.distanceMeters,
+        durationSeconds: route.durationSeconds,
       });
+      quote = tariffQuoteToFareQuote(tariff);
     } catch (error) {
-      console.error("[booking] Routes/pricing error:", error);
+      console.error("[booking] Routes/tariff error:", error);
       await sendTextMessage(
         phone,
         "No pudimos calcular la ruta. Revisa origen/destino o intenta luego.",
@@ -419,7 +432,7 @@ async function buildAndSendQuote(
     `🎯 Destino: ${placeLabel(draft.dropoff)}`,
     `📏 Distancia estimada: ${quote.distanceKm.toFixed(1)} km`,
     `⏱️ Tiempo estimado: ${quote.durationMin} min`,
-    `💰 Valor del servicio: ${formatFareCop(quote.amount)}`,
+    `💰 Valor del servicio: ${formatTariffCop(quote.amount)}`,
     "",
     "¿Confirmas el servicio?",
   ].join("\n");

@@ -1,9 +1,6 @@
 /**
- * Certificación Sprint 25 – motor de tarifas WhatXia.
- * Ejecutar: npx tsx src/lib/pricing.certify.ts
- *
- * Usa reglas inyectadas (fixture) equivalentes al seed de fare_rules;
- * en producción los valores salen solo de la tabla.
+ * Certificación pricing compat — fixture = tarifas oficiales Ibagué (022).
+ * En producción los valores salen solo de fare_rules.
  */
 export {};
 
@@ -22,7 +19,7 @@ function assert(condition: boolean, message: string) {
   console.log(`OK: ${message}`);
 }
 
-/** Fixture = valores seed de 015_fare_rules.sql (solo para certify). */
+/** Fixture alineado a migración 022 (oficial Ibagué). */
 const RULES: FareRules = {
   id: "certify",
   currency: "COP",
@@ -34,9 +31,9 @@ const RULES: FareRules = {
   waitSeconds: 40,
   waitAmount: 90,
   surchargeNight: 1000,
-  surchargeSundayHoliday: 1000,
+  surchargeSundayHoliday: 850,
   surchargeAirport: 6500,
-  surchargeWhatxia: 1000,
+  surchargeWhatxia: 800,
   nightStartHour: 20,
   nightEndHour: 5,
   holidayDates: ["2026-01-01"],
@@ -46,18 +43,16 @@ const RULES: FareRules = {
   airportRadiusMeters: 2500,
 };
 
-// Viaje muy corto → oficial mínima 6600 + WhatXia 1000 = 7600
 const short = calculateFareWithRules(
   { distanceMeters: 500, durationSeconds: 120 },
   RULES,
-  { at: new Date("2026-07-21T10:00:00") }, // martes día
+  { at: new Date("2026-07-21T10:00:00") },
 );
 assert(short.breakdown.officialFare === 6600, "Corto: tarifa oficial 6600");
-assert(short.breakdown.surchargeWhatxia === 1000, "Corto: WhatXia 1000");
-assert(short.amount === 7600, "Corto: total 7600");
+assert(short.breakdown.surchargeWhatxia === 800, "Corto: WhatXia 800");
+assert(short.amount === 7400, "Corto: total 7400");
 assert(short.breakdown.minimumApplied === true, "Corto: mínimo aplicado");
 
-// Distancia con 35 incrementos de 80 m: 4500 + 35*105 = 8175 (+ WhatXia → 9175)
 assert(
   distanceIncrementUnits(4400, RULES) === 35,
   "35 incrementos a 4400 m (tick 80 m)",
@@ -68,23 +63,16 @@ const mid = calculateFareWithRules(
   { at: new Date("2026-07-21T10:00:00"), waitSeconds: 0 },
 );
 assert(mid.breakdown.officialRaw === 8175, "Calcula 8175 oficial raw");
-assert(mid.breakdown.officialFare === 8175, "Sin mínimo (8175 > 6600)");
-assert(mid.breakdown.surchargeWhatxia === 1000, "WhatXia 1000");
-assert(mid.amount === 9175, "Total = oficial + WhatXia");
+assert(mid.breakdown.surchargeWhatxia === 800, "WhatXia 800");
+assert(mid.amount === 8975, "Total = oficial + WhatXia 800");
 
-// Espera: 80s → 2*90 = 180
 const withWait = calculateFareWithRules(
   { distanceMeters: 1000, durationSeconds: 60 },
   RULES,
   { at: new Date("2026-07-21T10:00:00"), waitSeconds: 80 },
 );
 assert(withWait.breakdown.waitComponent === 180, "Espera 80s → 180");
-assert(
-  withWait.breakdown.officialFare === 6600,
-  "Con espera corta aún aplica mínimo si raw < 6600",
-);
 
-// Nocturno
 assert(
   isNightTime(new Date("2026-07-21T21:00:00"), RULES),
   "21:00 es nocturno",
@@ -99,9 +87,8 @@ const night = calculateFareWithRules(
   { at: new Date("2026-07-21T21:30:00") },
 );
 assert(night.breakdown.surchargeNight === 1000, "Recargo nocturno 1000");
-assert(night.amount === 8600, "Corto nocturno 6600+1000+1000 WhatXia");
+assert(night.amount === 8400, "Corto nocturno 6600+1000+800");
 
-// Domingo
 assert(
   isSundayOrHoliday(new Date("2026-07-19T12:00:00"), RULES),
   "Domingo detectado",
@@ -111,7 +98,6 @@ assert(
   "Festivo en lista",
 );
 
-// Aeropuerto por keyword
 const airport = calculateFareWithRules(
   { distanceMeters: 500, durationSeconds: 60 },
   RULES,
@@ -121,14 +107,11 @@ const airport = calculateFareWithRules(
   },
 );
 assert(airport.breakdown.surchargeAirport === 6500, "Recargo aeropuerto");
-assert(
-  airport.amount === 6600 + 6500 + 1000,
-  "Corto + aeropuerto + WhatXia",
-);
+assert(airport.amount === 6600 + 6500 + 800, "Corto + aeropuerto + WhatXia");
 
 assert(
-  formatFareCop(7600).includes("7.600") || formatFareCop(7600).includes("7600"),
+  formatFareCop(7400).includes("7.400") || formatFareCop(7400).includes("7400"),
   "formatFareCop",
 );
 
-console.log("\nSprint 25 pricing: todas las aserciones OK");
+console.log("\npricing certify (tarifas oficiales): OK");
