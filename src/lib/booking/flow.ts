@@ -524,21 +524,40 @@ async function resolveTextToPlace(
     const resolved = candidateToResolved(candidates[0]);
     if (!isPointInCity(resolved.location, city)) {
       await sendTextMessage(phone, outOfCityServiceMessage(city));
+      if (role === "dropoff") {
+        await offerDropoffNotFoundOptions(phone, name, {
+          ...draft,
+          dropoff: undefined,
+          candidates: undefined,
+        });
+      }
       return;
     }
-    if (role === "pickup") {
-      draft.pickup = resolved;
-      draft.pickupLabel = resolved.name;
-      draft.originCapture = "places_text";
-      await persistDraft(phone, name, "WAITING_PICKUP_CONFIRM", draft);
-    } else {
+
+    // Destino: alta confianza → cotizar sin mapa ni confirmación al pasajero.
+    // place_id / coords quedan en draft para el conductor.
+    if (role === "dropoff") {
       draft.dropoff = resolved;
-      await persistDraft(phone, name, "WAITING_DROPOFF_CONFIRM", draft);
+      draft.candidates = undefined;
+      draft.candidateRole = undefined;
+      console.log("[booking] destino alta confianza → cotización directa", {
+        placeId: resolved.placeId,
+        name: resolved.name,
+      });
+      await afterDropoffConfirmed(phone, name, draft);
+      return;
     }
+
+    // Origen vía Places (modo futuro): sigue pidiendo confirmación.
+    draft.pickup = resolved;
+    draft.pickupLabel = resolved.name;
+    draft.originCapture = "places_text";
+    await persistDraft(phone, name, "WAITING_PICKUP_CONFIRM", draft);
     await sendPlaceForConfirm(phone, resolved);
     return;
   }
 
+  // Varias opciones (o una sin umbral): lista; sin mapa.
   const confirmState =
     role === "pickup" ? "WAITING_PICKUP_CONFIRM" : "WAITING_DROPOFF_CONFIRM";
   await persistDraft(phone, name, confirmState, draft);
@@ -920,16 +939,30 @@ export async function handleBookingMessage(
         );
         return true;
       }
-      draft.dropoff = candidateToResolved(chosen);
+      const resolved = candidateToResolved(chosen);
+      const city = await getActiveCity();
+      if (!isPointInCity(resolved.location, city)) {
+        await sendTextMessage(phone, outOfCityServiceMessage(city));
+        draft.dropoff = undefined;
+        draft.candidates = undefined;
+        await offerDropoffNotFoundOptions(phone, name, draft);
+        return true;
+      }
+      // Elección en lista → cotización directa (sin mapa ni confirmación extra).
+      draft.dropoff = resolved;
       draft.candidates = undefined;
-      await persistDraft(phone, name, "WAITING_DROPOFF_CONFIRM", draft);
-      await sendPlaceForConfirm(phone, draft.dropoff);
+      draft.candidateRole = undefined;
+      console.log("[booking] destino elegido de lista → cotización", {
+        placeId: resolved.placeId,
+        name: resolved.name,
+      });
+      await afterDropoffConfirmed(phone, name, draft);
       return true;
     }
 
     await sendTextMessage(
       phone,
-      "Confirma el destino con los botones o elige una opción de la lista.",
+      "Elige una opción de la lista o escribe otro destino.",
     );
     return true;
   }

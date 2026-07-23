@@ -57,7 +57,9 @@ assert(true, "Paso 1: texto libre → pickupLabel (sin Places)");
 assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta)");
 assert(true, "Entrada: un lugar = origen; luego ¿Hacia dónde vamos?");
 assert(true, "Entrada dual origen+destino → Places → cotización");
-assert(true, "Destino no encontrado → opciones mapa / reescribir (sin culpa)");
+assert(true, "Destino alta confianza → cotización sin mapa/confirmación");
+assert(true, "Destino varias opciones → lista; al elegir → cotización sin mapa");
+assert(true, "Destino no encontrado → mapa solo como recuperación");
 assert(true, "Ubicación WA como destino → cotización directa (sin re-pedir origen)");
 assert(true, "Reescritura → nueva búsqueda Places; si falla, mismas opciones");
 
