@@ -9,9 +9,8 @@ export type TaximeterServiceType = TaximeterPickupType;
 
 export type TaximeterSessionState =
   | "awaiting_start_location"
-  | "measuring"
   | "awaiting_end_location"
-  | "awaiting_meter_value"
+  | "awaiting_confirm_finish"
   | "awaiting_service_type";
 
 export type TaximeterRouteSnapshot = {
@@ -23,12 +22,11 @@ export type TaximeterRouteSnapshot = {
   durationSecondsRoute: number | null;
   polylineEncoded: string | null;
   fallback: "haversine" | null;
-  /** Puntos compartidos durante el recorrido (Cloud API solo envía pins estáticos). */
-  trackPoints?: Array<{ lat: number; lng: number; at: string }>;
 };
 
 export type TaximeterTestSession = {
   phone: string;
+  sessionId: string | null;
   driverId: string | null;
   driverName: string | null;
   state: TaximeterSessionState;
@@ -60,9 +58,9 @@ export type TaximeterTestRunInsert = {
   distanceMeters: number;
   durationSeconds: number;
   whatxiaFare: number;
-  meterValue: number;
-  differencePesos: number;
-  differencePercent: number;
+  meterValue: number | null;
+  differencePesos: number | null;
+  differencePercent: number | null;
   pickupType: TaximeterPickupType;
   pickupSurcharge: number;
   routeProvider: string;

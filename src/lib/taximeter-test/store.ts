@@ -3,6 +3,7 @@
  * Independiente de conversation_sessions / trips.
  */
 
+import { randomUUID } from "crypto";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/trips";
 import type {
@@ -11,6 +12,10 @@ import type {
   TaximeterTestSession,
   TaximeterSessionState,
 } from "@/lib/taximeter-test/types";
+
+type SessionDraft = {
+  sessionId?: string;
+};
 
 type SessionRow = {
   phone: string;
@@ -30,7 +35,16 @@ type SessionRow = {
   route_provider: string | null;
   route_polyline: string | null;
   route: TaximeterRouteSnapshot | Record<string, unknown> | null;
+  draft: SessionDraft | Record<string, unknown> | null;
 };
+
+function readSessionId(draft: SessionRow["draft"]): string | null {
+  if (!draft || typeof draft !== "object") {
+    return null;
+  }
+  const id = (draft as SessionDraft).sessionId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
 
 function mapSession(row: SessionRow): TaximeterTestSession {
   const route =
@@ -40,6 +54,7 @@ function mapSession(row: SessionRow): TaximeterTestSession {
 
   return {
     phone: row.phone,
+    sessionId: readSessionId(row.draft),
     driverId: row.driver_id,
     driverName: row.driver_name,
     state: row.state as TaximeterSessionState,
@@ -59,7 +74,11 @@ function mapSession(row: SessionRow): TaximeterTestSession {
   };
 }
 
-export async function getTaximeterSession(
+export function newTaximeterSessionId(): string {
+  return randomUUID();
+}
+
+async function fetchTaximeterSessionRow(
   phone: string,
 ): Promise<TaximeterTestSession | null> {
   const supabase = getSupabase();
@@ -79,9 +98,16 @@ export async function getTaximeterSession(
   return data ? mapSession(data as SessionRow) : null;
 }
 
+export async function getTaximeterSession(
+  phone: string,
+): Promise<TaximeterTestSession | null> {
+  return fetchTaximeterSessionRow(normalizePhone(phone));
+}
+
 export async function upsertTaximeterSession(
   phone: string,
   patch: Partial<{
+    sessionId: string | null;
     driverId: string | null;
     driverName: string | null;
     state: TaximeterSessionState;
@@ -102,7 +128,12 @@ export async function upsertTaximeterSession(
 ): Promise<TaximeterTestSession> {
   const supabase = getSupabase();
   const normalized = normalizePhone(phone);
-  const current = await getTaximeterSession(normalized);
+  const current = await fetchTaximeterSessionRow(normalized);
+
+  const sessionId =
+    patch.sessionId !== undefined && patch.sessionId !== null
+      ? patch.sessionId
+      : current?.sessionId ?? newTaximeterSessionId();
 
   const row = {
     phone: normalized,
@@ -144,6 +175,7 @@ export async function upsertTaximeterSession(
         : current?.routePolyline ?? null,
     route:
       patch.route !== undefined ? (patch.route ?? {}) : current?.route ?? {},
+    draft: { sessionId },
     updated_at: new Date().toISOString(),
   };
 
