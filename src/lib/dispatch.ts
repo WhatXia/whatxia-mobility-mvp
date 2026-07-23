@@ -23,7 +23,6 @@ import { upsertSession } from "@/lib/sessions";
 import {
   sendButtonsMessage,
   sendCtaUrlMessage,
-  sendLocationMessage,
   sendTextMessage,
 } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
@@ -63,6 +62,7 @@ export const DRIVER_BUTTON_IDS = {
   RECHAZAR: "rechazar_servicio",
   ETA: "eta",
   LLEGUE: "llegue",
+  VER_UBICACION: "ver_ubicacion",
   INICIAR: "iniciar_viaje",
   NAVEGAR: "navegar_destino",
   FINALIZAR: "finalizar_viaje",
@@ -75,6 +75,7 @@ type DriverButtonAction =
   | { action: "reject"; tripId: string }
   | { action: "eta"; tripId: string; minutes: number }
   | { action: "llegue"; tripId: string }
+  | { action: "ver_ubicacion"; tripId: string }
   | { action: "iniciar"; tripId: string }
   | { action: "navegar"; tripId: string }
   | { action: "finalizar"; tripId: string };
@@ -93,6 +94,10 @@ function etaButtonId(minutes: number, tripId: string) {
 
 function llegueButtonId(tripId: string) {
   return `${DRIVER_BUTTON_IDS.LLEGUE}:${tripId}`;
+}
+
+function verUbicacionButtonId(tripId: string) {
+  return `${DRIVER_BUTTON_IDS.VER_UBICACION}:${tripId}`;
 }
 
 function iniciarButtonId(tripId: string) {
@@ -148,6 +153,13 @@ export function parseDriverButton(
     };
   }
 
+  if (button.startsWith(`${DRIVER_BUTTON_IDS.VER_UBICACION}:`)) {
+    return {
+      action: "ver_ubicacion",
+      tripId: button.slice(DRIVER_BUTTON_IDS.VER_UBICACION.length + 1),
+    };
+  }
+
   if (button.startsWith(`${DRIVER_BUTTON_IDS.INICIAR}:`)) {
     return {
       action: "iniciar",
@@ -186,10 +198,20 @@ async function sendEtaOptions(driverPhone: string, tripId: string) {
 }
 
 async function sendArrivedButton(driverPhone: string, tripId: string) {
-  await sendButtonsMessage(driverPhone, "Cuando llegues al punto de recogida:", [
-    { id: llegueButtonId(tripId), title: "📍 Llegué" },
-    { id: cancelServicioButtonId(tripId), title: "❌ Cancelar servicio" },
-  ]);
+  // Máx. 3 botones (límite WhatsApp).
+  await sendButtonsMessage(
+    driverPhone,
+    [
+      "🚖 Dirígete al punto de recogida.",
+      '🧭 Usa "Ver ubicación" para llegar al pasajero.',
+      'Al llegar, presiona "Llegué".',
+    ].join("\n"),
+    [
+      { id: verUbicacionButtonId(tripId), title: "Ver ubicación" },
+      { id: llegueButtonId(tripId), title: "📍 Llegué" },
+      { id: cancelServicioButtonId(tripId), title: "❌ Cancelar servicio" },
+    ],
+  );
 }
 
 async function sendStartTripButton(driverPhone: string, tripId: string) {
@@ -439,9 +461,7 @@ async function publishTripOffer(
       : null;
 
   const pickupLabel = trip.pickupLabel ?? trip.pickupNeighborhood;
-  const hasPickupCoords = trip.pickupLat != null && trip.pickupLng != null;
 
-  // Prueba UX: pin nativo antes de la oferta; sin URL de Maps en el texto.
   const body = [
     "🚖 Nuevo servicio",
     "",
@@ -467,7 +487,6 @@ async function publishTripOffer(
     tripId: trip.id,
     recipientCount: availableDrivers.length,
     recipients: availableDrivers.map((d) => d.phone),
-    nativePickupLocation: hasPickupCoords,
   });
 
   console.log("[dispatch] enviando oferta a conductores:", {
@@ -479,17 +498,9 @@ async function publishTripOffer(
   });
 
   const results = await Promise.allSettled(
-    availableDrivers.map(async (driver) => {
-      if (hasPickupCoords) {
-        await sendLocationMessage(driver.phone, {
-          latitude: trip.pickupLat as number,
-          longitude: trip.pickupLng as number,
-          name: pickupLabel,
-          address: pickupLabel,
-        });
-      }
-      await sendButtonsMessage(driver.phone, body, buttons);
-    }),
+    availableDrivers.map((driver) =>
+      sendButtonsMessage(driver.phone, body, buttons),
+    ),
   );
 
   results.forEach((result, index) => {
@@ -711,6 +722,69 @@ export async function handleDriverEta(
   console.log("[dispatch] ETA informado:", {
     tripId: updated.id,
     minutes,
+    driverPhone,
+    resolveSource: source,
+  });
+}
+
+/**
+ * Abre Google Maps hacia el punto de recogida (coords ya almacenadas).
+ * Disponible tras informar ETA, junto a Llegué / Cancelar.
+ */
+export async function handleDriverVerUbicacion(
+  driverPhone: string,
+  tripId: string,
+): Promise<void> {
+  const { trip, source } = await resolveDriverTrip(tripId, driverPhone);
+
+  if (!trip) {
+    console.error("[dispatch] Ver ubicación sin viaje activo", {
+      tripId,
+      driverPhone,
+      source,
+    });
+    await sendTextMessage(
+      driverPhone,
+      "No encontramos un servicio activo asignado a ti.",
+    );
+    return;
+  }
+
+  if (trip.status !== "ETA_INFORMED" && trip.status !== "DRIVER_ARRIVED") {
+    await sendTextMessage(
+      driverPhone,
+      "La ubicación de recogida está disponible cuando ya vas hacia el pasajero.",
+    );
+    return;
+  }
+
+  const label =
+    trip.pickupLabel?.trim() ||
+    trip.pickupNeighborhood?.trim() ||
+    "Punto de recogida";
+
+  const url = mapsNavigationUrl({
+    lat: trip.pickupLat,
+    lng: trip.pickupLng,
+    placeId: trip.pickupPlaceId,
+    label,
+  });
+
+  if (!url) {
+    await sendTextMessage(
+      driverPhone,
+      "No hay coordenadas de recogida para navegar.",
+    );
+    return;
+  }
+
+  await sendCtaUrlMessage(driverPhone, `📍 Recoger en: ${label}`, {
+    displayText: "Abrir Google Maps",
+    url,
+  });
+
+  console.log("[dispatch] ubicación de recogida enviada al conductor:", {
+    tripId: trip.id,
     driverPhone,
     resolveSource: source,
   });

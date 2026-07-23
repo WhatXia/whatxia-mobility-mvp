@@ -24,6 +24,7 @@ import {
   handleDriverLlegue,
   handleDriverNavegarDestino,
   handleDriverReject,
+  handleDriverVerUbicacion,
   parseDriverButton,
 } from "@/lib/dispatch";
 import {
@@ -237,6 +238,11 @@ export async function handleIncomingMessage(
       driverButton.tripId,
       driverButton.minutes,
     );
+    return;
+  }
+
+  if (driverButton?.action === "ver_ubicacion") {
+    await handleDriverVerUbicacion(message.phone, driverButton.tripId);
     return;
   }
 
