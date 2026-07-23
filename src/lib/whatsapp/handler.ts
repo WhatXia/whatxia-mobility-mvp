@@ -70,6 +70,12 @@ import {
   parsePostRatingButton,
   parseRatingButton,
 } from "@/lib/rating";
+import {
+  handleTaximeterMessage,
+  isTaximeterActivationText,
+  isTaximeterButton,
+  getTaximeterSession,
+} from "@/lib/taximeter-test";
 import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
@@ -308,6 +314,18 @@ export async function handleIncomingMessage(
   if (message.button === DRIVER_MENU_IDS.REPORTAR) {
     await handleDriverReport(message.phone);
     return;
+  }
+
+  // Taxímetro de prueba: independiente de Mobility (solo conductores).
+  if (
+    isTaximeterButton(message.button) ||
+    isTaximeterActivationText(message.text) ||
+    (await getTaximeterSession(message.phone))
+  ) {
+    const handled = await handleTaximeterMessage(message);
+    if (handled) {
+      return;
+    }
   }
 
   if (message.button === BUTTON_IDS.SOLICITAR_SERVICIO) {
