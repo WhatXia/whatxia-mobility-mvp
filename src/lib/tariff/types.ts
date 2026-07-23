@@ -48,6 +48,12 @@ export type CityTariffConfig = {
     platform: number;
   };
   nightStartHour: number;
+  /**
+   * Hora de fin exclusiva (0–23), leída de fare_rules.
+   * Ventana [nightStartHour, nightEndHour) en horas locales;
+   * si start > end, cruza medianoche.
+   * Ej. fin 05:59:59 → nightEndHour = 6.
+   */
   nightEndHour: number;
   holidayDates: string[];
   airport: {

@@ -34,8 +34,8 @@ const RULES: FareRules = {
   surchargeSundayHoliday: 850,
   surchargeAirport: 6500,
   surchargeWhatxia: 800,
-  nightStartHour: 20,
-  nightEndHour: 5,
+  nightStartHour: 19,
+  nightEndHour: 6,
   holidayDates: ["2026-01-01"],
   airportKeywords: ["aeropuerto"],
   airportCenterLat: 3.5583,
@@ -74,8 +74,16 @@ const withWait = calculateFareWithRules(
 assert(withWait.breakdown.waitComponent === 180, "Espera 80s → 180");
 
 assert(
-  isNightTime(new Date("2026-07-21T21:00:00"), RULES),
-  "21:00 es nocturno",
+  isNightTime(new Date("2026-07-21T19:00:00"), RULES),
+  "19:00 es nocturno (desde fare_rules)",
+);
+assert(
+  isNightTime(new Date("2026-07-21T05:30:00"), RULES),
+  "05:30 sigue nocturno",
+);
+assert(
+  !isNightTime(new Date("2026-07-21T06:00:00"), RULES),
+  "06:00 no es nocturno",
 );
 assert(
   !isNightTime(new Date("2026-07-21T10:00:00"), RULES),

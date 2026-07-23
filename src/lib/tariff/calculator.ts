@@ -22,6 +22,11 @@ function haversineMeters(
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+/**
+ * ¿Aplica recargo nocturno según la ventana de la ciudad (fare_rules)?
+ * Usa solo config.nightStartHour / nightEndHour — sin horas fijas en código.
+ * Fin exclusivo por hora: incluye minutos de (end-1), excluye desde end:00.
+ */
 export function isNightTime(at: Date, config: CityTariffConfig): boolean {
   const hour = at.getHours();
   const start = config.nightStartHour;

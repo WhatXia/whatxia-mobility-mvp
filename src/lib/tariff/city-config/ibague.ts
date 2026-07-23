@@ -26,8 +26,8 @@ export const ibagueTariff: CityTariffConfig = {
     airport: 6500,
     platform: 800,
   },
-  nightStartHour: 20,
-  nightEndHour: 5,
+  nightStartHour: 19,
+  nightEndHour: 6,
   holidayDates: ["2026-01-01"],
   airport: {
     keywords: ["aeropuerto", "perales"],

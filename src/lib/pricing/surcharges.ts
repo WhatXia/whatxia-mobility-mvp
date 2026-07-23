@@ -16,6 +16,10 @@ function haversineMeters(
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+/**
+ * Ventana nocturna desde fare_rules (nightStartHour / nightEndHour).
+ * Sin horas fijas en código. Fin exclusivo por hora.
+ */
 export function isNightTime(at: Date, rules: FareRules): boolean {
   const hour = at.getHours();
   const start = rules.nightStartHour;
@@ -25,7 +29,7 @@ export function isNightTime(at: Date, rules: FareRules): boolean {
     return false;
   }
 
-  // Ventana que cruza medianoche (ej. 20 → 5)
+  // Cruza medianoche cuando start > end (valores vienen de DB).
   if (start > end) {
     return hour >= start || hour < end;
   }

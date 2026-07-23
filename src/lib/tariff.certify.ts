@@ -43,8 +43,8 @@ const fixtureRow: FareRulesDbRow = {
   surcharge_sunday_holiday: 850,
   surcharge_airport: 6500,
   surcharge_whatxia: 800,
-  night_start_hour: 20,
-  night_end_hour: 5,
+  night_start_hour: 19,
+  night_end_hour: 6,
   holiday_dates: ["2026-01-01"],
   airport_keywords: ["aeropuerto", "perales"],
   airport_center_lat: 4.4214,
@@ -99,7 +99,22 @@ const withWait = calculateTariff({
 });
 assert(withWait.breakdown.waitValue === 180, "Espera 80s → 180");
 
-assert(isNightTime(new Date("2026-07-21T21:00:00"), cfg), "21:00 nocturno");
+assert(
+  !isNightTime(new Date("2026-07-21T18:59:00"), cfg),
+  "18:59 no nocturno (inicio 19:00 desde fare_rules)",
+);
+assert(
+  isNightTime(new Date("2026-07-21T19:00:00"), cfg),
+  "19:00 nocturno (night_start_hour de fare_rules)",
+);
+assert(
+  isNightTime(new Date("2026-07-21T05:59:00"), cfg),
+  "05:59 nocturno (hasta antes de night_end_hour)",
+);
+assert(
+  !isNightTime(new Date("2026-07-21T06:00:00"), cfg),
+  "06:00 ya no nocturno (night_end_hour exclusivo)",
+);
 assert(isSundayOrHoliday(new Date("2026-07-19T12:00:00"), cfg), "Domingo");
 
 const sunday = calculateTariff({
