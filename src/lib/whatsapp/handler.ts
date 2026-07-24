@@ -40,6 +40,8 @@ import {
 import {
   continueDriverRegistration,
   getActiveRegistrationSession,
+  handleDriverRegistrationButton,
+  isDriverRegistrationButton,
   startDriverRegistration,
 } from "@/lib/driver-registration";
 import {
@@ -365,6 +367,12 @@ export async function handleIncomingMessage(
     return;
   }
 
+  // Inscripción conductor: Cancelar / Salir / Continuar / Empezar de nuevo
+  if (isDriverRegistrationButton(message.button)) {
+    await handleDriverRegistrationButton(message.phone, message.button);
+    return;
+  }
+
   // Taxímetro de prueba: sesión activa o botones (🚖/🚕 abren módulo conductor).
   if (
     isTaximeterButton(message.button) ||
@@ -520,6 +528,34 @@ export async function handleIncomingMessage(
   if (isGreeting(message.text)) {
     await findOrCreatePassenger(message.phone, message.name);
 
+    const driver = await findDriverByPhone(message.phone);
+
+    if (driver) {
+      await upsertSession(message.phone, {
+        name: message.name,
+        state: "IDLE",
+        pickupNeighborhood: null,
+        driverName: null,
+        driverDraft: null,
+        driverFlowStep: null,
+        driverUpdateCategory: null,
+        driverUpdateField: null,
+        bookingDraft: null,
+      });
+      await sendDriverMainMenu(driver, message.phone);
+      return;
+    }
+
+    // No borrar inscripción pausada: ofrecer continuar / empezar de nuevo.
+    const pendingReg = await getSession(message.phone);
+    if (
+      pendingReg?.state === "DRIVER_REGISTRATION_PAUSED" ||
+      pendingReg?.state === "DRIVER_REGISTRATION_RESUME_CHOICE"
+    ) {
+      await startDriverRegistration(message.phone);
+      return;
+    }
+
     await upsertSession(message.phone, {
       name: message.name,
       state: "IDLE",
@@ -531,13 +567,6 @@ export async function handleIncomingMessage(
       driverUpdateField: null,
       bookingDraft: null,
     });
-
-    const driver = await findDriverByPhone(message.phone);
-
-    if (driver) {
-      await sendDriverMainMenu(driver, message.phone);
-      return;
-    }
 
     await sendPassengerWelcomeMenu(message.phone);
     return;
