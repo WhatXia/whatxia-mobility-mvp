@@ -46,6 +46,7 @@ import type {
 } from "@/lib/geo/types";
 import {
   finalizeFare,
+  formatEstimatedFareRangeLine,
   formatTariffCop,
 } from "@/lib/tariff";
 import { getActiveCity } from "@/lib/city/context";
@@ -470,7 +471,7 @@ async function publishTripOffer(
     distanceKm ? `📏 Distancia estimada: ${distanceKm} km` : null,
     durationMin ? `⏱️ Tiempo estimado: ${durationMin} min` : null,
     trip.quotedFare != null
-      ? `💰 Valor del servicio: ${formatTariffCop(trip.quotedFare)}`
+      ? formatEstimatedFareRangeLine(trip.quotedFare)
       : null,
     "",
     "Aceptar el servicio:",

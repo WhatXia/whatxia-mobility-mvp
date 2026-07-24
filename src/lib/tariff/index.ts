@@ -17,6 +17,12 @@ export {
 } from "@/lib/tariff/engine";
 
 export {
+  formatEstimatedFareRangeLine,
+  formatEstimatedFareRangePassenger,
+  ESTIMATED_FARE_RANGE_MARGIN_COP,
+} from "@/lib/tariff/present-estimate";
+
+export {
   calculateTariff,
   appliesSundayHolidaySurcharge,
   roundTariffToHundred,

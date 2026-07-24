@@ -15,7 +15,7 @@ import { estimateRoute } from "@/lib/geo/routes";
 import { GoogleMapsError } from "@/lib/geo/client";
 import {
   estimateFare,
-  roundTariffToHundred,
+  formatEstimatedFareRangePassenger,
   tariffQuoteToFareQuote,
 } from "@/lib/tariff";
 import { offerTripToDrivers } from "@/lib/dispatch";
@@ -52,26 +52,6 @@ export const BOOKING_BUTTON_IDS = {
   CANCEL_QUOTE: "booking_cancel_quote",
   CANDIDATE_PREFIX: "booking_cand:",
 } as const;
-
-/** Margen fijo solo para presentación del rango estimado (no altera el cálculo). */
-const ESTIMATED_FARE_RANGE_MARGIN_COP = 3000;
-
-function formatCopSymbol(amount: number): string {
-  return `$${roundTariffToHundred(amount).toLocaleString("es-CO")}`;
-}
-
-/** Presentación de cotización: mínimo = cálculo actual; máximo = mínimo + $3.000. */
-function estimatedFareRangeText(calculatedAmount: number): string {
-  const minLabel = formatCopSymbol(calculatedAmount);
-  const maxLabel = formatCopSymbol(
-    calculatedAmount + ESTIMATED_FARE_RANGE_MARGIN_COP,
-  );
-  return [
-    `🚖 Tarifa estimada: entre ${minLabel} y ${maxLabel}.`,
-    "",
-    "El valor final será el que marque el taxímetro, de acuerdo con la tarifa oficial.",
-  ].join("\n");
-}
 
 const BOOKING_STATES: UserState[] = [
   "WAITING_PICKUP_LOCATION",
@@ -653,7 +633,7 @@ async function buildAndSendQuote(
     `📏 Distancia estimada: ${quote.distanceKm.toFixed(1)} km`,
     `⏱️ Tiempo estimado: ${quote.durationMin} min`,
     "",
-    estimatedFareRangeText(quote.amount),
+    formatEstimatedFareRangePassenger(quote.amount),
     "",
     "¿Confirmas el servicio?",
   ].join("\n");
