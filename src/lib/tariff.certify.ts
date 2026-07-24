@@ -1,10 +1,11 @@
 /**
- * Certificación Tariff Engine — Ibagué v2 (mínima + excedente + redondeo).
+ * Certificación Tariff Engine — Ibagué v2 + recargo llamada off en estimado.
  * Ejecutar: npx tsx src/lib/tariff.certify.ts
  */
 export {};
 
 import {
+  APPLY_CALL_SURCHARGE_ON_ESTIMATE,
   appliesSundayHolidaySurcharge,
   calculateTariff,
   distanceIncrementUnits,
@@ -20,6 +21,7 @@ import { isSundayOrPublicHoliday } from "@/lib/tariff/holidays";
 import { deriveWaitSecondsFromSpeed } from "@/lib/tariff/waiting";
 import { tariffQuoteToFareQuote } from "@/lib/tariff/adapters";
 import { LocalTariffProvider } from "@/lib/tariff/provider";
+import type { CityTariffConfig, TariffKind } from "@/lib/tariff/types";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -59,14 +61,22 @@ const fixtureRow: FareRulesDbRow = {
 const cfg = mapFareRulesRowToCityTariff(fixtureRow);
 assert(cfg.countryCode === "CO", "Mapper: countryCode desde cities");
 assert(cfg.incrementAmount === 90, "Tick distancia $90");
-assert(cfg.surcharges.platform === 800, "WhatXia 800");
+assert(cfg.surcharges.platform === 800, "Regla WhatXia 800 intacta en config");
+assert(
+  APPLY_CALL_SURCHARGE_ON_ESTIMATE === false,
+  "MVP: recargo llamada off en estimado",
+);
 
 const weekday10 = new Date("2026-07-21T10:00:00");
 
-function quoteAt(distanceMeters: number) {
+function quoteAt(
+  distanceMeters: number,
+  kind: TariffKind = "estimated",
+  config: CityTariffConfig = cfg,
+) {
   return calculateTariff({
-    kind: "estimated",
-    config: cfg,
+    kind,
+    config,
     distanceMeters,
     durationSeconds: 120,
     waitSeconds: 0,
@@ -77,28 +87,39 @@ function quoteAt(distanceMeters: number) {
   });
 }
 
-// --- Ibagué v2: distancia incluida / excedente ---
-assert(quoteAt(800).amount === 7400, "800 m → exacto $7.400");
+// --- Estimado MVP: sin recargo por llamada ---
+assert(quoteAt(800).amount === 6600, "800 m estimado → $6.600 (sin llamada)");
+assert(quoteAt(800).breakdown.surchargePlatform === 0, "800 m: platform 0");
 assert(quoteAt(800).breakdown.minimumApplied === true, "800 m: mínima");
 assert(quoteAt(800).breakdown.distanceValue === 0, "800 m: sin incrementos");
 
-assert(quoteAt(1600).amount === 7400, "1.600 m → exacto $7.400");
+assert(quoteAt(1600).amount === 6600, "1.600 m estimado → $6.600");
 assert(quoteAt(1600).breakdown.distanceValue === 0, "1.600 m: sin incrementos");
 
 assert(distanceIncrementUnits(1680, cfg) === 1, "1.680 m → 1 tick");
-assert(quoteAt(1680).amount === 7490, "1.680 m → exacto $7.490");
-assert(roundTariffToHundred(7490) === 7500, "1.680 m → mostrar $7.500");
+assert(quoteAt(1680).amount === 6690, "1.680 m estimado → $6.690");
+assert(roundTariffToHundred(6690) === 6700, "1.680 m → mostrar $6.700");
 
 assert(distanceIncrementUnits(2000, cfg) === 5, "2.000 m → 5 ticks");
-assert(quoteAt(2000).amount === 7850, "2.000 m → exacto $7.850");
-assert(roundTariffToHundred(7850) === 7900, "2.000 m → mostrar $7.900");
+assert(quoteAt(2000).amount === 7050, "2.000 m estimado → $7.050");
+assert(roundTariffToHundred(7050) === 7100, "2.000 m → mostrar $7.100");
 
 assert(distanceIncrementUnits(3200, cfg) === 20, "3.200 m → 20 ticks");
 assert(
-  quoteAt(3200).amount === 6600 + 800 + 20 * 90,
-  "3.200 m → 6600+800+1800 = $9.200",
+  quoteAt(3200).amount === 6600 + 20 * 90,
+  "3.200 m estimado → 6600+1800 = $8.400",
 );
-assert(quoteAt(3200).amount === 9200, "3.200 m → exacto $9.200");
+
+// Final: el recargo por llamada SÍ aplica (regla viva)
+assert(quoteAt(800, "final").amount === 7400, "800 m final → $7.400 (+llamada)");
+assert(
+  quoteAt(800, "final").breakdown.surchargePlatform === 800,
+  "final: platform 800",
+);
+assert(
+  quoteAt(1680, "final").amount === 7490,
+  "1.680 m final → $7.490 (+llamada)",
+);
 
 // Redondeo de presentación
 assert(roundTariffToHundred(7840) === 7800, "7840 → 7800");
@@ -106,7 +127,7 @@ assert(roundTariffToHundred(7850) === 7900, "7850 → 7900");
 assert(roundTariffToHundred(8049) === 8000, "8049 → 8000");
 assert(roundTariffToHundred(8050) === 8100, "8050 → 8100");
 assert(
-  formatTariffCop(7490).includes("7.500") || formatTariffCop(7490).includes("7500"),
+  formatTariffCop(6690).includes("6.700") || formatTariffCop(6690).includes("6700"),
   "formatTariffCop muestra redondeado",
 );
 
@@ -143,7 +164,7 @@ const sunday = calculateTariff({
   provider: "certify",
 });
 assert(sunday.breakdown.surchargeSundayHoliday === 850, "Recargo domingo 850");
-assert(sunday.amount === 6600 + 850 + 800, "Domingo corto: 8250 exacto");
+assert(sunday.amount === 6600 + 850, "Domingo estimado: 7450 (sin llamada)");
 
 const holidayWeekday = calculateTariff({
   kind: "estimated",
@@ -161,8 +182,8 @@ assert(
   "Festivo weekday: mismo recargo una vez",
 );
 assert(
-  holidayWeekday.amount === 6600 + 850 + 800,
-  "Festivo: mínima + 850 + 800",
+  holidayWeekday.amount === 6600 + 850,
+  "Festivo estimado: mínima + 850",
 );
 
 const sundayHoliday = calculateTariff({
@@ -196,13 +217,13 @@ async function providerCases() {
   assert(provider.id === "supabase_fare_rules_v1", "Provider id");
 
   const quote = quoteAt(500);
-  assert(quote.amount === 7400, "Cálculo post-holidays flag");
+  assert(quote.amount === 6600, "Estimado sin recargo llamada");
   assert(
-    tariffQuoteToFareQuote(quote).breakdown.surchargeWhatxia === 800,
-    "Adapter plataforma",
+    tariffQuoteToFareQuote(quote).breakdown.surchargeWhatxia === 0,
+    "Adapter: platform 0 en estimado MVP",
   );
 
-  console.log("\nTariff Ibagué v2: todas las aserciones OK");
+  console.log("\nTariff Ibagué v2 (llamada off en estimado): OK");
 }
 
 providerCases().catch((error) => {

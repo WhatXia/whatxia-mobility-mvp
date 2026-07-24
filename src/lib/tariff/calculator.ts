@@ -162,11 +162,23 @@ export type CalculateTariffParams = {
 };
 
 /**
+ * Recargo por llamada / plataforma (`fare_rules.surcharge_whatxia`).
+ *
+ * MVP: no se suma en cotizaciones `estimated` (el pasajero ve tarifa sin ese
+ * recargo). La regla y el monto siguen en config/DB.
+ *
+ * Reactivar: poner `true` cuando exista taxímetro digital o se defina de nuevo
+ * su uso en la estimación. En `final` el recargo sigue aplicándose.
+ */
+export const APPLY_CALL_SURCHARGE_ON_ESTIMATE = false;
+
+/**
  * Cálculo puro de tarifa (Ibagué / taxímetro v2).
  *
  * Distancia ≤ minDistanceMeters → solo carrera mínima (sin incrementos).
  * Distancia > minDistanceMeters → mínima + incrementos sobre el excedente.
- * Recargo plataforma WhatXia siempre (y demás recargos de ciudad si aplican).
+ * Recargos de ciudad (noche / domingo-festivo / aeropuerto) según reglas.
+ * Recargo plataforma/llamada: ver `APPLY_CALL_SURCHARGE_ON_ESTIMATE`.
  *
  * `amount` = valor exacto (análisis / persistencia).
  * Presentación al usuario: `formatTariffCop` / `roundTariffToHundred`.
@@ -205,7 +217,13 @@ export function calculateTariff(params: CalculateTariffParams): TariffQuote {
   )
     ? config.surcharges.airport
     : 0;
-  const surchargePlatform = config.surcharges.platform;
+
+  // Regla intacta en config; en estimado MVP se omite del total (reactivable).
+  const callSurchargeConfigured = config.surcharges.platform;
+  const surchargePlatform =
+    params.kind === "estimated" && !APPLY_CALL_SURCHARGE_ON_ESTIMATE
+      ? 0
+      : callSurchargeConfigured;
 
   const total =
     officialFare +

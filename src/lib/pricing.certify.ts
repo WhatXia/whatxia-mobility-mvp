@@ -1,5 +1,5 @@
 /**
- * Certificación pricing compat — Ibagué v2 (delega a @/lib/tariff).
+ * Certificación pricing compat — estimado MVP sin recargo por llamada.
  */
 export {};
 
@@ -10,7 +10,11 @@ import {
   isNightTime,
   isSundayOrHoliday,
 } from "@/lib/pricing/surcharges";
-import { roundTariffToHundred } from "@/lib/tariff/calculator";
+import {
+  calculateTariff,
+  roundTariffToHundred,
+} from "@/lib/tariff/calculator";
+import { mapFareRulesRowToCityTariff } from "@/lib/tariff/config-loader";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -49,8 +53,8 @@ const short = calculateFareWithRules(
   { at: new Date("2026-07-21T10:00:00") },
 );
 assert(short.breakdown.officialFare === 6600, "800 m: oficial 6600");
-assert(short.breakdown.surchargeWhatxia === 800, "WhatXia 800");
-assert(short.amount === 7400, "800 m: total 7400");
+assert(short.breakdown.surchargeWhatxia === 0, "estimado: WhatXia 0 (MVP)");
+assert(short.amount === 6600, "800 m estimado: total 6600");
 assert(short.breakdown.minimumApplied === true, "800 m: mínima");
 
 assert(
@@ -58,8 +62,8 @@ assert(
     { distanceMeters: 1600, durationSeconds: 120 },
     RULES,
     { at: new Date("2026-07-21T10:00:00") },
-  ).amount === 7400,
-  "1.600 m: 7400",
+  ).amount === 6600,
+  "1.600 m estimado: 6600",
 );
 
 const d1680 = calculateFareWithRules(
@@ -67,16 +71,15 @@ const d1680 = calculateFareWithRules(
   RULES,
   { at: new Date("2026-07-21T10:00:00"), waitSeconds: 0 },
 );
-assert(d1680.amount === 7490, "1.680 m: exacto 7490");
-assert(roundTariffToHundred(d1680.amount) === 7500, "1.680 m: mostrar 7500");
+assert(d1680.amount === 6690, "1.680 m estimado: 6690");
+assert(roundTariffToHundred(d1680.amount) === 6700, "1.680 m: mostrar 6700");
 
 const d2000 = calculateFareWithRules(
   { distanceMeters: 2000, durationSeconds: 120 },
   RULES,
   { at: new Date("2026-07-21T10:00:00"), waitSeconds: 0 },
 );
-assert(d2000.amount === 7850, "2.000 m: exacto 7850");
-assert(roundTariffToHundred(d2000.amount) === 7900, "2.000 m: mostrar 7900");
+assert(d2000.amount === 7050, "2.000 m estimado: 7050");
 
 assert(
   distanceIncrementUnits(3200, RULES) === 20,
@@ -87,8 +90,8 @@ assert(
     { distanceMeters: 3200, durationSeconds: 300 },
     RULES,
     { at: new Date("2026-07-21T10:00:00"), waitSeconds: 0 },
-  ).amount === 9200,
-  "3.200 m: 9200",
+  ).amount === 8400,
+  "3.200 m estimado: 8400",
 );
 
 const withWait = calculateFareWithRules(
@@ -113,7 +116,7 @@ const night = calculateFareWithRules(
   { at: new Date("2026-07-21T21:30:00") },
 );
 assert(night.breakdown.surchargeNight === 1000, "Recargo nocturno 1000");
-assert(night.amount === 8400, "Corto nocturno 6600+1000+800");
+assert(night.amount === 7600, "Corto nocturno estimado 6600+1000");
 
 assert(
   isSundayOrHoliday(new Date("2026-07-19T12:00:00"), RULES),
@@ -129,11 +132,52 @@ const airport = calculateFareWithRules(
   },
 );
 assert(airport.breakdown.surchargeAirport === 6500, "Recargo aeropuerto");
-assert(airport.amount === 6600 + 6500 + 800, "Corto + aeropuerto + WhatXia");
+assert(airport.amount === 6600 + 6500, "Corto + aeropuerto (sin llamada)");
+
+// Final sigue aplicando el recargo (regla no eliminada)
+const cfg = mapFareRulesRowToCityTariff({
+  id: "certify-row",
+  currency: "COP",
+  flag_drop: RULES.flagDrop,
+  minimum_fare: RULES.minimumFare,
+  min_distance_meters: RULES.minDistanceMeters,
+  increment_meters: RULES.incrementMeters,
+  increment_amount: RULES.incrementAmount,
+  wait_seconds: RULES.waitSeconds,
+  wait_amount: RULES.waitAmount,
+  time_unit_seconds: 0,
+  time_amount: 0,
+  wait_speed_threshold_kmh: 5,
+  surcharge_night: RULES.surchargeNight,
+  surcharge_sunday_holiday: RULES.surchargeSundayHoliday,
+  surcharge_airport: RULES.surchargeAirport,
+  surcharge_whatxia: RULES.surchargeWhatxia,
+  night_start_hour: RULES.nightStartHour,
+  night_end_hour: RULES.nightEndHour,
+  holiday_dates: [],
+  airport_keywords: RULES.airportKeywords,
+  airport_center_lat: RULES.airportCenterLat,
+  airport_center_lng: RULES.airportCenterLng,
+  airport_radius_meters: RULES.airportRadiusMeters,
+  cities: { slug: "ibague", name: "Ibagué", country_code: "CO" },
+});
+const finalShort = calculateTariff({
+  kind: "final",
+  config: cfg,
+  distanceMeters: 800,
+  durationSeconds: 120,
+  waitSeconds: 0,
+  waitSource: "none",
+  at: new Date("2026-07-21T10:00:00"),
+  isPublicHoliday: false,
+  provider: "certify",
+});
+assert(finalShort.amount === 7400, "final: 7400 con llamada");
+assert(finalShort.breakdown.surchargePlatform === 800, "final: platform 800");
 
 assert(
-  formatFareCop(7490).includes("7.500") || formatFareCop(7490).includes("7500"),
+  formatFareCop(6690).includes("6.700") || formatFareCop(6690).includes("6700"),
   "formatFareCop redondea",
 );
 
-console.log("\npricing certify (Ibagué v2): OK");
+console.log("\npricing certify (estimado sin llamada): OK");
