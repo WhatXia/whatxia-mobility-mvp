@@ -275,7 +275,13 @@ export async function continueDriverRegistration(
 
     await sendTextMessage(
       message.phone,
-      "✅ Registro completado. Ya puedes recibir servicios.\n\nEnvía 🚖 o 🚕 para abrir tu menú de conductor.",
+      [
+        "✅ ¡Perfecto!",
+        "",
+        "Tu registro como conductor ha sido completado correctamente.",
+        "",
+        "Hemos recibido toda tu información. En adelante podrás acceder a tu módulo de conductor enviando 🚖 o 🚕.",
+      ].join("\n"),
     );
     return true;
   }
@@ -287,10 +293,6 @@ export async function continueDriverRegistration(
     driverName: draft.name ?? session.driverName,
   });
 
-  await sendTextMessage(
-    message.phone,
-    `✅ ${DRIVER_FIELDS[step].label} guardado.`,
-  );
   await sendRegistrationStepPrompt(message.phone, next);
   return true;
 }
