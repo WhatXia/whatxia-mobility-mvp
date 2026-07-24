@@ -1,5 +1,5 @@
 /**
- * Certificación Tariff Engine — fare_rules + holidays (sin holiday_dates).
+ * Certificación Tariff Engine — Ibagué v2 (mínima + excedente + redondeo).
  * Ejecutar: npx tsx src/lib/tariff.certify.ts
  */
 export {};
@@ -8,7 +8,9 @@ import {
   appliesSundayHolidaySurcharge,
   calculateTariff,
   distanceIncrementUnits,
+  formatTariffCop,
   isNightTime,
+  roundTariffToHundred,
 } from "@/lib/tariff/calculator";
 import {
   mapFareRulesRowToCityTariff,
@@ -26,6 +28,7 @@ function assert(condition: boolean, message: string) {
   console.log(`OK: ${message}`);
 }
 
+/** Fixture Ibagué v2: mínima 6600, WhatXia 800, tick 80 m × $90. */
 const fixtureRow: FareRulesDbRow = {
   id: "certify-row",
   currency: "COP",
@@ -33,7 +36,7 @@ const fixtureRow: FareRulesDbRow = {
   minimum_fare: 6600,
   min_distance_meters: 1600,
   increment_meters: 80,
-  increment_amount: 105,
+  increment_amount: 90,
   wait_seconds: 40,
   wait_amount: 90,
   time_unit_seconds: 0,
@@ -55,36 +58,56 @@ const fixtureRow: FareRulesDbRow = {
 
 const cfg = mapFareRulesRowToCityTariff(fixtureRow);
 assert(cfg.countryCode === "CO", "Mapper: countryCode desde cities");
-assert(cfg.holidayDates?.length === 0, "holiday_dates no se usa (vacío)");
-assert(cfg.surcharges.sundayHoliday === 850, "Monto domingo/festivo en fare_rules");
+assert(cfg.incrementAmount === 90, "Tick distancia $90");
+assert(cfg.surcharges.platform === 800, "WhatXia 800");
 
-const short = calculateTariff({
-  kind: "estimated",
-  config: cfg,
-  distanceMeters: 500,
-  durationSeconds: 120,
-  waitSeconds: 0,
-  waitSource: "none",
-  at: new Date("2026-07-21T10:00:00"),
-  isPublicHoliday: false,
-  provider: "certify",
-});
-assert(short.amount === 7400, "Corto: 6600+800");
+const weekday10 = new Date("2026-07-21T10:00:00");
 
-assert(distanceIncrementUnits(4400, cfg) === 35, "35 ticks");
-assert(
-  calculateTariff({
+function quoteAt(distanceMeters: number) {
+  return calculateTariff({
     kind: "estimated",
     config: cfg,
-    distanceMeters: 4400,
-    durationSeconds: 600,
+    distanceMeters,
+    durationSeconds: 120,
     waitSeconds: 0,
     waitSource: "none",
-    at: new Date("2026-07-21T10:00:00"),
+    at: weekday10,
     isPublicHoliday: false,
     provider: "certify",
-  }).amount === 8975,
-  "Mid + plataforma",
+  });
+}
+
+// --- Ibagué v2: distancia incluida / excedente ---
+assert(quoteAt(800).amount === 7400, "800 m → exacto $7.400");
+assert(quoteAt(800).breakdown.minimumApplied === true, "800 m: mínima");
+assert(quoteAt(800).breakdown.distanceValue === 0, "800 m: sin incrementos");
+
+assert(quoteAt(1600).amount === 7400, "1.600 m → exacto $7.400");
+assert(quoteAt(1600).breakdown.distanceValue === 0, "1.600 m: sin incrementos");
+
+assert(distanceIncrementUnits(1680, cfg) === 1, "1.680 m → 1 tick");
+assert(quoteAt(1680).amount === 7490, "1.680 m → exacto $7.490");
+assert(roundTariffToHundred(7490) === 7500, "1.680 m → mostrar $7.500");
+
+assert(distanceIncrementUnits(2000, cfg) === 5, "2.000 m → 5 ticks");
+assert(quoteAt(2000).amount === 7850, "2.000 m → exacto $7.850");
+assert(roundTariffToHundred(7850) === 7900, "2.000 m → mostrar $7.900");
+
+assert(distanceIncrementUnits(3200, cfg) === 20, "3.200 m → 20 ticks");
+assert(
+  quoteAt(3200).amount === 6600 + 800 + 20 * 90,
+  "3.200 m → 6600+800+1800 = $9.200",
+);
+assert(quoteAt(3200).amount === 9200, "3.200 m → exacto $9.200");
+
+// Redondeo de presentación
+assert(roundTariffToHundred(7840) === 7800, "7840 → 7800");
+assert(roundTariffToHundred(7850) === 7900, "7850 → 7900");
+assert(roundTariffToHundred(8049) === 8000, "8049 → 8000");
+assert(roundTariffToHundred(8050) === 8100, "8050 → 8100");
+assert(
+  formatTariffCop(7490).includes("7.500") || formatTariffCop(7490).includes("7500"),
+  "formatTariffCop muestra redondeado",
 );
 
 assert(isNightTime(new Date("2026-07-21T19:00:00"), cfg), "19:00 nocturno");
@@ -120,6 +143,7 @@ const sunday = calculateTariff({
   provider: "certify",
 });
 assert(sunday.breakdown.surchargeSundayHoliday === 850, "Recargo domingo 850");
+assert(sunday.amount === 6600 + 850 + 800, "Domingo corto: 8250 exacto");
 
 const holidayWeekday = calculateTariff({
   kind: "estimated",
@@ -141,7 +165,6 @@ assert(
   "Festivo: mínima + 850 + 800",
 );
 
-// Domingo que también es “festivo” en tabla → una sola vez
 const sundayHoliday = calculateTariff({
   kind: "estimated",
   config: cfg,
@@ -172,25 +195,14 @@ async function providerCases() {
   const provider = new LocalTariffProvider();
   assert(provider.id === "supabase_fare_rules_v1", "Provider id");
 
-  // Cálculo puro (sin I/O): mismo path que provider tras resolver holidays en DB.
-  const quote = calculateTariff({
-    kind: "estimated",
-    config: cfg,
-    distanceMeters: 500,
-    durationSeconds: 120,
-    waitSeconds: 0,
-    waitSource: "none",
-    at: new Date("2026-07-21T10:00:00"),
-    isPublicHoliday: false,
-    provider: provider.id,
-  });
+  const quote = quoteAt(500);
   assert(quote.amount === 7400, "Cálculo post-holidays flag");
   assert(
     tariffQuoteToFareQuote(quote).breakdown.surchargeWhatxia === 800,
     "Adapter plataforma",
   );
 
-  console.log("\nTariff holidays SSoT: todas las aserciones OK");
+  console.log("\nTariff Ibagué v2: todas las aserciones OK");
 }
 
 providerCases().catch((error) => {

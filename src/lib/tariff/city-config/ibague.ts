@@ -15,7 +15,7 @@ export const ibagueTariff: CityTariffConfig = {
   minimumFare: 6600,
   minDistanceMeters: 1600,
   incrementMeters: 80,
-  incrementAmount: 105,
+  incrementAmount: 90,
   timeUnitSeconds: 0,
   timeAmount: 0,
   waitUnitSeconds: 40,

@@ -109,7 +109,7 @@ export function isAirportTrip(
   );
 }
 
-/** Unidades de distancia (parcial redondea hacia arriba). */
+/** Unidades de distancia solo sobre el excedente tras minDistanceMeters (ceil). */
 export function distanceIncrementUnits(
   distanceMeters: number,
   config: CityTariffConfig,
@@ -135,6 +135,17 @@ export function waitIncrementUnits(
   return Math.floor(waitSeconds / config.waitUnitSeconds);
 }
 
+/**
+ * Redondeo al centenar más cercano (half-up).
+ * Ej.: 7840→7800, 7850→7900, 8049→8000, 8050→8100.
+ */
+export function roundTariffToHundred(amount: number): number {
+  if (!Number.isFinite(amount)) {
+    return 0;
+  }
+  return Math.floor(amount / 100 + 0.5) * 100;
+}
+
 export type CalculateTariffParams = {
   kind: TariffKind;
   config: CityTariffConfig;
@@ -151,11 +162,14 @@ export type CalculateTariffParams = {
 };
 
 /**
- * Cálculo puro de tarifa (sin I/O).
+ * Cálculo puro de tarifa (Ibagué / taxímetro v2).
  *
- * 1) Oficial = banderazo + distancia + tiempo marcha + espera
- * 2) Carrera mínima
- * 3) Recargos de ciudad + plataforma
+ * Distancia ≤ minDistanceMeters → solo carrera mínima (sin incrementos).
+ * Distancia > minDistanceMeters → mínima + incrementos sobre el excedente.
+ * Recargo plataforma WhatXia siempre (y demás recargos de ciudad si aplican).
+ *
+ * `amount` = valor exacto (análisis / persistencia).
+ * Presentación al usuario: `formatTariffCop` / `roundTariffToHundred`.
  */
 export function calculateTariff(params: CalculateTariffParams): TariffQuote {
   const { config, distanceMeters, durationSeconds, waitSeconds, at } = params;
@@ -168,10 +182,14 @@ export function calculateTariff(params: CalculateTariffParams): TariffQuote {
   const timeValue = timeUnits * config.timeAmount;
   const waitValue = waitUnits * config.waitAmount;
 
+  // Base = carrera mínima. Los ticks de distancia se suman encima (no banderazo+piso).
   const officialRaw =
-    config.flagDrop + distanceValue + timeValue + waitValue;
-  const minimumApplied = officialRaw < config.minimumFare;
-  const officialFare = Math.max(config.minimumFare, officialRaw);
+    config.minimumFare + distanceValue + timeValue + waitValue;
+  const minimumApplied =
+    distanceMeters <= config.minDistanceMeters &&
+    timeValue === 0 &&
+    waitValue === 0;
+  const officialFare = officialRaw;
 
   const surchargeNight = isNightTime(at, config) ? config.surcharges.night : 0;
   const surchargeSundayHoliday = appliesSundayHolidaySurcharge(
@@ -197,7 +215,7 @@ export function calculateTariff(params: CalculateTariffParams): TariffQuote {
     surchargePlatform;
 
   const breakdown: TariffBreakdown = {
-    flagDrop: config.flagDrop,
+    flagDrop: config.minimumFare,
     distanceValue,
     timeValue,
     waitValue,
@@ -227,6 +245,8 @@ export function calculateTariff(params: CalculateTariffParams): TariffQuote {
   };
 }
 
+/** Presentación al usuario: siempre redondeado al centenar. */
 export function formatTariffCop(amount: number): string {
-  return `$${amount.toLocaleString("es-CO")} COP`;
+  const rounded = roundTariffToHundred(amount);
+  return `$${rounded.toLocaleString("es-CO")} COP`;
 }

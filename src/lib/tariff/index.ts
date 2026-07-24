@@ -19,6 +19,7 @@ export {
 export {
   calculateTariff,
   appliesSundayHolidaySurcharge,
+  roundTariffToHundred,
 } from "@/lib/tariff/calculator";
 export {
   loadCityTariffConfig,
