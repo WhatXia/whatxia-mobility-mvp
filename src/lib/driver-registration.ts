@@ -18,6 +18,7 @@ import {
 } from "@/lib/supabase/drivers";
 import { EXPIRED_DOCS_MESSAGE } from "@/lib/driver-documents";
 import { sendExpiredDocumentsPrompt } from "@/lib/expired-docs-prompt";
+import { sendDriverMainMenu } from "@/lib/driver-menu";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
 function isFieldKey(value: string | null): value is DriverFieldKey {
@@ -29,10 +30,7 @@ export async function startDriverRegistration(phone: string): Promise<void> {
 
   if (existing) {
     await clearSession(phone);
-    await sendTextMessage(
-      phone,
-      "✅ Ya estás registrado y disponible para recibir servicios.",
-    );
+    await sendDriverMainMenu(existing, phone);
     return;
   }
 

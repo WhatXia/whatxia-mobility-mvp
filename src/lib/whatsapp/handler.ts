@@ -72,7 +72,6 @@ import {
 } from "@/lib/rating";
 import {
   handleTaximeterMessage,
-  isTaximeterActivationText,
   isTaximeterButton,
   getTaximeterSession,
 } from "@/lib/taximeter-test";
@@ -97,11 +96,28 @@ export const BUTTON_IDS = {
 
 const GREETINGS = new Set(["hola", "buenas", "buenos dias"]);
 
-const DRIVER_INTENTS = new Set([
+/** Frases exactas (tras normalizar) que abren el módulo conductor. */
+const DRIVER_INTENT_EXACT = new Set([
   "quiero ser conductor",
   "ser conductor",
   "conductor",
+  "soy conductor",
+  "trabajar como conductor",
+  "trabajo como conductor",
+  "modo conductor",
+  "menu conductor",
+  "menu del conductor",
+  "modulo conductor",
 ]);
+
+/** Intenciones equivalentes (texto normalizado). */
+const DRIVER_INTENT_PATTERNS: RegExp[] = [
+  /\b(quiero|deseo|me gustaria)\s+(ser|hacerme)\s+conductor\b/,
+  /\b(soy|trabajo como|trabajar como)\s+conductor\b/,
+  /\b(registrarme|inscribirme|registro)\s+(como\s+)?conductor\b/,
+  /\b(modo|menu|modulo)\s+(de\s+|del\s+)?conductor\b/,
+  /\bhacerme\s+conductor\b/,
+];
 
 function normalizeText(text: string): string {
   return text
@@ -119,12 +135,45 @@ function isGreeting(text: string | null): boolean {
   return GREETINGS.has(normalizeText(text));
 }
 
-function isDriverIntent(text: string | null): boolean {
+/**
+ * Intención de entrar al módulo conductor (emoji o frase).
+ * No cubre booking de pasajero (“necesito un taxi”, etc.).
+ */
+export function isDriverIntent(text: string | null): boolean {
   if (!text) {
     return false;
   }
 
-  return DRIVER_INTENTS.has(normalizeText(text));
+  const trimmed = text.trim();
+  if (trimmed === "🚖" || trimmed === "🚕") {
+    return true;
+  }
+
+  const normalized = normalizeText(trimmed);
+  if (!normalized) {
+    return false;
+  }
+
+  if (DRIVER_INTENT_EXACT.has(normalized)) {
+    return true;
+  }
+
+  return DRIVER_INTENT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+/**
+ * Conductor existente → menú. Si no existe → inscripción (sin duplicar).
+ */
+async function routeDriverModuleEntry(phone: string): Promise<void> {
+  const driver = await findDriverByPhone(phone);
+  if (driver) {
+    await sendDriverMainMenu(driver, phone);
+    console.log("[core-agent] módulo conductor → menú", { phone });
+    return;
+  }
+
+  await startDriverRegistration(phone);
+  console.log("[core-agent] módulo conductor → inscripción", { phone });
 }
 
 async function sendPassengerWelcomeMenu(phone: string) {
@@ -316,10 +365,9 @@ export async function handleIncomingMessage(
     return;
   }
 
-  // Taxímetro de prueba: independiente de Mobility (solo conductores).
+  // Taxímetro de prueba: sesión activa o botones (🚖/🚕 abren módulo conductor).
   if (
     isTaximeterButton(message.button) ||
-    isTaximeterActivationText(message.text) ||
     (await getTaximeterSession(message.phone))
   ) {
     const handled = await handleTaximeterMessage(message);
@@ -464,7 +512,7 @@ export async function handleIncomingMessage(
   }
 
   if (isDriverIntent(message.text)) {
-    await startDriverRegistration(message.phone);
+    await routeDriverModuleEntry(message.phone);
     return;
   }
 
