@@ -284,7 +284,7 @@ export type BookingIntentSlots = {
  * Entrada natural (Agent Zero):
  * - Un lugar → origen (label) + pedir share location → luego destino
  * - Origen + destino claros → Places ambos → cotización (sin pedir ubicación)
- * - Solo intención → pedir share location y luego destino
+ * - Solo intención / Solicitar servicio → "¿Dónde te recogemos?" → luego ubicación
  */
 export async function startBookingFromIntent(
   phone: string,
@@ -319,9 +319,11 @@ export async function startBookingFromIntent(
     return;
   }
 
-  await startPickupLocationStep(phone, name, {
-    pickupLabel: DEFAULT_PICKUP_LABEL,
+  // Solicitar servicio sin lugar: primero texto de recogida, luego pin.
+  await persistDraft(phone, name, "WAITING_PICKUP_TEXT", {
+    originCapture: "label_plus_whatsapp_location",
   });
+  await sendTextMessage(phone, "¿Dónde te recogemos?");
 }
 
 /** @deprecated Usar startBookingFromIntent (origen primero). */

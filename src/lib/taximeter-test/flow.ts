@@ -1,7 +1,7 @@
 /**
- * Taxímetro de prueba — MVP simplificado (independiente de Mobility).
- * Flujo: 🚖 → pin inicio → pin fin → confirmar → Calle/Satelital → guardar.
- * No pide valor del taxímetro físico.
+ * Taxímetro de prueba — captura valor físico vs WhatXia.
+ * Flujo: 🚖 → pin inicio → 🏁 Terminar → pin fin → tarifa → valor taxímetro → guardar.
+ * Independiente de Mobility / trips.
  */
 
 import type { IncomingMessage } from "@/types";
@@ -9,11 +9,7 @@ import { getActiveCity } from "@/lib/city/context";
 import { estimateRoute } from "@/lib/geo/routes";
 import type { GeoPoint } from "@/lib/geo/types";
 import { findDriverByPhone } from "@/lib/supabase/drivers";
-import {
-  finalizeFare,
-  formatTariffCop,
-  resolveCityTariff,
-} from "@/lib/tariff";
+import { finalizeFare, formatTariffCop } from "@/lib/tariff";
 import {
   clearTaximeterSession,
   getTaximeterSession,
@@ -22,7 +18,6 @@ import {
   upsertTaximeterSession,
 } from "@/lib/taximeter-test/store";
 import type {
-  TaximeterPickupType,
   TaximeterRouteSnapshot,
   TaximeterTestSession,
 } from "@/lib/taximeter-test/types";
@@ -38,24 +33,20 @@ import {
 } from "@/lib/whatsapp/client";
 
 export const TAXIMETER_BUTTON_IDS = {
-  CONFIRM_FINISH: "taximeter_confirm_finish",
-  CALLE: "taximeter_calle",
-  SATELITAL: "taximeter_satelital",
+  FINISH: "taximeter_finish",
 } as const;
 
 const ACTIVATION_EMOJI = "🚖";
 
 const ACTIVATION_LOCATION_BODY = [
   "✅ Taxímetro de prueba activado.",
-  "Comparte tu ubicación inicial para comenzar.",
+  "Comparte tu ubicación de inicio.",
 ].join("\n");
 
-const AFTER_START_BODY = [
-  "📍 Inicio registrado.",
-  "Cuando finalices el recorrido, comparte tu ubicación final.",
-].join("\n");
+const END_LOCATION_BODY =
+  "📍 Comparte tu ubicación final para cerrar la medición.";
 
-const CONFIRM_FINISH_BODY = "¿Confirmas que el recorrido ha terminado?";
+const MEASURING_BODY = "✅ Ubicación de inicio registrada.";
 
 function haversineMeters(a: GeoPoint, b: GeoPoint): number {
   const R = 6371000;
@@ -82,11 +73,25 @@ export function isTaximeterButton(button: string | null): boolean {
   if (!button) {
     return false;
   }
-  return (
-    button === TAXIMETER_BUTTON_IDS.CONFIRM_FINISH ||
-    button === TAXIMETER_BUTTON_IDS.CALLE ||
-    button === TAXIMETER_BUTTON_IDS.SATELITAL
-  );
+  return button === TAXIMETER_BUTTON_IDS.FINISH;
+}
+
+/** Parsea valor del taxímetro físico (entero COP). */
+export function parseMeterValue(text: string): number | null {
+  const cleaned = text
+    .trim()
+    .replace(/\$/g, "")
+    .replace(/\s/g, "")
+    .replace(/\./g, "")
+    .replace(/,/g, "");
+  if (!/^\d+$/.test(cleaned)) {
+    return null;
+  }
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n <= 0 || n > 10_000_000) {
+    return null;
+  }
+  return n;
 }
 
 async function askStartLocation(phone: string): Promise<void> {
@@ -94,27 +99,13 @@ async function askStartLocation(phone: string): Promise<void> {
 }
 
 async function askEndLocation(phone: string): Promise<void> {
-  await sendLocationRequestMessage(phone, AFTER_START_BODY);
+  await sendLocationRequestMessage(phone, END_LOCATION_BODY);
 }
 
-async function askConfirmFinish(phone: string): Promise<void> {
-  await sendButtonsMessage(phone, CONFIRM_FINISH_BODY, [
-    { id: TAXIMETER_BUTTON_IDS.CONFIRM_FINISH, title: "✅ Terminar recorrido" },
+async function sendMeasuringWithFinish(phone: string): Promise<void> {
+  await sendButtonsMessage(phone, MEASURING_BODY, [
+    { id: TAXIMETER_BUTTON_IDS.FINISH, title: "🏁 Terminar prueba" },
   ]);
-}
-
-async function askServiceType(phone: string, whatxiaFare: number): Promise<void> {
-  await sendButtonsMessage(
-    phone,
-    [
-      `💰 Tarifa WhatXia: ${formatTariffCop(whatxiaFare)}`,
-      "¿Cómo fue tomado el servicio?",
-    ].join("\n"),
-    [
-      { id: TAXIMETER_BUTTON_IDS.CALLE, title: "🚕 Calle" },
-      { id: TAXIMETER_BUTTON_IDS.SATELITAL, title: "📱 Satelital" },
-    ],
-  );
 }
 
 export async function startTaximeterTest(
@@ -164,7 +155,7 @@ async function registerStart(
     sessionId,
     driverId: session.driverId,
     driverName: session.driverName,
-    state: "awaiting_end_location",
+    state: "measuring",
     startLat: point.lat,
     startLng: point.lng,
     startedAt,
@@ -180,7 +171,7 @@ async function registerStart(
     route: null,
   });
 
-  await askEndLocation(phone);
+  await sendMeasuringWithFinish(phone);
 
   console.log("[taximeter-test] inicio registrado", {
     phone,
@@ -191,49 +182,25 @@ async function registerStart(
   });
 }
 
-async function registerEnd(
+async function completeWithEndLocation(
   phone: string,
   session: TaximeterTestSession,
-  point: GeoPoint,
-): Promise<void> {
-  await upsertTaximeterSession(phone, {
-    sessionId: session.sessionId,
-    state: "awaiting_confirm_finish",
-    endLat: point.lat,
-    endLng: point.lng,
-  });
-
-  await askConfirmFinish(phone);
-
-  console.log("[taximeter-test] fin registrado — pendiente confirmación", {
-    phone,
-    sessionId: session.sessionId,
-    endLat: point.lat,
-    endLng: point.lng,
-  });
-}
-
-async function computeAndAskServiceType(
-  phone: string,
-  session: TaximeterTestSession,
+  end: GeoPoint,
 ): Promise<void> {
   if (
     session.startLat == null ||
     session.startLng == null ||
-    session.endLat == null ||
-    session.endLng == null ||
     !session.startedAt
   ) {
     await sendTextMessage(
       phone,
-      "Faltan datos del recorrido. Envía 🚖 para reiniciar.",
+      "Falta la ubicación de inicio. Envía 🚖 para reiniciar.",
     );
     await clearTaximeterSession(phone);
     return;
   }
 
   const start: GeoPoint = { lat: session.startLat, lng: session.startLng };
-  const end: GeoPoint = { lat: session.endLat, lng: session.endLng };
   const finishedAt = new Date();
   const startedAt = new Date(session.startedAt);
   const wallSeconds = Math.max(
@@ -296,7 +263,9 @@ async function computeAndAskServiceType(
 
   await upsertTaximeterSession(phone, {
     sessionId: session.sessionId,
-    state: "awaiting_service_type",
+    state: "awaiting_meter_value",
+    endLat: end.lat,
+    endLng: end.lng,
     finishedAt: finishedAt.toISOString(),
     distanceMeters,
     durationSeconds,
@@ -306,13 +275,27 @@ async function computeAndAskServiceType(
     route: routeSnapshot,
   });
 
-  await askServiceType(phone, whatxiaFare);
+  await sendTextMessage(
+    phone,
+    [
+      `Valor calculado por WhatXia: ${formatTariffCop(whatxiaFare)}`,
+      "¿Cuál fue el valor que marcó el taxímetro?",
+    ].join("\n"),
+  );
+
+  console.log("[taximeter-test] tarifa calculada — esperando valor taxímetro", {
+    phone,
+    sessionId: session.sessionId,
+    whatxiaFare,
+    distanceMeters,
+    durationSeconds,
+  });
 }
 
 async function persistRun(
   phone: string,
   session: TaximeterTestSession,
-  pickupType: TaximeterPickupType,
+  meterValue: number,
 ): Promise<void> {
   if (
     session.startLat == null ||
@@ -330,19 +313,13 @@ async function persistRun(
     return;
   }
 
+  const differencePesos = meterValue - session.whatxiaFare;
+  const differencePercent =
+    session.whatxiaFare === 0
+      ? 0
+      : Math.round((differencePesos / session.whatxiaFare) * 10000) / 10000;
+
   const city = await getActiveCity();
-  let pickupSurcharge = 0;
-  try {
-    const tariff = await resolveCityTariff(city.slug);
-    pickupSurcharge =
-      pickupType === "satelital" ? tariff.surcharges.platform : 0;
-  } catch (error) {
-    console.warn(
-      "[taximeter-test] no se pudo leer recargo; satelital=800 fallback",
-      error,
-    );
-    pickupSurcharge = pickupType === "satelital" ? 800 : 0;
-  }
 
   const routeSnapshot: TaximeterRouteSnapshot = session.route ?? {
     provider: session.routeProvider ?? ROUTE_PROVIDER_HAVERSINE,
@@ -369,11 +346,12 @@ async function persistRun(
     distanceMeters: session.distanceMeters,
     durationSeconds: session.durationSeconds,
     whatxiaFare: session.whatxiaFare,
-    meterValue: null,
-    differencePesos: null,
-    differencePercent: null,
-    pickupType,
-    pickupSurcharge,
+    meterValue,
+    differencePesos,
+    differencePercent,
+    // No se pregunta Calle/Satelital en este flujo; default neutro.
+    pickupType: "calle",
+    pickupSurcharge: 0,
     routeProvider: session.routeProvider ?? routeSnapshot.provider,
     pricingEngineVersion: PRICING_ENGINE_VERSION,
     routePolyline: session.routePolyline ?? routeSnapshot.polylineEncoded,
@@ -385,24 +363,30 @@ async function persistRun(
 
   await sendTextMessage(
     phone,
-    ["✅ Prueba registrada correctamente.", "Gracias por tu tiempo."].join(
-      "\n",
-    ),
+    [
+      "✅ Prueba registrada correctamente.",
+      `WhatXia: ${formatTariffCop(session.whatxiaFare)}`,
+      `Taxímetro: ${formatTariffCop(meterValue)}`,
+      `Diferencia: ${formatTariffCop(Math.abs(differencePesos))}${differencePesos >= 0 ? " (taxímetro ≥ WhatXia)" : " (WhatXia ≥ taxímetro)"}`,
+      "Gracias por tu tiempo.",
+    ].join("\n"),
   );
 
   console.log("[taximeter-test] corrida guardada", {
     phone,
     sessionId: session.sessionId,
     whatxiaFare: session.whatxiaFare,
-    pickupType,
-    routeProvider: session.routeProvider,
+    meterValue,
+    differencePesos,
+    differencePercent,
+    distanceMeters: session.distanceMeters,
+    durationSeconds: session.durationSeconds,
   });
 }
 
 /**
  * Maneja mensajes del taxímetro de prueba.
  * Fuente de verdad: session.state.
- * @returns true si consumió el mensaje (no pasar a Mobility).
  */
 export async function handleTaximeterMessage(
   message: IncomingMessage,
@@ -452,9 +436,22 @@ export async function handleTaximeterMessage(
       return true;
     }
 
+    case "measuring": {
+      if (message.button === TAXIMETER_BUTTON_IDS.FINISH) {
+        await upsertTaximeterSession(phone, {
+          sessionId: session.sessionId,
+          state: "awaiting_end_location",
+        });
+        await askEndLocation(phone);
+        return true;
+      }
+      await sendMeasuringWithFinish(phone);
+      return true;
+    }
+
     case "awaiting_end_location": {
       if (message.location) {
-        await registerEnd(phone, session, {
+        await completeWithEndLocation(phone, session, {
           lat: message.location.lat,
           lng: message.location.lng,
         });
@@ -464,40 +461,28 @@ export async function handleTaximeterMessage(
       return true;
     }
 
-    case "awaiting_confirm_finish": {
-      if (message.button === TAXIMETER_BUTTON_IDS.CONFIRM_FINISH) {
-        await computeAndAskServiceType(phone, session);
+    case "awaiting_meter_value": {
+      if (!message.text) {
+        await sendTextMessage(
+          phone,
+          "¿Cuál fue el valor que marcó el taxímetro? (solo números)",
+        );
         return true;
       }
-      if (message.location) {
-        // Nuevo pin final reemplaza el anterior.
-        await registerEnd(phone, session, {
-          lat: message.location.lat,
-          lng: message.location.lng,
-        });
+      const meterValue = parseMeterValue(message.text);
+      if (meterValue == null) {
+        await sendTextMessage(
+          phone,
+          "Envía solo el valor numérico del taxímetro (ejemplo: 14700).",
+        );
         return true;
       }
-      await askConfirmFinish(phone);
-      return true;
-    }
-
-    case "awaiting_service_type": {
       const fresh = await getTaximeterSession(phone);
       if (!fresh) {
         await sendTextMessage(phone, "Sesión expirada. Envía 🚖 para reiniciar.");
         return true;
       }
-      if (message.button === TAXIMETER_BUTTON_IDS.CALLE) {
-        await persistRun(phone, fresh, "calle");
-        return true;
-      }
-      if (message.button === TAXIMETER_BUTTON_IDS.SATELITAL) {
-        await persistRun(phone, fresh, "satelital");
-        return true;
-      }
-      if (fresh.whatxiaFare != null) {
-        await askServiceType(phone, fresh.whatxiaFare);
-      }
+      await persistRun(phone, fresh, meterValue);
       return true;
     }
 

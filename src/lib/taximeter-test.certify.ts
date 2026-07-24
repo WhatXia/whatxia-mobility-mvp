@@ -7,6 +7,7 @@ export {};
 import {
   isTaximeterActivationText,
   isTaximeterButton,
+  parseMeterValue,
   TAXIMETER_BUTTON_IDS,
 } from "@/lib/taximeter-test";
 
@@ -22,14 +23,15 @@ assert(isTaximeterActivationText(" 🚖 "), "trim emoji");
 assert(!isTaximeterActivationText("hola"), "no activa con hola");
 assert(!isTaximeterActivationText("necesito un servicio"), "no Mobility");
 
-assert(
-  isTaximeterButton(TAXIMETER_BUTTON_IDS.CONFIRM_FINISH),
-  "botón terminar recorrido",
-);
-assert(isTaximeterButton(TAXIMETER_BUTTON_IDS.CALLE), "botón calle");
-assert(isTaximeterButton(TAXIMETER_BUTTON_IDS.SATELITAL), "botón satelital");
-assert(!isTaximeterButton("taximeter_finish"), "ya no usa finish viejo");
+assert(isTaximeterButton(TAXIMETER_BUTTON_IDS.FINISH), "botón terminar prueba");
+assert(!isTaximeterButton("taximeter_calle"), "ya no usa calle");
 assert(!isTaximeterButton("booking_request_trip"), "no booking button");
+
+assert(parseMeterValue("14700") === 14700, "valor plano");
+assert(parseMeterValue("$14.700") === 14700, "valor con punto miles");
+assert(parseMeterValue("14,700") === 14700, "valor con coma");
+assert(parseMeterValue("abc") === null, "rechaza texto");
+assert(parseMeterValue("0") === null, "rechaza cero");
 
 assert(true, "flujo independiente de booking/dispatch");
 

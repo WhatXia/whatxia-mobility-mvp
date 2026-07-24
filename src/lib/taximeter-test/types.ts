@@ -9,9 +9,9 @@ export type TaximeterServiceType = TaximeterPickupType;
 
 export type TaximeterSessionState =
   | "awaiting_start_location"
+  | "measuring"
   | "awaiting_end_location"
-  | "awaiting_confirm_finish"
-  | "awaiting_service_type";
+  | "awaiting_meter_value";
 
 export type TaximeterRouteSnapshot = {
   provider: string;

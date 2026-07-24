@@ -6,6 +6,7 @@ export {
   handleTaximeterMessage,
   isTaximeterActivationText,
   isTaximeterButton,
+  parseMeterValue,
   TAXIMETER_BUTTON_IDS,
 } from "@/lib/taximeter-test/flow";
 
