@@ -549,6 +549,7 @@ export async function handleIncomingMessage(
     // No borrar inscripción pausada: ofrecer continuar / empezar de nuevo.
     const pendingReg = await getSession(message.phone);
     if (
+      pendingReg?.state === "DRIVER_REGISTRATION_WELCOME" ||
       pendingReg?.state === "DRIVER_REGISTRATION_PAUSED" ||
       pendingReg?.state === "DRIVER_REGISTRATION_RESUME_CHOICE"
     ) {

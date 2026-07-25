@@ -22,6 +22,8 @@ import { sendDriverMainMenu } from "@/lib/driver-menu";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 export const DRIVER_REG_BUTTON_IDS = {
+  START: "driver_reg_start",
+  ABANDON: "driver_reg_abandon",
   CANCEL: "driver_reg_cancel",
   EXIT: "driver_reg_exit",
   CONTINUE: "driver_reg_continue",
@@ -35,10 +37,21 @@ const WELCOME_REGISTRATION = [
   "",
   "Antes de comenzar, ten presente lo siguiente:",
   "",
+  "• Si seleccionas ✅ Continuar, iniciaremos tu registro.",
+  "",
+  "• Si seleccionas ❌ Abandonar, no se iniciará el registro y no se guardará ningún dato.",
+  "",
+  "Durante el registro:",
+  "",
   "• Si seleccionas ❌ Cancelar inscripción, se eliminará el progreso de tu registro y, cuando vuelvas a iniciar, deberás comenzar desde cero.",
   "",
   "• Si seleccionas 🚪 Salir, guardaremos tu progreso y podrás continuar más adelante desde el punto donde quedaste enviando 🚖 o 🚕.",
 ].join("\n");
+
+const WELCOME_BUTTONS = [
+  { id: DRIVER_REG_BUTTON_IDS.START, title: "✅ Continuar" },
+  { id: DRIVER_REG_BUTTON_IDS.ABANDON, title: "❌ Abandonar" },
+];
 
 const REG_STEP_BUTTONS = [
   { id: DRIVER_REG_BUTTON_IDS.CANCEL, title: "Cancelar inscripción" },
@@ -59,6 +72,8 @@ export function isDriverRegistrationButton(
     return false;
   }
   return (
+    button === DRIVER_REG_BUTTON_IDS.START ||
+    button === DRIVER_REG_BUTTON_IDS.ABANDON ||
     button === DRIVER_REG_BUTTON_IDS.CANCEL ||
     button === DRIVER_REG_BUTTON_IDS.EXIT ||
     button === DRIVER_REG_BUTTON_IDS.CONTINUE ||
@@ -98,7 +113,22 @@ async function offerResumeRegistration(phone: string): Promise<void> {
   );
 }
 
-async function beginFreshRegistration(phone: string): Promise<void> {
+async function offerWelcomeRegistration(phone: string): Promise<void> {
+  await upsertSession(phone, {
+    state: "DRIVER_REGISTRATION_WELCOME",
+    pickupNeighborhood: null,
+    driverName: null,
+    driverDraft: null,
+    driverFlowStep: null,
+    driverUpdateCategory: null,
+    driverUpdateField: null,
+    bookingDraft: null,
+  });
+
+  await sendButtonsMessage(phone, WELCOME_REGISTRATION, WELCOME_BUTTONS);
+}
+
+async function startRegistrationQuestions(phone: string): Promise<void> {
   const firstStep = REGISTRATION_ORDER[0];
 
   await upsertSession(phone, {
@@ -112,7 +142,6 @@ async function beginFreshRegistration(phone: string): Promise<void> {
     bookingDraft: null,
   });
 
-  await sendTextMessage(phone, WELCOME_REGISTRATION);
   await sendRegistrationStepPrompt(phone, firstStep);
 }
 
@@ -140,13 +169,27 @@ export async function startDriverRegistration(phone: string): Promise<void> {
     return;
   }
 
-  await beginFreshRegistration(phone);
+  await offerWelcomeRegistration(phone);
 }
 
 export async function handleDriverRegistrationButton(
   phone: string,
   button: string,
 ): Promise<boolean> {
+  if (button === DRIVER_REG_BUTTON_IDS.START) {
+    await startRegistrationQuestions(phone);
+    return true;
+  }
+
+  if (button === DRIVER_REG_BUTTON_IDS.ABANDON) {
+    await clearSession(phone);
+    await sendTextMessage(
+      phone,
+      "Has abandonado el registro. No se guardó ningún dato.\n\nCuando quieras registrarte, envía 🚖 o 🚕.",
+    );
+    return true;
+  }
+
   if (button === DRIVER_REG_BUTTON_IDS.CANCEL) {
     await clearSession(phone);
     await sendTextMessage(
@@ -184,7 +227,7 @@ export async function handleDriverRegistrationButton(
     const step = session?.driverFlowStep;
     if (!session || !isFieldKey(step)) {
       await clearSession(phone);
-      await beginFreshRegistration(phone);
+      await offerWelcomeRegistration(phone);
       return true;
     }
 
@@ -201,7 +244,7 @@ export async function handleDriverRegistrationButton(
 
   if (button === DRIVER_REG_BUTTON_IDS.RESTART) {
     await clearSession(phone);
-    await beginFreshRegistration(phone);
+    await offerWelcomeRegistration(phone);
     return true;
   }
 
@@ -212,6 +255,11 @@ export async function continueDriverRegistration(
   message: IncomingMessage,
   session: UserSession,
 ): Promise<boolean> {
+  if (session.state === "DRIVER_REGISTRATION_WELCOME") {
+    await offerWelcomeRegistration(message.phone);
+    return true;
+  }
+
   if (session.state === "DRIVER_REGISTRATION_RESUME_CHOICE") {
     await offerResumeRegistration(message.phone);
     return true;
@@ -304,6 +352,7 @@ export function isDriverRegistrationState(
 ): boolean {
   return (
     session?.state === "DRIVER_REGISTERING" ||
+    session?.state === "DRIVER_REGISTRATION_WELCOME" ||
     session?.state === "DRIVER_REGISTRATION_RESUME_CHOICE"
   );
 }
