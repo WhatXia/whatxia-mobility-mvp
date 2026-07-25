@@ -1,6 +1,7 @@
 export type DriverFieldKey =
   | "name"
   | "document_id"
+  | "email"
   | "address"
   | "city"
   | "emergency_contact_name"
@@ -12,6 +13,7 @@ export type DriverFieldKey =
   | "vehicle_year"
   | "soat_expires_at"
   | "techno_expires_at"
+  | "operation_expires_at"
   | "license_expires_at";
 
 export type DriverFieldCategory = "personal" | "vehicle" | "documents";
@@ -34,14 +36,21 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
   },
   document_id: {
     key: "document_id",
-    label: "Cédula",
+    label: "Número de cédula",
     prompt: "Escribe tu número de cédula (solo números).",
+    category: "personal",
+    type: "text",
+  },
+  email: {
+    key: "email",
+    label: "Correo electrónico",
+    prompt: "Escribe tu correo electrónico.",
     category: "personal",
     type: "text",
   },
   address: {
     key: "address",
-    label: "Dirección",
+    label: "Dirección de residencia",
     prompt: "Escribe tu dirección de residencia.",
     category: "personal",
     type: "text",
@@ -53,6 +62,7 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
     category: "personal",
     type: "text",
   },
+  // Conservados para perfiles / actualizaciones existentes; fuera del registro.
   emergency_contact_name: {
     key: "emergency_contact_name",
     label: "Contacto de emergencia",
@@ -69,32 +79,44 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
   },
   plate: {
     key: "plate",
-    label: "Placa",
+    label: "Placa del vehículo",
     prompt: "Escribe la placa del vehículo.",
     category: "vehicle",
     type: "text",
   },
   vehicle_brand: {
     key: "vehicle_brand",
-    label: "Marca",
-    prompt: "Escribe la marca del vehículo.",
+    label: "Marca del vehículo",
+    prompt: [
+      "Escribe la marca del vehículo.",
+      "",
+      "Ayuda:",
+      "Ejemplo: Chevrolet, Renault, Kia, Hyundai, Nissan, Toyota.",
+    ].join("\n"),
     category: "vehicle",
     type: "text",
   },
   vehicle_model: {
     key: "vehicle_model",
-    label: "Modelo",
-    prompt: "Escribe el modelo del vehículo.",
+    label: "Línea o referencia",
+    prompt: [
+      "Escribe la línea o referencia del vehículo.",
+      "",
+      "Ayuda:",
+      "No escribas el año del modelo. Escribe la línea o referencia.",
+      "Ejemplos: Grand i10, Picanto, Versa, Logan, Sandero, Spark GT.",
+    ].join("\n"),
     category: "vehicle",
     type: "text",
   },
   vehicle_color: {
     key: "vehicle_color",
-    label: "Color",
+    label: "Color del vehículo",
     prompt: "Escribe el color del vehículo.",
     category: "vehicle",
     type: "text",
   },
+  // Conservado para perfiles / actualizaciones existentes; fuera del registro.
   vehicle_year: {
     key: "vehicle_year",
     label: "Año",
@@ -111,16 +133,25 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
   },
   techno_expires_at: {
     key: "techno_expires_at",
-    label: "Vence tecnomecánica",
+    label: "Vence técnico-mecánica",
     prompt:
-      "Escribe la fecha de vencimiento de la revisión tecnomecánica (DD/MM/AAAA).",
+      "Escribe la fecha de vencimiento de la revisión técnico-mecánica (DD/MM/AAAA).",
+    category: "documents",
+    type: "date",
+  },
+  operation_expires_at: {
+    key: "operation_expires_at",
+    label: "Vence tarjeta de operación",
+    prompt:
+      "Escribe la fecha de vencimiento de la tarjeta de operación (DD/MM/AAAA).",
     category: "documents",
     type: "date",
   },
   license_expires_at: {
     key: "license_expires_at",
-    label: "Vence licencia",
-    prompt: "Escribe la fecha de vencimiento de tu licencia (DD/MM/AAAA).",
+    label: "Vence licencia de tránsito",
+    prompt:
+      "Escribe la fecha de vencimiento de la licencia de tránsito (DD/MM/AAAA).",
     category: "documents",
     type: "date",
   },
@@ -130,37 +161,28 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
 export const REGISTRATION_ORDER: DriverFieldKey[] = [
   "name",
   "document_id",
+  "email",
   "address",
   "city",
-  "emergency_contact_name",
-  "emergency_contact_phone",
   "plate",
   "vehicle_brand",
   "vehicle_model",
   "vehicle_color",
-  "vehicle_year",
   "soat_expires_at",
   "techno_expires_at",
+  "operation_expires_at",
   "license_expires_at",
 ];
 
 export const CATEGORY_FIELDS: Record<DriverFieldCategory, DriverFieldKey[]> = {
-  personal: [
-    "name",
-    "document_id",
-    "address",
-    "city",
-    "emergency_contact_name",
-    "emergency_contact_phone",
+  personal: ["name", "document_id", "email", "address", "city"],
+  vehicle: ["plate", "vehicle_brand", "vehicle_model", "vehicle_color"],
+  documents: [
+    "soat_expires_at",
+    "techno_expires_at",
+    "operation_expires_at",
+    "license_expires_at",
   ],
-  vehicle: [
-    "plate",
-    "vehicle_brand",
-    "vehicle_model",
-    "vehicle_color",
-    "vehicle_year",
-  ],
-  documents: ["soat_expires_at", "techno_expires_at", "license_expires_at"],
 };
 
 export type DriverDraft = Partial<Record<DriverFieldKey, string>>;

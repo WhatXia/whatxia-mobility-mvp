@@ -12,6 +12,7 @@ export type DriverRow = {
   name: string;
   plate: string;
   document_id: string | null;
+  email: string | null;
   address: string | null;
   city: string | null;
   emergency_contact_name: string | null;
@@ -22,6 +23,7 @@ export type DriverRow = {
   vehicle_year: number | null;
   soat_expires_at: string | null;
   techno_expires_at: string | null;
+  operation_expires_at: string | null;
   license_expires_at: string | null;
   is_available: boolean;
   status: DriverStatus;
@@ -215,16 +217,18 @@ export type CreateDriverInput = {
   name: string;
   plate: string;
   document_id: string;
+  email: string;
   address: string;
   city: string;
-  emergency_contact_name: string;
-  emergency_contact_phone: string;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
   vehicle_brand: string;
   vehicle_model: string;
   vehicle_color: string;
-  vehicle_year: number;
+  vehicle_year?: number | null;
   soat_expires_at: string;
   techno_expires_at: string;
+  operation_expires_at: string;
   license_expires_at: string;
 };
 
@@ -242,17 +246,19 @@ export async function createDriver(
       name: input.name,
       plate: input.plate,
       document_id: input.document_id,
+      email: input.email,
       address: input.address,
       city: input.city,
       city_id: city.id,
-      emergency_contact_name: input.emergency_contact_name,
-      emergency_contact_phone: input.emergency_contact_phone,
+      emergency_contact_name: input.emergency_contact_name ?? null,
+      emergency_contact_phone: input.emergency_contact_phone ?? null,
       vehicle_brand: input.vehicle_brand,
       vehicle_model: input.vehicle_model,
       vehicle_color: input.vehicle_color,
-      vehicle_year: input.vehicle_year,
+      vehicle_year: input.vehicle_year ?? null,
       soat_expires_at: input.soat_expires_at,
       techno_expires_at: input.techno_expires_at,
+      operation_expires_at: input.operation_expires_at,
       license_expires_at: input.license_expires_at,
       is_available: !documentsExpired,
       status: documentsExpired ? "inactive" : "active",
@@ -304,17 +310,16 @@ export function draftToCreateInput(
   const required: DriverFieldKey[] = [
     "name",
     "document_id",
+    "email",
     "address",
     "city",
-    "emergency_contact_name",
-    "emergency_contact_phone",
     "plate",
     "vehicle_brand",
     "vehicle_model",
     "vehicle_color",
-    "vehicle_year",
     "soat_expires_at",
     "techno_expires_at",
+    "operation_expires_at",
     "license_expires_at",
   ];
 
@@ -329,16 +334,18 @@ export function draftToCreateInput(
     name: draft.name!,
     plate: draft.plate!,
     document_id: draft.document_id!,
+    email: draft.email!,
     address: draft.address!,
     city: draft.city!,
-    emergency_contact_name: draft.emergency_contact_name!,
-    emergency_contact_phone: draft.emergency_contact_phone!,
+    emergency_contact_name: draft.emergency_contact_name ?? null,
+    emergency_contact_phone: draft.emergency_contact_phone ?? null,
     vehicle_brand: draft.vehicle_brand!,
     vehicle_model: draft.vehicle_model!,
     vehicle_color: draft.vehicle_color!,
-    vehicle_year: Number(draft.vehicle_year),
+    vehicle_year: draft.vehicle_year ? Number(draft.vehicle_year) : null,
     soat_expires_at: draft.soat_expires_at!,
     techno_expires_at: draft.techno_expires_at!,
+    operation_expires_at: draft.operation_expires_at!,
     license_expires_at: draft.license_expires_at!,
   };
 }

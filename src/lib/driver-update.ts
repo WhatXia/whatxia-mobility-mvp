@@ -49,6 +49,7 @@ function displayFieldValue(driver: DriverRow, key: DriverFieldKey): string {
   if (
     key === "soat_expires_at" ||
     key === "techno_expires_at" ||
+    key === "operation_expires_at" ||
     key === "license_expires_at"
   ) {
     return formatDateForDisplay(String(value));

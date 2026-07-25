@@ -44,6 +44,7 @@ export type UserState =
 export type DriverDraft = Partial<{
   name: string;
   document_id: string;
+  email: string;
   address: string;
   city: string;
   emergency_contact_name: string;
@@ -55,6 +56,7 @@ export type DriverDraft = Partial<{
   vehicle_year: string;
   soat_expires_at: string;
   techno_expires_at: string;
+  operation_expires_at: string;
   license_expires_at: string;
 }>;
 
