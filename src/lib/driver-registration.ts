@@ -278,9 +278,11 @@ export async function continueDriverRegistration(
       [
         "✅ ¡Perfecto!",
         "",
-        "Tu registro como conductor ha sido completado correctamente.",
+        "Ya recibimos tu información.",
         "",
-        "Hemos recibido toda tu información. En adelante podrás acceder a tu módulo de conductor enviando 🚖 o 🚕.",
+        "Ahora nuestro equipo realizará la validación correspondiente para activar tu cuenta como conductor de WhatXia.",
+        "",
+        "Una vez sea aprobada, podrás acceder a tu módulo de conductor enviando 🚖 o 🚕.",
       ].join("\n"),
     );
     return true;
