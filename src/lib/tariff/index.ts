@@ -19,6 +19,7 @@ export {
 export {
   formatEstimatedFareRangeLine,
   formatEstimatedFareRangePassenger,
+  formatCopSymbol,
   ESTIMATED_FARE_RANGE_MARGIN_COP,
 } from "@/lib/tariff/present-estimate";
 

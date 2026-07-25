@@ -47,7 +47,8 @@ import type {
 import {
   finalizeFare,
   formatEstimatedFareRangeLine,
-  formatTariffCop,
+  formatCopSymbol,
+  ESTIMATED_FARE_RANGE_MARGIN_COP,
 } from "@/lib/tariff";
 import { getActiveCity } from "@/lib/city/context";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
@@ -1053,22 +1054,30 @@ export async function handleDriverFinalizarViaje(
     state: "IDLE",
   });
 
-  const fareLine = `💰 Tarifa final: ${formatTariffCop(finalQuote.amount)}`;
+  // Mismo rango estimado del inicio del viaje (quotedFare); no se recalcula.
+  const estimatedBase = trip.quotedFare ?? finalQuote.amount;
+  const estimatedMin = formatCopSymbol(estimatedBase);
+  const estimatedMax = formatCopSymbol(
+    estimatedBase + ESTIMATED_FARE_RANGE_MARGIN_COP,
+  );
+  const estimatedRangeLine = `💰 La tarifa estimada para este servicio fue entre ${estimatedMin} y ${estimatedMax}.`;
 
   await Promise.allSettled([
     sendTextMessage(
       updated.passengerPhone,
       [
-        "🎉 Tu viaje ha finalizado. Gracias por elegir WhatXia Mobility.",
-        fareLine,
+        "🎉 Tu viaje ha finalizado.",
+        "Gracias por elegir WhatXia Mobility.",
+        estimatedRangeLine,
+        "Recuerda que al valor registrado por el taxímetro se adiciona el recargo por solicitud de $800 COP.",
       ].join("\n"),
     ),
     sendTextMessage(
       driverPhone,
       [
-        "✅ Viaje finalizado.",
-        fareLine,
-        "Ya estás disponible para recibir nuevos servicios.",
+        "✅ El viaje ha finalizado.",
+        estimatedRangeLine,
+        "Recuerda cobrar el valor que marque el taxímetro más el recargo por solicitud de $800 COP.",
       ].join("\n"),
     ),
   ]);
