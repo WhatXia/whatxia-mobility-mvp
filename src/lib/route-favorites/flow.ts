@@ -133,7 +133,7 @@ export function buildFavoritesGreeting(
   buttons: Array<{ id: string; title: string }>;
 } {
   const name = passengerName.trim() || "amigo";
-  const body = `¡Hola, ${name}! 👋\n\n¿A dónde vamos hoy?`;
+  const body = `¡Hola, ${name}! 👋\n\n¿A dónde vamos hoy? 🚖`;
   const slice = favorites.slice(0, MAX_ROUTE_FAVORITES);
   const buttons: Array<{ id: string; title: string }> = slice.map((fav) => ({
     id: `${FAVORITE_BUTTON_IDS.FAVORITE_PREFIX}${fav.id}`,
@@ -189,7 +189,10 @@ export async function sendPassengerActionMenu(
   const greeting =
     favorites.length > 0
       ? buildFavoritesGreeting(name, favorites)
-      : { body: "¿Qué deseas hacer?", buttons: fallbackButtons };
+      : {
+          body: `¡Hola, ${name}! 👋\n\n¿A dónde vamos hoy? 🚖`,
+          buttons: fallbackButtons,
+        };
 
   const body = options?.body?.trim() || greeting.body;
   const buttons = greeting.buttons;

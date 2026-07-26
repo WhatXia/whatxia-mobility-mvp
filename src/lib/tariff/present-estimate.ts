@@ -33,8 +33,8 @@ export function formatEstimatedFareRangePassenger(
     calculatedAmount + ESTIMATED_FARE_RANGE_MARGIN_COP,
   );
   return [
-    `🚖 Tarifa estimada: entre ${minLabel} y ${maxLabel}.`,
+    `💰 Tarifa estimada: ${minLabel} - ${maxLabel}`,
     "",
-    "El valor final será el que marque el taxímetro, de acuerdo con la tarifa oficial.",
+    "El valor final será el que marque el taxímetro, de acuerdo con la tarifa oficial vigente.",
   ].join("\n");
 }

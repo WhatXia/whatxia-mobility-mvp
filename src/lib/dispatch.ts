@@ -198,9 +198,9 @@ export function parseDriverButton(
 /** Rating en el mensaje unificado de asignación (sin cambiar formatters de reputación). */
 function formatDriverStarsForAssignment(average: number | null): string {
   if (average == null) {
-    return "⭐ Conductor nuevo.";
+    return "⭐ Calificación: Conductor nuevo.";
   }
-  return `⭐ ${average.toFixed(1)}`;
+  return `⭐ Calificación: ${average.toFixed(1)}`;
 }
 
 /**
@@ -256,12 +256,15 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
   await sendButtonsMessage(
     updated.passengerPhone,
     [
-      "🚖 ¡Tu conductor ya fue asignado!",
+      "🚖 Confirmación del vehículo",
       "",
-      `👤 ${driverName}`,
+      `👤 Conductor: ${driverName}`,
+      "",
+      `🚖 Placa: ${plateLabel}`,
+      "",
+      `⏱️ Llega en: ${etaLabel}`,
+      "",
       formatDriverStarsForAssignment(driverAverage),
-      `🚖 ${plateLabel}`,
-      `⏱️ Llegará aproximadamente en ${etaLabel}.`,
     ].join("\n"),
     [
       {
@@ -1045,7 +1048,7 @@ export async function handleDriverLlegue(
 
   await sendButtonsMessage(
     updated.passengerPhone,
-    `📍 Tu conductor ${driverName} ya llegó al punto de recogida.`,
+    `🚖 Tu conductor ${driverName} ya llegó al punto de recogida.`,
     [
       { id: yaVoyButtonId(updated.id), title: "✅ Ya voy" },
       {
@@ -1271,7 +1274,7 @@ export async function handleDriverFinalizarViaje(
     state: "IDLE",
   });
 
-  // Mismo rango estimado del inicio del viaje (quotedFare); no se recalcula.
+  // Mismo rango estimado del inicio (solo para mensaje al conductor; pasajero sin monto).
   const estimatedBase = trip.quotedFare ?? finalQuote.amount;
   const estimatedMin = formatCopSymbol(estimatedBase);
   const estimatedMax = formatCopSymbol(
@@ -1283,10 +1286,11 @@ export async function handleDriverFinalizarViaje(
     sendTextMessage(
       updated.passengerPhone,
       [
-        "🎉 Tu viaje ha finalizado.",
-        "Gracias por elegir WhatXia Mobility.",
-        estimatedRangeLine,
-        "Recuerda que al valor registrado por el taxímetro se adiciona el recargo por solicitud de $800 COP.",
+        "✅ ¡Llegaste a tu destino!",
+        "",
+        "Recuerda que el valor a cancelar es el que indique el taxímetro, más el recargo por solicitud del servicio.",
+        "",
+        "Gracias por viajar con WhatXia. 🚖",
       ].join("\n"),
     ),
     sendTextMessage(

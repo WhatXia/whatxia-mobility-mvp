@@ -92,16 +92,16 @@ function pickupDisplayLabel(draft: BookingDraft): string {
   );
 }
 
-const PICKUP_LOCATION_PROMPT = [
-  "Comparte tu ubicación actual 📍 para confirmar el punto de recogida y calcular tu tarifa.",
-].join("\n");
+const PICKUP_LOCATION_PROMPT =
+  "📍 Comparte tu ubicación actual para encontrarte más rápido.";
 
 const DEFAULT_PICKUP_LABEL = "Punto de recogida";
 
-const ASK_DESTINATION = "¿Hacia dónde vamos?";
+const ASK_DESTINATION =
+  "🚖 Perfecto. Ahora cuéntame, ¿cuál es tu destino?";
 
-function askDestinationAfterPickup(label: string): string {
-  return `Te recogeremos en ${label}. ${ASK_DESTINATION}`;
+function askDestinationAfterPickup(_label: string): string {
+  return ASK_DESTINATION;
 }
 
 async function askForPickupLocation(
@@ -704,16 +704,16 @@ async function buildAndSendQuote(
   await persistDraft(phone, name, "WAITING_QUOTE_CONFIRM", nextDraft);
 
   const body = [
-    "Resumen del servicio",
+    `📍 ${pickupDisplayLabel(draft)}`,
     "",
-    `📍 Recoger en: ${pickupDisplayLabel(draft)}`,
-    `🎯 Destino: ${placeLabel(draft.dropoff)}`,
+    `🏁 ${placeLabel(draft.dropoff)}`,
+    "",
     `📏 Distancia estimada: ${quote.distanceKm.toFixed(1)} km`,
     `⏱️ Tiempo estimado: ${quote.durationMin} min`,
     "",
     formatEstimatedFareRangePassenger(quote.amount),
     "",
-    "¿Confirmas el servicio?",
+    "¿Confirmas tu solicitud?",
   ].join("\n");
 
   await sendButtonsMessage(phone, body, [
@@ -795,7 +795,7 @@ export async function handleBookingMessage(
 
       await sendTextMessage(
         phone,
-        "Estamos buscando un conductor. Un momento por favor.",
+        "🚖 Estamos encontrando el mejor conductor para ti. Esto tomará solo un momento.",
       );
 
       console.log("[publish:diag] STEP_0b_calling_offerTripToDrivers", {
