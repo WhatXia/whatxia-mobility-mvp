@@ -35,6 +35,6 @@ export function formatEstimatedFareRangePassenger(
   return [
     `💰 Tarifa estimada: ${minLabel} - ${maxLabel}`,
     "",
-    "El valor final será el que marque el taxímetro, de acuerdo con la tarifa oficial vigente.",
+    "El valor final será el que marque el taxímetro, de acuerdo con la tarifa oficial vigente, más $800 por solicitud del servicio.",
   ].join("\n");
 }

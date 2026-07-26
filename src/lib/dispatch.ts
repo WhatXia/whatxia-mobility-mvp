@@ -1101,14 +1101,8 @@ export async function handleDriverIniciarViaje(
   }
 
   // Pantalla operativa: destino + navegar + terminar (sin mapa ni textos técnicos).
+  // UX-001: no notificar al pasajero al iniciar (mensaje vacío de valor).
   await sendInProgressTripScreen(driverPhone, updated);
-
-  await sendTextMessage(
-    updated.passengerPhone,
-    "🚖 Tu viaje ha comenzado.",
-  ).catch((error) => {
-    console.error("[dispatch] no se pudo avisar al pasajero al iniciar:", error);
-  });
 
   console.log("[dispatch] viaje iniciado:", {
     tripId: updated.id,
@@ -1288,7 +1282,7 @@ export async function handleDriverFinalizarViaje(
       [
         "✅ ¡Llegaste a tu destino!",
         "",
-        "Recuerda que el valor a cancelar es el que indique el taxímetro, más el recargo por solicitud del servicio.",
+        "Recuerda que el valor a cancelar es el que indique el taxímetro, de acuerdo con la tarifa oficial vigente, más $800 por solicitud del servicio.",
         "",
         "Gracias por viajar con WhatXia. 🚖",
       ].join("\n"),
