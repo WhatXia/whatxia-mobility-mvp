@@ -15,14 +15,14 @@ export function formatUserAverageLine(aggregate: RatingAggregate): string {
   return `⭐ ${formatAverageScore(aggregate.average)}`;
 }
 
-/** En oferta a conductores. */
+/** En oferta a conductores (UX-004). */
 export function formatPassengerReputationForOffer(
   aggregate: RatingAggregate,
 ): string {
   if (aggregate.average == null) {
-    return "⭐ Pasajero nuevo.";
+    return "👤 Pasajero nuevo";
   }
-  return `⭐ Pasajero: ${formatAverageScore(aggregate.average)}`;
+  return `👤 Pasajero: ${formatAverageScore(aggregate.average)}`;
 }
 
 /** Al aceptar: mensaje al pasajero. */

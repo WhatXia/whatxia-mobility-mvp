@@ -61,7 +61,11 @@ export async function sendDriverRatesPassengerPrompt(
 ): Promise<void> {
   await sendButtonsMessage(
     driverPhone,
-    "¿Cómo fue tu experiencia con este pasajero?",
+    [
+      "✅ Viaje finalizado",
+      "",
+      "⭐ ¿Cómo fue tu experiencia con este pasajero?",
+    ].join("\n"),
     [
       {
         id: driverRatesPaxButtonId(5, tripId),

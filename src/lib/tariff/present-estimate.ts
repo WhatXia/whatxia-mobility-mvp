@@ -12,16 +12,13 @@ export function formatCopSymbol(amount: number): string {
   return `$${roundTariffToHundred(amount).toLocaleString("es-CO")}`;
 }
 
-/** Bloque de tarifa estimada para oferta al conductor (rango + aclaración). */
+/** Línea de tarifa estimada para oferta al conductor (sin aviso de taxímetro). */
 export function formatEstimatedFareRangeLine(calculatedAmount: number): string {
   const minLabel = formatCopSymbol(calculatedAmount);
   const maxLabel = formatCopSymbol(
     calculatedAmount + ESTIMATED_FARE_RANGE_MARGIN_COP,
   );
-  return [
-    `💰 Tarifa estimada: entre ${minLabel} y ${maxLabel}`,
-    "⚠️ El valor final a cobrar será el que marque el taxímetro.",
-  ].join("\n");
+  return `💰 Tarifa estimada: ${minLabel} - ${maxLabel}`;
 }
 
 /** Bloque completo para resumen al pasajero. */

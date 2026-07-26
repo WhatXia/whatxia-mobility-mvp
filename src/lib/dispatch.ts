@@ -59,8 +59,6 @@ import { computeAutomaticEtaRange } from "@/lib/eta-auto";
 import {
   finalizeFare,
   formatEstimatedFareRangeLine,
-  formatCopSymbol,
-  ESTIMATED_FARE_RANGE_MARGIN_COP,
 } from "@/lib/tariff";
 import { getActiveCity } from "@/lib/city/context";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
@@ -274,17 +272,13 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     ],
   );
 
-  // Conductor: UN solo mensaje. ETA + identidad del pasajero + tres acciones.
+  // Conductor: UN solo mensaje (UX-004: breve; botones sin cambio).
   await sendButtonsMessage(
     driverPhone,
     [
-      "✅ Servicio asignado.",
-      "",
+      "✅ Servicio asignado",
       `👤 Pasajero: ${passengerFullName}`,
-      "",
-      `⏱️ Tienes ${etaLabel} para llegar al punto de recogida.`,
-      "",
-      '📍 Usa "Ver ubicación" para navegar hacia el pasajero.',
+      "📍 Dirígete al punto de recogida.",
     ].join("\n"),
     [
       { id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" },
@@ -323,9 +317,16 @@ async function sendArrivedButton(driverPhone: string, tripId: string) {
 }
 
 async function sendStartTripButton(driverPhone: string, tripId: string) {
-  await sendButtonsMessage(driverPhone, "Cuando el pasajero suba:", [
-    { id: iniciarButtonId(tripId), title: "▶️ Iniciar viaje" },
-  ]);
+  // UX-004: recordatorio de cobro solo aquí (antes de iniciar).
+  await sendButtonsMessage(
+    driverPhone,
+    [
+      "💰 Recuerda cobrar el valor que indique el taxímetro más $800 por solicitud del servicio.",
+      "",
+      "👤 Cuando el pasajero aborde el vehículo, inicia el viaje.",
+    ].join("\n"),
+    [{ id: iniciarButtonId(tripId), title: "▶️ Iniciar viaje" }],
+  );
 }
 
 /** Pantalla operativa en viaje: destino + navegar + terminar (sin mapa embebido). */
@@ -334,10 +335,14 @@ async function sendInProgressTripScreen(
   trip: Trip,
 ): Promise<void> {
   const label = trip.dropoffLabel?.trim() || "Destino";
-  await sendButtonsMessage(driverPhone, `🎯 Destino: ${label}`, [
-    { id: navegarButtonId(trip.id), title: "Navegar al destino" },
-    { id: finalizarButtonId(trip.id), title: "Terminar viaje" },
-  ]);
+  await sendButtonsMessage(
+    driverPhone,
+    ["🏁 Destino", "", label].join("\n"),
+    [
+      { id: navegarButtonId(trip.id), title: "🧭 Navegar al destino" },
+      { id: finalizarButtonId(trip.id), title: "Terminar viaje" },
+    ],
+  );
 }
 
 export async function offerTripToDrivers(
@@ -590,15 +595,6 @@ async function publishTripOffer(
     return;
   }
 
-  const distanceKm =
-    trip.distanceMeters != null
-      ? (trip.distanceMeters / 1000).toFixed(1)
-      : null;
-  const durationMin =
-    trip.durationSeconds != null
-      ? Math.max(1, Math.round(trip.durationSeconds / 60))
-      : null;
-
   const pickupLabel = trip.pickupLabel ?? trip.pickupNeighborhood;
 
   console.log("[publish:diag] STEP_R1_reputation_enter", {
@@ -650,19 +646,15 @@ async function publishTripOffer(
     throw error;
   }
 
+  // UX-004: oferta breve (sin distancia, tiempo ni aviso de taxímetro).
   const body = [
     "🚖 Nuevo servicio",
-    "",
     `📍 Origen: ${pickupLabel}`,
-    trip.dropoffLabel ? `📍 Destino: ${trip.dropoffLabel}` : null,
-    distanceKm ? `📏 Distancia estimada: ${distanceKm} km` : null,
-    durationMin ? `⏱️ Tiempo estimado: ${durationMin} min` : null,
+    trip.dropoffLabel ? `🏁 Destino: ${trip.dropoffLabel}` : null,
     trip.quotedFare != null
       ? formatEstimatedFareRangeLine(trip.quotedFare)
       : null,
     formatPassengerReputationForOffer(passengerRep),
-    "",
-    "Aceptar el servicio:",
   ]
     .filter((line) => line !== null)
     .join("\n");
@@ -1283,14 +1275,6 @@ export async function handleDriverFinalizarViaje(
     state: "IDLE",
   });
 
-  // Mismo rango estimado del inicio (solo para mensaje al conductor; pasajero sin monto).
-  const estimatedBase = trip.quotedFare ?? finalQuote.amount;
-  const estimatedMin = formatCopSymbol(estimatedBase);
-  const estimatedMax = formatCopSymbol(
-    estimatedBase + ESTIMATED_FARE_RANGE_MARGIN_COP,
-  );
-  const estimatedRangeLine = `💰 La tarifa estimada para este servicio fue entre ${estimatedMin} y ${estimatedMax}.`;
-
   await Promise.allSettled([
     sendTextMessage(
       updated.passengerPhone,
@@ -1302,17 +1286,10 @@ export async function handleDriverFinalizarViaje(
         "Gracias por viajar con WhatXia. 🚖",
       ].join("\n"),
     ),
-    sendTextMessage(
-      driverPhone,
-      [
-        "✅ El viaje ha finalizado.",
-        estimatedRangeLine,
-        "Recuerda cobrar el valor que marque el taxímetro más el recargo por solicitud de $800 COP.",
-      ].join("\n"),
-    ),
   ]);
 
   await sendRatingPrompt(updated.passengerPhone, updated.id);
+  // UX-004: fin + calificación en un solo mensaje (mismas estrellas).
   await sendDriverRatesPassengerPrompt(driverPhone, updated.id);
 
   // active → closing + closes_at = now + 5 min
