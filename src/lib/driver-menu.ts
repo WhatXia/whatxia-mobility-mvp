@@ -189,15 +189,6 @@ export async function handleDriverNavBackToProfile(phone: string): Promise<void>
   await sendDriverProfileMenu(phone);
 }
 
-export async function handleDriverPerformance(phone: string): Promise<void> {
-  await sendTextMessage(
-    phone,
-    "📊 Mi rendimiento\n\nPronto podrás ver aquí tus viajes, calificaciones y estadísticas.",
-  );
-  // Evitar quedar atrapado: volver al nivel Mi perfil
-  await sendDriverProfileMenu(phone);
-}
-
 function valueOrDash(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") {
     return "—";

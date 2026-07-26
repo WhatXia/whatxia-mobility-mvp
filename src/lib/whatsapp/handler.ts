@@ -73,7 +73,6 @@ import {
   handleDriverNavBackToAccount,
   handleDriverNavBackToMain,
   handleDriverNavBackToProfile,
-  handleDriverPerformance,
   handleDriverProfile,
   handleDriverReport,
   handleToggleAvailability,
@@ -82,6 +81,7 @@ import {
   sendDriverProfileMenu,
   sendDriverSupportMenu,
 } from "@/lib/driver-menu";
+import { handleDriverPerformance } from "@/lib/driver-performance";
 import {
   handlePassengerRating,
   handlePostRatingChoice,
