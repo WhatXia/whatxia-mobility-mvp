@@ -44,6 +44,7 @@ export type Trip = {
   finishedAt: string | null;
   currency: string;
   cityId: string | null;
+  createdAt: string | null;
 };
 
 type TripRow = {
@@ -78,6 +79,7 @@ type TripRow = {
   finished_at: string | null;
   currency: string | null;
   city_id: string | null;
+  created_at: string | null;
 };
 
 export type CreateTripGeoInput = {
@@ -115,7 +117,7 @@ export const CONTINUE_WINDOW_MS = 2 * 60 * 1000;
 export const MAX_SEARCH_REMINDER_COUNT = 2;
 
 const TRIP_COLUMNS =
-  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, search_reminder_count, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, final_fare, wait_seconds, started_at, finished_at, currency, city_id";
+  "id, passenger_id, passenger_phone, pickup_neighborhood, status, driver_id, driver_phone, driver_name, eta_minutes, rating, search_deadline_at, continue_deadline_at, search_awaiting_continue, search_reminder_count, pickup_lat, pickup_lng, pickup_place_id, pickup_label, dropoff_lat, dropoff_lng, dropoff_place_id, dropoff_label, distance_meters, duration_seconds, quoted_fare, final_fare, wait_seconds, started_at, finished_at, currency, city_id, created_at";
 
 export function normalizePhone(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -164,6 +166,7 @@ function mapRow(row: TripRow): Trip {
     finishedAt: row.finished_at ?? null,
     currency: row.currency ?? "COP",
     cityId: row.city_id ?? null,
+    createdAt: row.created_at ?? null,
   };
 }
 

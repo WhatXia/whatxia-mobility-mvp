@@ -52,6 +52,7 @@ import type {
   ResolvedPlace,
   RouteEstimate,
 } from "@/lib/geo/types";
+import { computeAutomaticEtaRange } from "@/lib/eta-auto";
 import {
   finalizeFare,
   formatEstimatedFareRangeLine,
@@ -78,6 +79,7 @@ export const DRIVER_BUTTON_IDS = {
   FINALIZAR: "finalizar_viaje",
 } as const;
 
+/** Compat: botones ETA antiguos aún pueden llegar por mensajes previos. */
 const ETA_OPTIONS = [5, 7, 10] as const;
 
 type DriverButtonAction =
@@ -96,10 +98,6 @@ function acceptButtonId(tripId: string) {
 
 function rejectButtonId(tripId: string) {
   return `${DRIVER_BUTTON_IDS.RECHAZAR}:${tripId}`;
-}
-
-function etaButtonId(minutes: number, tripId: string) {
-  return `${DRIVER_BUTTON_IDS.ETA}:${minutes}:${tripId}`;
 }
 
 function llegueButtonId(tripId: string) {
@@ -194,17 +192,58 @@ export function parseDriverButton(
   return null;
 }
 
-async function sendEtaOptions(driverPhone: string, tripId: string) {
-  // Títulos ≤ 20 caracteres (límite WhatsApp).
+/**
+ * Aplica ETA automático, informa al pasajero y pasa al conductor a "Llegué".
+ */
+async function applyAutomaticEta(
+  driverPhone: string,
+  trip: Trip,
+): Promise<void> {
+  if (trip.status !== "ASSIGNED") {
+    console.warn("[dispatch] ETA automático omitido: viaje no ASSIGNED", {
+      tripId: trip.id,
+      status: trip.status,
+    });
+    return;
+  }
+
+  const createdMs = trip.createdAt ? Date.parse(trip.createdAt) : NaN;
+  const elapsedSeconds = Number.isFinite(createdMs)
+    ? Math.max(0, (Date.now() - createdMs) / 1000)
+    : 0;
+  const range = computeAutomaticEtaRange(elapsedSeconds);
+
+  const updated = await setTripEta(trip.id, range.maxMinutes);
+  if (!updated) {
+    await sendTextMessage(
+      driverPhone,
+      "No se pudo registrar el tiempo de llegada.",
+    );
+    return;
+  }
+
+  const driverName = updated.assignedDriverName ?? "tu conductor";
+
   await sendButtonsMessage(
-    driverPhone,
-    "¿En cuánto tiempo llegas al punto de recogida?",
+    updated.passengerPhone,
+    `Tu conductor ${driverName} llegará aproximadamente entre ${range.minMinutes} y ${range.maxMinutes} minutos.`,
     [
-      { id: etaButtonId(5, tripId), title: "⏱️ Llego en 5 min" },
-      { id: etaButtonId(7, tripId), title: "⏱️ Llego en 7 min" },
-      { id: etaButtonId(10, tripId), title: "⏱️ Llego en 10 min" },
+      {
+        id: cancelServicioButtonId(updated.id),
+        title: "❌ Cancelar servicio",
+      },
     ],
   );
+
+  await sendArrivedButton(driverPhone, updated.id);
+
+  console.log("[dispatch] ETA automático informado:", {
+    tripId: updated.id,
+    elapsedSeconds: Math.round(elapsedSeconds),
+    minMinutes: range.minMinutes,
+    maxMinutes: range.maxMinutes,
+    driverPhone,
+  });
 }
 
 async function sendArrivedButton(driverPhone: string, tripId: string) {
@@ -766,8 +805,8 @@ export async function handleDriverAccept(
     phase: "after_passenger_assignment_message",
   });
 
-  // Siguiente acción operativa (sin confirmación "Servicio asignado").
-  await sendEtaOptions(driverPhone, assigned.id);
+  // Fase 1.1: ETA automático (sin botones de selección manual).
+  await applyAutomaticEta(driverPhone, assigned);
 
   console.log("[dispatch] viaje asignado:", {
     tripId: assigned.id,
