@@ -27,7 +27,6 @@ import {
 } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
 import {
-  formatDriverReputationForPassenger,
   formatPassengerReputationForOffer,
   getDriverRatingAggregate,
   getPassengerRatingAggregateSafe,
@@ -192,13 +191,26 @@ export function parseDriverButton(
   return null;
 }
 
+/** Rating en el mensaje unificado de asignación (sin cambiar formatters de reputación). */
+function formatDriverStarsForAssignment(average: number | null): string {
+  if (average == null) {
+    return "⭐ Conductor nuevo.";
+  }
+  return `⭐ ${average.toFixed(1)}`;
+}
+
 /**
- * Aplica ETA automático, informa al pasajero y pasa al conductor a "Llegué".
+ * Fase 1.1 + 1.2: persiste ETA automático y envía un único mensaje a cada parte.
  */
-async function applyAutomaticEta(
-  driverPhone: string,
-  trip: Trip,
-): Promise<void> {
+async function applyAutomaticEtaAndNotifyAssignment(params: {
+  driverPhone: string;
+  trip: Trip;
+  driverName: string;
+  plate: string;
+  driverAverage: number | null;
+}): Promise<void> {
+  const { driverPhone, trip, driverName, plate, driverAverage } = params;
+
   if (trip.status !== "ASSIGNED") {
     console.warn("[dispatch] ETA automático omitido: viaje no ASSIGNED", {
       tripId: trip.id,
@@ -222,11 +234,21 @@ async function applyAutomaticEta(
     return;
   }
 
-  const driverName = updated.assignedDriverName ?? "tu conductor";
+  const etaLabel = `${range.minMinutes}–${range.maxMinutes} minutos`;
+  const plateLabel = plate.trim() || "Sin placa";
 
+  // Pasajero: UN solo mensaje (confirmación + conductor + placa + rating + ETA).
+  // No enviar ningún otro mensaje de ETA al pasajero después de este.
   await sendButtonsMessage(
     updated.passengerPhone,
-    `Tu conductor ${driverName} llegará aproximadamente entre ${range.minMinutes} y ${range.maxMinutes} minutos.`,
+    [
+      "🚖 ¡Tu conductor ya fue asignado!",
+      "",
+      `👤 ${driverName}`,
+      formatDriverStarsForAssignment(driverAverage),
+      `🚖 ${plateLabel}`,
+      `⏱️ Llegará aproximadamente en ${etaLabel}.`,
+    ].join("\n"),
     [
       {
         id: cancelServicioButtonId(updated.id),
@@ -235,9 +257,20 @@ async function applyAutomaticEta(
     ],
   );
 
-  await sendArrivedButton(driverPhone, updated.id);
+  // Conductor: UN solo mensaje. ETA explícito ANTES de la instrucción de navegación.
+  await sendButtonsMessage(
+    driverPhone,
+    [
+      "✅ Servicio asignado.",
+      "",
+      `⏱️ Tienes ${etaLabel} para llegar al punto de recogida.`,
+      "",
+      '📍 Usa "Ver ubicación" para navegar hacia el pasajero.',
+    ].join("\n"),
+    [{ id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" }],
+  );
 
-  console.log("[dispatch] ETA automático informado:", {
+  console.log("[dispatch] asignación unificada + ETA automático:", {
     tripId: updated.id,
     elapsedSeconds: Math.round(elapsedSeconds),
     minMinutes: range.minMinutes,
@@ -246,8 +279,23 @@ async function applyAutomaticEta(
   });
 }
 
+/** Tras Ver ubicación: Llegué / Cancelar (continúa el ciclo operativo). */
+async function sendArrivedActionsAfterLocation(
+  driverPhone: string,
+  tripId: string,
+): Promise<void> {
+  await sendButtonsMessage(
+    driverPhone,
+    'Al llegar al punto de recogida, presiona "Llegué".',
+    [
+      { id: llegueButtonId(tripId), title: "📍 Llegué" },
+      { id: cancelServicioButtonId(tripId), title: "❌ Cancelar servicio" },
+    ],
+  );
+}
+
 async function sendArrivedButton(driverPhone: string, tripId: string) {
-  // Máx. 3 botones (límite WhatsApp).
+  // Compat: flujo legacy (p. ej. botón ETA antiguo).
   await sendButtonsMessage(
     driverPhone,
     [
@@ -256,7 +304,7 @@ async function sendArrivedButton(driverPhone: string, tripId: string) {
       'Al llegar, presiona "Llegué".',
     ].join("\n"),
     [
-      { id: verUbicacionButtonId(tripId), title: "Ver ubicación" },
+      { id: verUbicacionButtonId(tripId), title: "📍 Ver ubicación" },
       { id: llegueButtonId(tripId), title: "📍 Llegué" },
       { id: cancelServicioButtonId(tripId), title: "❌ Cancelar servicio" },
     ],
@@ -779,24 +827,17 @@ export async function handleDriverAccept(
   }
 
   const driverRep = await getDriverRatingAggregate(driver.id);
-  const vehicleLabel = driver.plate?.trim()
-    ? `Taxi ${driver.plate.trim()}`
-    : "Taxi";
 
-  await Promise.allSettled([
-    sendTextMessage(
-      assigned.passengerPhone,
-      [
-        "🚖 ¡Tu conductor está en camino!",
-        `👤 Conductor: ${driver.name}`,
-        `🚕 Vehículo: ${vehicleLabel}`,
-        formatDriverReputationForPassenger(driverRep),
-      ].join("\n"),
-    ),
-  ]);
+  // Fase 1.1 + 1.2: ETA automático + un mensaje unificado por rol.
+  await applyAutomaticEtaAndNotifyAssignment({
+    driverPhone,
+    trip: assigned,
+    driverName: driver.name,
+    plate: driver.plate ?? "",
+    driverAverage: driverRep.average,
+  });
 
-
-  // Diagnóstico: justo después de informar al pasajero (conductor / vehículo).
+  // Diagnóstico: justo después de informar asignación unificada.
   await diagnoseTunnelVisibility({
     tripId: assigned.id,
     passengerPhone: assigned.passengerPhone,
@@ -804,9 +845,6 @@ export async function handleDriverAccept(
     expectedTunnelId: openedTunnelId,
     phase: "after_passenger_assignment_message",
   });
-
-  // Fase 1.1: ETA automático (sin botones de selección manual).
-  await applyAutomaticEta(driverPhone, assigned);
 
   console.log("[dispatch] viaje asignado:", {
     tripId: assigned.id,
@@ -944,6 +982,11 @@ export async function handleDriverVerUbicacion(
     displayText: "Abrir Google Maps",
     url,
   });
+
+  // Tras Ver ubicación (mensaje unificado de asignación), ofrecer Llegué.
+  if (trip.status === "ETA_INFORMED") {
+    await sendArrivedActionsAfterLocation(driverPhone, trip.id);
+  }
 
   console.log("[dispatch] ubicación de recogida enviada al conductor:", {
     tripId: trip.id,
