@@ -1,10 +1,14 @@
 import {
   findDriverByPhone,
+  getDriverFullName,
   listAvailableDrivers,
   markDriverAvailable,
   markDriverUnavailable,
 } from "@/lib/supabase/drivers";
-import { findOrCreatePassenger } from "@/lib/supabase/passengers";
+import {
+  findOrCreatePassenger,
+  getPassengerFullName,
+} from "@/lib/supabase/passengers";
 import {
   createTrip,
   clearSearchDeadlinesOnAssign,
@@ -205,11 +209,21 @@ function formatDriverStarsForAssignment(average: number | null): string {
 async function applyAutomaticEtaAndNotifyAssignment(params: {
   driverPhone: string;
   trip: Trip;
+  /** full_name del conductor (identidad compartida). */
   driverName: string;
+  /** full_name del pasajero (identidad compartida). */
+  passengerFullName: string;
   plate: string;
   driverAverage: number | null;
 }): Promise<void> {
-  const { driverPhone, trip, driverName, plate, driverAverage } = params;
+  const {
+    driverPhone,
+    trip,
+    driverName,
+    passengerFullName,
+    plate,
+    driverAverage,
+  } = params;
 
   if (trip.status !== "ASSIGNED") {
     console.warn("[dispatch] ETA automático omitido: viaje no ASSIGNED", {
@@ -257,11 +271,13 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     ],
   );
 
-  // Conductor: UN solo mensaje. ETA + tres acciones desde el inicio.
+  // Conductor: UN solo mensaje. ETA + identidad del pasajero + tres acciones.
   await sendButtonsMessage(
     driverPhone,
     [
       "✅ Servicio asignado.",
+      "",
+      `👤 Pasajero: ${passengerFullName}`,
       "",
       `⏱️ Tienes ${etaLabel} para llegar al punto de recogida.`,
       "",
@@ -758,7 +774,7 @@ export async function handleDriverAccept(
     tripId,
     driver.id,
     driverPhone,
-    driver.name,
+    getDriverFullName(driver),
   );
 
   if (!assigned) {
@@ -819,12 +835,15 @@ export async function handleDriverAccept(
   }
 
   const driverRep = await getDriverRatingAggregate(driver.id);
+  const passenger = await findOrCreatePassenger(assigned.passengerPhone);
 
   // Fase 1.1 + 1.2: ETA automático + un mensaje unificado por rol.
+  // Identidad compartida: full_name (no preferred_name).
   await applyAutomaticEtaAndNotifyAssignment({
     driverPhone,
     trip: assigned,
-    driverName: driver.name,
+    driverName: getDriverFullName(driver),
+    passengerFullName: getPassengerFullName(passenger),
     plate: driver.plate ?? "",
     driverAverage: driverRep.average,
   });

@@ -1,6 +1,7 @@
 import { getSupabase } from "@/lib/supabase/client";
 import type { DriverDraft, DriverFieldKey } from "@/lib/driver-profile-fields";
 import { hasExpiredDocuments } from "@/lib/driver-documents";
+import { findPassengerByPhone } from "@/lib/supabase/passengers";
 import { normalizePhone, samePhone } from "@/lib/trips";
 import { getActiveCity } from "@/lib/city/context";
 
@@ -10,6 +11,10 @@ export type DriverRow = {
   id: string;
   phone: string;
   name: string;
+  /** Identidad compartida con el pasajero. */
+  full_name: string | null;
+  /** Nombre corto en conversaciones con el conductor. */
+  preferred_name: string | null;
   plate: string;
   document_id: string | null;
   email: string | null;
@@ -38,6 +43,23 @@ export type DriverRow = {
 };
 
 const DRIVER_COLUMNS = "*";
+
+/** Nombre para conversaciones con el conductor (sin partir full_name). */
+export function getDriverDisplayName(
+  driver: DriverRow,
+  fallback?: string,
+): string {
+  const preferred = driver.preferred_name?.trim();
+  if (preferred) return preferred;
+  return driver.name?.trim() || driver.full_name?.trim() || fallback || "conductor";
+}
+
+/** Nombre para compartir identidad con el pasajero (sin partir automáticamente). */
+export function getDriverFullName(driver: DriverRow): string {
+  const full = driver.full_name?.trim();
+  if (full) return full;
+  return driver.name?.trim() || "tu conductor";
+}
 
 export async function findDriverById(
   driverId: string,
@@ -284,12 +306,19 @@ export async function createDriver(
   const supabase = getSupabase();
   const city = await getActiveCity();
   const documentsExpired = hasExpiredDocuments(input);
+  const passenger = await findPassengerByPhone(input.phone);
+  const fullName =
+    passenger?.full_name?.trim() || input.name.trim();
+  const preferredName =
+    passenger?.preferred_name?.trim() || null;
 
   const { data, error } = await supabase
     .from("drivers")
     .insert({
       phone: normalizePhone(input.phone),
       name: input.name,
+      full_name: fullName,
+      preferred_name: preferredName,
       plate: input.plate,
       document_id: input.document_id,
       email: input.email,

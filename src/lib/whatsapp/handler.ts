@@ -114,7 +114,7 @@ import {
 import { findDriverByPhone } from "@/lib/supabase/drivers";
 import {
   continuePreferredNameFlow,
-  ensurePreferredNameOrPrompt,
+  ensureIdentityOrPrompt,
 } from "@/lib/preferred-name";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
@@ -233,7 +233,7 @@ async function startPassengerRequest(
   name: string,
   intent: MobilityIntentResult | null = null,
 ): Promise<void> {
-  const passenger = await ensurePreferredNameOrPrompt(phone, name);
+  const passenger = await ensureIdentityOrPrompt(phone, name);
   if (!passenger) {
     return;
   }
@@ -735,7 +735,7 @@ export async function handleIncomingMessage(
       await routeDriverModuleEntry(message.phone);
       return;
     }
-    const passenger = await ensurePreferredNameOrPrompt(
+    const passenger = await ensureIdentityOrPrompt(
       message.phone,
       message.name,
     );
@@ -784,7 +784,7 @@ export async function handleIncomingMessage(
       return;
     }
 
-    const passenger = await ensurePreferredNameOrPrompt(
+    const passenger = await ensureIdentityOrPrompt(
       message.phone,
       message.name,
     );

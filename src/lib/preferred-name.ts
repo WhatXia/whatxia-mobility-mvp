@@ -1,31 +1,85 @@
 /**
- * Nombre preferido del usuario (pasajero).
- * WhatsApp name se guarda como referencia; las conversaciones usan preferred_name.
+ * Captura de identidad (pasajeros y conductores nuevos):
+ * 1) full_name (nombre y apellido exactos)
+ * 2) preferred_name (cómo te llamamos)
+ *
+ * whatsapp_name se conserva como referencia.
+ * Conversación → preferred_name. Identidad compartida P↔D → full_name.
  */
 
 import type { IncomingMessage, UserSession } from "@/types";
 import {
   findOrCreatePassenger,
   getPassengerDisplayName,
+  hasCompleteIdentity,
+  hasFullName,
   hasPreferredName,
+  setPassengerFullName,
   setPassengerPreferredName,
   type PassengerRow,
 } from "@/lib/supabase/passengers";
+import { findDriverByPhone } from "@/lib/supabase/drivers";
+import { getSupabase } from "@/lib/supabase/client";
+import { normalizePhone } from "@/lib/trips";
 import { clearSession, getSession, upsertSession } from "@/lib/sessions";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
-export const PREFERRED_NAME_PROMPT = [
-  "👋 ¡Hola! Bienvenido a WhatXia.",
+export const FULL_NAME_PROMPT = [
+  "👋 ¡Bienvenido a WhatXia!",
   "",
   "Antes de comenzar...",
   "",
-  "¿Cómo prefieres que te llamemos?",
+  "¿Cuál es tu nombre y apellido?",
 ].join("\n");
 
+export const PREFERRED_NAME_PROMPT = "¿Cómo prefieres que te llamemos?";
+
+const GREETING_BLOCKLIST = new Set([
+  "hola",
+  "buenas",
+  "buenos dias",
+  "buenas tardes",
+  "buenas noches",
+]);
+
+function normalizeText(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+}
+
+function isBlockedName(text: string): boolean {
+  return GREETING_BLOCKLIST.has(normalizeText(text));
+}
+
+export function isWaitingIdentity(
+  session: UserSession | undefined,
+): boolean {
+  return (
+    session?.state === "WAITING_FULL_NAME" ||
+    session?.state === "WAITING_PREFERRED_NAME"
+  );
+}
+
+/** @deprecated usar isWaitingIdentity */
 export function isWaitingPreferredName(
   session: UserSession | undefined,
 ): boolean {
-  return session?.state === "WAITING_PREFERRED_NAME";
+  return isWaitingIdentity(session);
+}
+
+export async function promptForFullName(phone: string): Promise<void> {
+  await upsertSession(phone, {
+    state: "WAITING_FULL_NAME",
+    bookingDraft: null,
+    driverDraft: null,
+    driverFlowStep: null,
+    driverUpdateCategory: null,
+    driverUpdateField: null,
+  });
+  await sendTextMessage(phone, FULL_NAME_PROMPT);
 }
 
 export async function promptForPreferredName(phone: string): Promise<void> {
@@ -40,80 +94,154 @@ export async function promptForPreferredName(phone: string): Promise<void> {
   await sendTextMessage(phone, PREFERRED_NAME_PROMPT);
 }
 
+/** Sincroniza identidad al perfil conductor si existe (mismo WhatsApp). */
+async function syncIdentityToDriver(
+  phone: string,
+  fullName: string | null,
+  preferredName: string | null,
+): Promise<void> {
+  const driver = await findDriverByPhone(phone);
+  if (!driver) return;
+
+  const patch: Record<string, string> = {};
+  if (fullName?.trim()) {
+    patch.full_name = fullName.trim();
+  }
+  if (preferredName?.trim()) {
+    patch.preferred_name = preferredName.trim();
+  }
+  if (Object.keys(patch).length === 0) return;
+
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from("drivers")
+    .update(patch)
+    .eq("id", driver.id);
+
+  if (error) {
+    console.error("[identity] error al sincronizar conductor:", error);
+    throw error;
+  }
+}
+
 /**
- * Asegura pasajero + whatsapp_name actualizado.
- * @returns pasajero con preferred_name, o null si se pidió el nombre (flujo bloqueado).
+ * @returns pasajero con identidad completa, o null si el flujo quedó bloqueado pidiendo datos.
  */
-export async function ensurePreferredNameOrPrompt(
+export async function ensureIdentityOrPrompt(
   phone: string,
   whatsappName: string,
 ): Promise<PassengerRow | null> {
   const passenger = await findOrCreatePassenger(phone, whatsappName);
 
-  if (hasPreferredName(passenger)) {
+  if (hasCompleteIdentity(passenger)) {
     return passenger;
   }
 
-  await promptForPreferredName(phone);
-  return null;
+  if (!hasFullName(passenger)) {
+    await promptForFullName(phone);
+    return null;
+  }
+
+  if (!hasPreferredName(passenger)) {
+    await promptForPreferredName(phone);
+    return null;
+  }
+
+  return passenger;
+}
+
+/** Alias Sprint 2.2 */
+export async function ensurePreferredNameOrPrompt(
+  phone: string,
+  whatsappName: string,
+): Promise<PassengerRow | null> {
+  return ensureIdentityOrPrompt(phone, whatsappName);
 }
 
 export async function continuePreferredNameFlow(
   message: IncomingMessage,
 ): Promise<boolean> {
   const session = await getSession(message.phone);
-  if (!isWaitingPreferredName(session)) {
+  if (!isWaitingIdentity(session)) {
     return false;
   }
 
   const raw = message.text?.trim() ?? "";
-  if (!raw) {
-    await sendTextMessage(
+
+  if (session?.state === "WAITING_FULL_NAME") {
+    if (!raw) {
+      await sendTextMessage(
+        message.phone,
+        "Escribe tu nombre y apellido (ej. Carlos Fernando Valencia).",
+      );
+      return true;
+    }
+    if (isBlockedName(raw)) {
+      await sendTextMessage(
+        message.phone,
+        "¿Cuál es tu nombre y apellido? Escríbelos tal como quieres que aparezcan.",
+      );
+      return true;
+    }
+
+    const fullName = raw.slice(0, 80);
+    const updated = await setPassengerFullName(message.phone, fullName);
+    await syncIdentityToDriver(
       message.phone,
-      "Escribe el nombre con el que prefieres que te llamemos.",
+      fullName,
+      updated?.preferred_name ?? null,
     );
+
+    await promptForPreferredName(message.phone);
+    console.log("[identity] full_name guardado", {
+      phone: message.phone,
+      fullName,
+    });
     return true;
   }
 
-  // Evitar guardar saludos/intenciones como nombre.
-  const normalized = raw
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "");
-  if (
-    ["hola", "buenas", "buenos dias", "buenas tardes", "buenas noches"].includes(
-      normalized,
-    )
-  ) {
+  // WAITING_PREFERRED_NAME
+  if (!raw) {
     await sendTextMessage(
       message.phone,
-      "¿Cómo prefieres que te llamemos? Escribe solo tu nombre (ej. Carlos).",
+      "Escribe el nombre con el que prefieres que te llamemos (ej. Carlos).",
+    );
+    return true;
+  }
+  if (isBlockedName(raw)) {
+    await sendTextMessage(
+      message.phone,
+      "¿Cómo prefieres que te llamemos? Escribe solo ese nombre (ej. Carlos).",
     );
     return true;
   }
 
   const preferred = raw.slice(0, 40);
   const updated = await setPassengerPreferredName(message.phone, preferred);
+  const passenger = updated ?? (await findOrCreatePassenger(message.phone));
+  await syncIdentityToDriver(
+    message.phone,
+    passenger.full_name,
+    preferred,
+  );
+
+  const display = getPassengerDisplayName(passenger, preferred);
+
   await clearSession(message.phone);
-
-  const display = updated
-    ? getPassengerDisplayName(updated)
-    : preferred;
-
   await upsertSession(message.phone, {
     name: display,
     state: "IDLE",
     bookingDraft: null,
   });
 
+  // Continuar flujo normal (menú / favoritos con preferred_name).
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-  await sendPassengerActionMenu(message.phone, display, {
-    body: `¡Perfecto, ${display}! 👋\n\n¿Qué deseas hacer?`,
-  });
+  await sendPassengerActionMenu(message.phone, display);
 
-  console.log("[preferred-name] guardado", {
-    phone: message.phone,
+  console.log("[identity] preferred_name guardado", {
+    phone: normalizePhone(message.phone),
     preferredName: display,
+    fullName: passenger.full_name,
   });
 
   return true;

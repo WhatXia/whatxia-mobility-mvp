@@ -1,8 +1,10 @@
 import type { DriverRow } from "@/lib/supabase/drivers";
 import {
   findDriverByPhone,
+  getDriverDisplayName,
   setDriverAvailability,
 } from "@/lib/supabase/drivers";
+import { findPassengerByPhone } from "@/lib/supabase/passengers";
 import {
   BLOCKED_AVAILABILITY_MESSAGE,
   hasExpiredDocuments,
@@ -71,11 +73,19 @@ export async function sendDriverMainMenu(
       ? "🟢 Disponible para recibir servicios"
       : "🔴 No disponible para recibir servicios";
 
+  let greetName = getDriverDisplayName(driver);
+  if (options?.welcome) {
+    const passenger = await findPassengerByPhone(toPhone ?? driver.phone);
+    if (passenger?.preferred_name?.trim()) {
+      greetName = passenger.preferred_name.trim();
+    }
+  }
+
   const trimmedBody = options?.body?.trim();
   const body = trimmedBody
     ? trimmedBody
     : options?.welcome
-      ? `¡Hola ${driver.name}!\n\n${statusLabel}\n\nSesión iniciada. ¿Qué deseas hacer?`
+      ? `¡Hola ${greetName}!\n\n${statusLabel}\n\nSesión iniciada. ¿Qué deseas hacer?`
       : statusLabel;
 
   await sendButtonsMessage(toPhone ?? driver.phone, body, [
