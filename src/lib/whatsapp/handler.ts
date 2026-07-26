@@ -89,6 +89,14 @@ import {
   parseRatingButton,
 } from "@/lib/rating";
 import {
+  continueFavoriteFlow,
+  getActiveFavoriteSession,
+  handleFavoriteNameChoice,
+  handleFavoriteOfferChoice,
+  parseFavoriteNameButton,
+  parseFavoriteOfferButton,
+} from "@/lib/route-favorites";
+import {
   handleTaximeterMessage,
   isTaximeterButton,
   getTaximeterSession,
@@ -243,6 +251,26 @@ export async function handleIncomingMessage(
       message.name,
       postRatingButton.action,
       postRatingButton.tripId,
+    );
+    return;
+  }
+
+  const favoriteOffer = parseFavoriteOfferButton(message.button);
+  if (favoriteOffer) {
+    await handleFavoriteOfferChoice(
+      message.phone,
+      favoriteOffer.action,
+      favoriteOffer.tripId,
+    );
+    return;
+  }
+
+  const favoriteName = parseFavoriteNameButton(message.button);
+  if (favoriteName) {
+    await handleFavoriteNameChoice(
+      message.phone,
+      favoriteName.kind,
+      favoriteName.tripId,
     );
     return;
   }
@@ -597,6 +625,15 @@ export async function handleIncomingMessage(
 
   if (updateSession) {
     const handled = await continueDriverUpdate(message, updateSession);
+    if (handled) {
+      return;
+    }
+  }
+
+  const favoriteSession = await getActiveFavoriteSession(message.phone);
+
+  if (favoriteSession) {
+    const handled = await continueFavoriteFlow(message, favoriteSession);
     if (handled) {
       return;
     }

@@ -4,6 +4,7 @@ import { closeTunnelForTrip } from "@/lib/tunnels";
 import { getTrip, samePhone, setTripRating } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import { startBookingFlow } from "@/lib/booking/flow";
+import { offerSaveFavoriteAfterRating } from "@/lib/route-favorites/flow";
 
 const RATING_PREFIX = "rating";
 const POST_RATING_PREFIX = "post_rating";
@@ -71,7 +72,10 @@ export async function sendRatingPrompt(passengerPhone: string, tripId: string) {
   ]);
 }
 
-async function sendPostRatingMenu(passengerPhone: string, tripId: string) {
+export async function sendPostRatingMenu(
+  passengerPhone: string,
+  tripId: string,
+) {
   // Títulos ≤ 20 caracteres (límite WhatsApp).
   await sendButtonsMessage(passengerPhone, "¿Qué deseas hacer ahora?", [
     {
@@ -123,7 +127,9 @@ export async function handlePassengerRating(
     RATING_REPLIES[rating] ?? "¡Gracias por tu calificación!";
 
   await sendTextMessage(passengerPhone, reply);
-  await sendPostRatingMenu(passengerPhone, tripId);
+
+  // Favoritos inteligentes: ofrecer guardar recorrido (origen + destino).
+  await offerSaveFavoriteAfterRating(passengerPhone, tripId);
 
   console.log("[rating] calificación guardada:", {
     tripId: updated.id,
