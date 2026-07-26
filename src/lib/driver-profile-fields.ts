@@ -159,8 +159,8 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
 
 /** Orden del registro completo (el teléfono sale de WhatsApp). */
 export const REGISTRATION_ORDER: DriverFieldKey[] = [
-  "name",
   "document_id",
+  "name",
   "email",
   "address",
   "city",
@@ -175,7 +175,7 @@ export const REGISTRATION_ORDER: DriverFieldKey[] = [
 ];
 
 export const CATEGORY_FIELDS: Record<DriverFieldCategory, DriverFieldKey[]> = {
-  personal: ["name", "document_id", "email", "address", "city"],
+  personal: ["document_id", "name", "email", "address", "city"],
   vehicle: ["plate", "vehicle_brand", "vehicle_model", "vehicle_color"],
   documents: [
     "soat_expires_at",

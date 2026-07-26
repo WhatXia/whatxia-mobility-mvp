@@ -80,6 +80,31 @@ export async function findDriverByPhone(
   return null;
 }
 
+/** Busca conductor por cédula (`document_id` = número de documento). */
+export async function findDriverByDocumentId(
+  documentId: string,
+): Promise<DriverRow | null> {
+  const supabase = getSupabase();
+  const normalized = documentId.replace(/\D/g, "");
+
+  if (!normalized) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .select(DRIVER_COLUMNS)
+    .eq("document_id", normalized)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al buscar conductor por cédula:", error);
+    throw error;
+  }
+
+  return (data as DriverRow | null) ?? null;
+}
+
 export async function listAvailableDrivers(options?: {
   excludePhone?: string;
   excludeDriverId?: string;

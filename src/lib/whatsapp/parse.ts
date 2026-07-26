@@ -137,6 +137,12 @@ export function parseIncomingMessages(
       const contactName = value.contacts?.[0]?.profile?.name ?? "";
 
       for (const message of value.messages) {
+        console.log(
+          "Webhook recibido:",
+          message.from,
+          message.text?.body,
+        );
+
         if (!message.from) {
           continue;
         }

@@ -14,6 +14,7 @@ import {
 import {
   createDriver,
   draftToCreateInput,
+  findDriverByDocumentId,
   findDriverByPhone,
 } from "@/lib/supabase/drivers";
 import { EXPIRED_DOCS_MESSAGE } from "@/lib/driver-documents";
@@ -295,6 +296,19 @@ export async function continueDriverRegistration(
     return true;
   }
 
+  // Primer dato: cédula — bloquear si ya existe en drivers.document_id
+  if (step === "document_id") {
+    const existing = await findDriverByDocumentId(String(parsed.value));
+    if (existing) {
+      await clearSession(message.phone);
+      await sendTextMessage(
+        message.phone,
+        "Este conductor ya se encuentra registrado en WhatXia. Si necesitas actualizar tus datos, comunícate con un administrador.",
+      );
+      return true;
+    }
+  }
+
   const draft = {
     ...(session.driverDraft ?? {}),
     [step]: String(parsed.value),
@@ -313,27 +327,43 @@ export async function continueDriverRegistration(
       return true;
     }
 
-    const { documentsExpired } = await createDriver(input);
-    await clearSession(message.phone);
+    try {
+      const { documentsExpired } = await createDriver(input);
+      await clearSession(message.phone);
 
-    if (documentsExpired) {
-      await sendExpiredDocumentsPrompt(message.phone, EXPIRED_DOCS_MESSAGE);
+      if (documentsExpired) {
+        await sendExpiredDocumentsPrompt(message.phone, EXPIRED_DOCS_MESSAGE);
+        return true;
+      }
+
+      await sendTextMessage(
+        message.phone,
+        [
+          "✅ ¡Perfecto!",
+          "",
+          "Ya recibimos tu información.",
+          "",
+          "Ahora nuestro equipo realizará la validación correspondiente para activar tu cuenta como conductor de WhatXia.",
+          "",
+          "Una vez sea aprobada, podrás acceder a tu módulo de conductor enviando 🚖 o 🚕.",
+        ].join("\n"),
+      );
       return true;
+    } catch (error) {
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: string }).code)
+          : "";
+      if (code === "23505") {
+        await clearSession(message.phone);
+        await sendTextMessage(
+          message.phone,
+          "Este conductor ya se encuentra registrado en WhatXia. Si necesitas actualizar tus datos, comunícate con un administrador.",
+        );
+        return true;
+      }
+      throw error;
     }
-
-    await sendTextMessage(
-      message.phone,
-      [
-        "✅ ¡Perfecto!",
-        "",
-        "Ya recibimos tu información.",
-        "",
-        "Ahora nuestro equipo realizará la validación correspondiente para activar tu cuenta como conductor de WhatXia.",
-        "",
-        "Una vez sea aprobada, podrás acceder a tu módulo de conductor enviando 🚖 o 🚕.",
-      ].join("\n"),
-    );
-    return true;
   }
 
   await upsertSession(message.phone, {
