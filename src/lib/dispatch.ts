@@ -1044,11 +1044,26 @@ export async function handleDriverLlegue(
     return;
   }
 
-  const driverName = updated.assignedDriverName ?? "tu conductor";
+  // UX-003: mensaje de llegada personalizado (solo copy; mismos botones).
+  const passenger = await findOrCreatePassenger(updated.passengerPhone);
+  const preferred = passenger.preferred_name?.trim();
+  const assignedDriver = updated.assignedDriverPhone
+    ? await findDriverByPhone(updated.assignedDriverPhone)
+    : null;
+  const plate = assignedDriver?.plate?.trim() || "Sin placa";
+  const arrivalHeadline = preferred
+    ? `🎉 ¡${preferred}, tu WhatXia ya llegó!`
+    : "🎉 ¡Tu WhatXia ya llegó!";
 
   await sendButtonsMessage(
     updated.passengerPhone,
-    `🚖 Tu conductor ${driverName} ya llegó al punto de recogida.`,
+    [
+      arrivalHeadline,
+      "",
+      `Tu vehículo de placa ${plate} ya está esperándote.`,
+      "",
+      "WhatXia, moviendo vidas.",
+    ].join("\n"),
     [
       { id: yaVoyButtonId(updated.id), title: "✅ Ya voy" },
       {
