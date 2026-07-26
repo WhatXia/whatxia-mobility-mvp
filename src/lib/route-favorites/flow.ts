@@ -1,9 +1,8 @@
 /**
- * Flujo de guardado de favoritos (post-calificación).
- *
- * Sprint actual: solo guardar.
- * Siguiente sprint: saludo con botones de favoritos + "Otro destino"
- * vía `buildFavoritesGreeting` / `listRouteFavorites` (ya exportados).
+ * Flujo de recorridos favoritos:
+ * - Guardado post-calificación
+ * - Menú / saludo con botones activos
+ * - Uso directo → cotización (vía startBookingFromFavorite)
  */
 
 import type { IncomingMessage, UserSession } from "@/types";
@@ -15,11 +14,16 @@ import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import {
   countRouteFavorites,
   createRouteFavorite,
+  getRouteFavoriteById,
   listRouteFavorites,
   MAX_ROUTE_FAVORITES,
   tripHasCompleteRoute,
   type RouteFavorite,
 } from "@/lib/route-favorites/store";
+
+/** IDs alineados con BUTTON_IDS del handler (evitar import circular). */
+const PASSENGER_SOLICITAR_ID = "solicitar_servicio";
+const PASSENGER_CANCELAR_ID = "cancelar";
 
 export const FAVORITE_BUTTON_IDS = {
   OFFER_YES: "fav_offer_yes",
@@ -27,7 +31,7 @@ export const FAVORITE_BUTTON_IDS = {
   NAME_HOME: "fav_name_casa",
   NAME_OFFICE: "fav_name_oficina",
   NAME_OTHER: "fav_name_other",
-  /** Preparado para el siguiente sprint (saludo con favoritos). */
+  /** @deprecated Usar solicitar_servicio en menús de pasajero. */
   OTHER_DESTINATION: "fav_other_destination",
   FAVORITE_PREFIX: "fav_use:",
 } as const;
@@ -97,16 +101,26 @@ export function parseFavoriteNameButton(
   return null;
 }
 
+export function parseFavoriteUseButton(button: string | null): string | null {
+  if (!button?.startsWith(FAVORITE_BUTTON_IDS.FAVORITE_PREFIX)) {
+    return null;
+  }
+  const id = button.slice(FAVORITE_BUTTON_IDS.FAVORITE_PREFIX.length).trim();
+  return id || null;
+}
+
 export function isFavoriteFlowButton(button: string | null): boolean {
   return (
     parseFavoriteOfferButton(button) !== null ||
-    parseFavoriteNameButton(button) !== null
+    parseFavoriteNameButton(button) !== null ||
+    parseFavoriteUseButton(button) !== null
   );
 }
 
 /**
- * Preparado para el siguiente sprint: saludo con favoritos.
- * No cablear aún en el menú de pasajero.
+ * Saludo / home con favoritos.
+ * 1 favorito → Favorito + Solicitar + Cancelar
+ * 2 favoritos → Favorito1 + Favorito2 + Solicitar (máx. 3 botones WA)
  */
 export function buildFavoritesGreeting(
   passengerName: string,
@@ -116,20 +130,83 @@ export function buildFavoritesGreeting(
   buttons: Array<{ id: string; title: string }>;
 } {
   const name = passengerName.trim() || "amigo";
-  const body = `¡Hola, ${name}! ¿A dónde vamos hoy?`;
-  const buttons: Array<{ id: string; title: string }> = favorites
-    .slice(0, MAX_ROUTE_FAVORITES)
-    .map((fav) => ({
-      id: `${FAVORITE_BUTTON_IDS.FAVORITE_PREFIX}${fav.id}`,
-      title: fav.name.slice(0, 20),
-    }));
+  const body = `¡Hola, ${name}! 👋\n\n¿A dónde vamos hoy?`;
+  const slice = favorites.slice(0, MAX_ROUTE_FAVORITES);
+  const buttons: Array<{ id: string; title: string }> = slice.map((fav) => ({
+    id: `${FAVORITE_BUTTON_IDS.FAVORITE_PREFIX}${fav.id}`,
+    title: fav.name.slice(0, 20),
+  }));
 
+  // Título ≤ 20 (límite WhatsApp); emoji + "Solicitar servicio" excede.
   buttons.push({
-    id: FAVORITE_BUTTON_IDS.OTHER_DESTINATION,
-    title: "➕ Otro destino",
+    id: PASSENGER_SOLICITAR_ID,
+    title: "Solicitar servicio",
   });
 
+  if (slice.length < MAX_ROUTE_FAVORITES) {
+    buttons.push({
+      id: PASSENGER_CANCELAR_ID,
+      title: "❌ Cancelar",
+    });
+  }
+
   return { body, buttons };
+}
+
+/**
+ * Muestra el menú de favoritos si el pasajero tiene al menos uno.
+ * @returns true si se envió el menú
+ */
+export async function sendFavoritesHomeMenu(
+  phone: string,
+  displayName: string,
+): Promise<boolean> {
+  const passenger = await findOrCreatePassenger(phone, displayName);
+  const favorites = await listRouteFavorites(passenger.id);
+  if (favorites.length === 0) {
+    return false;
+  }
+
+  const { body, buttons } = buildFavoritesGreeting(
+    passenger.name || displayName || "amigo",
+    favorites,
+  );
+
+  await upsertSession(phone, {
+    name: displayName || passenger.name || undefined,
+    state: "IDLE",
+    pickupNeighborhood: null,
+    driverName: null,
+    driverDraft: null,
+    driverFlowStep: null,
+    driverUpdateCategory: null,
+    driverUpdateField: null,
+    bookingDraft: null,
+  });
+
+  await sendButtonsMessage(phone, body, buttons);
+  return true;
+}
+
+export async function handleUseFavorite(
+  phone: string,
+  name: string,
+  favoriteId: string,
+): Promise<void> {
+  const passenger = await findOrCreatePassenger(phone, name);
+  const favorite = await getRouteFavoriteById(favoriteId);
+
+  if (!favorite || favorite.passengerId !== passenger.id) {
+    await sendTextMessage(
+      phone,
+      "No encontramos ese recorrido favorito. Escribe Hola para ver tus opciones.",
+    );
+    await sendFavoritesHomeMenu(phone, name);
+    return;
+  }
+
+  const { startBookingFromFavorite } = await import("@/lib/booking/flow");
+  await startBookingFromFavorite(phone, name, favorite);
 }
 
 export async function offerSaveFavoriteAfterRating(
@@ -142,7 +219,6 @@ export async function offerSaveFavoriteAfterRating(
   }
 
   if (!tripHasCompleteRoute(trip)) {
-    // Sin geo completo no se puede guardar el recorrido; flujo normal.
     const { sendPostRatingMenu } = await import("@/lib/rating");
     await sendPostRatingMenu(passengerPhone, tripId);
     return;
@@ -155,12 +231,15 @@ export async function offerSaveFavoriteAfterRating(
     await sendTextMessage(
       passengerPhone,
       [
-        "Ya tienes tus dos recorridos favoritos configurados.",
-        "Si deseas cambiar alguno, primero deberás reemplazar uno existente.",
+        "Muchas gracias por tu calificación. ⭐",
+        "",
+        "¡Gracias por elegir WhatXia! 🚖",
       ].join("\n"),
     );
-    const { sendPostRatingMenu } = await import("@/lib/rating");
-    await sendPostRatingMenu(passengerPhone, tripId);
+    await sendFavoritesHomeMenu(
+      passengerPhone,
+      passenger.name || trip.passengerPhone,
+    );
     return;
   }
 
@@ -225,7 +304,6 @@ async function finishFavoriteSave(
   const count = await countRouteFavorites(passenger.id);
 
   if (count >= MAX_ROUTE_FAVORITES) {
-    await clearSession(phone);
     await sendTextMessage(
       phone,
       [
@@ -233,6 +311,7 @@ async function finishFavoriteSave(
         "Si deseas cambiar alguno, primero deberás reemplazar uno existente.",
       ].join("\n"),
     );
+    await sendFavoritesHomeMenu(phone, passenger.name || "");
     return;
   }
 
@@ -242,10 +321,10 @@ async function finishFavoriteSave(
     trip,
   });
 
-  await clearSession(phone);
   await closeTunnelForTrip(tripId).catch(() => undefined);
 
   if (!saved) {
+    await clearSession(phone);
     await sendTextMessage(
       phone,
       "No se pudo guardar el recorrido favorito. Intenta más adelante.",
@@ -265,6 +344,9 @@ async function finishFavoriteSave(
       "¡Gracias por elegir WhatXia! 🚖",
     ].join("\n"),
   );
+
+  // Activa botones de inmediato (sin pedir otro "Hola").
+  await sendFavoritesHomeMenu(phone, passenger.name || "");
 
   console.log("[route-favorites] guardado", {
     favoriteId: saved.id,
@@ -288,15 +370,17 @@ export async function handleFavoriteOfferChoice(
 
   if (action === "no") {
     await clearSession(phone);
-    const { sendPostRatingMenu } = await import("@/lib/rating");
-    await sendPostRatingMenu(phone, tripId);
+    const shown = await sendFavoritesHomeMenu(phone, "");
+    if (!shown) {
+      const { sendPostRatingMenu } = await import("@/lib/rating");
+      await sendPostRatingMenu(phone, tripId);
+    }
     return;
   }
 
   const passenger = await findOrCreatePassenger(phone);
   const count = await countRouteFavorites(passenger.id);
   if (count >= MAX_ROUTE_FAVORITES) {
-    await clearSession(phone);
     await sendTextMessage(
       phone,
       [
@@ -304,8 +388,7 @@ export async function handleFavoriteOfferChoice(
         "Si deseas cambiar alguno, primero deberás reemplazar uno existente.",
       ].join("\n"),
     );
-    const { sendPostRatingMenu } = await import("@/lib/rating");
-    await sendPostRatingMenu(phone, tripId);
+    await sendFavoritesHomeMenu(phone, passenger.name || "");
     return;
   }
 
@@ -380,7 +463,6 @@ export async function continueFavoriteFlow(
     return true;
   }
 
-  // Botones se manejan en el handler; si llega texto, re-ofrecer.
   if (session.state === "FAVORITE_OFFER") {
     await sendButtonsMessage(
       message.phone,
@@ -401,5 +483,4 @@ export async function continueFavoriteFlow(
   return true;
 }
 
-/** Re-export para el siguiente sprint. */
 export { listRouteFavorites, MAX_ROUTE_FAVORITES };

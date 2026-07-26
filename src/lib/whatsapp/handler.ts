@@ -93,9 +93,13 @@ import {
   getActiveFavoriteSession,
   handleFavoriteNameChoice,
   handleFavoriteOfferChoice,
+  handleUseFavorite,
   parseFavoriteNameButton,
   parseFavoriteOfferButton,
+  parseFavoriteUseButton,
+  sendFavoritesHomeMenu,
 } from "@/lib/route-favorites";
+
 import {
   handleTaximeterMessage,
   isTaximeterButton,
@@ -120,7 +124,14 @@ export const BUTTON_IDS = {
   CANCELAR: "cancelar",
 } as const;
 
-const GREETINGS = new Set(["hola", "buenas", "buenos dias"]);
+const GREETINGS = new Set([
+  "hola",
+  "buenas",
+  "buenos dias",
+  "buenas tardes",
+  "buenas noches",
+]);
+
 
 /** Frases exactas (tras normalizar) que abren el módulo conductor. */
 const DRIVER_INTENT_EXACT = new Set([
@@ -202,12 +213,18 @@ async function routeDriverModuleEntry(phone: string): Promise<void> {
   console.log("[core-agent] módulo conductor → inscripción", { phone });
 }
 
-async function sendPassengerWelcomeMenu(phone: string) {
+async function sendPassengerWelcomeMenu(phone: string, name: string) {
+  const shown = await sendFavoritesHomeMenu(phone, name);
+  if (shown) {
+    return;
+  }
+
   await sendButtonsMessage(phone, "¡Hola! ¿Qué deseas hacer?", [
     { id: BUTTON_IDS.SOLICITAR_SERVICIO, title: "Solicitar servicio" },
     { id: BUTTON_IDS.CANCELAR, title: "❌ Cancelar" },
   ]);
 }
+
 
 async function startPassengerRequest(
   phone: string,
@@ -272,6 +289,12 @@ export async function handleIncomingMessage(
       favoriteName.kind,
       favoriteName.tripId,
     );
+    return;
+  }
+
+  const favoriteUseId = parseFavoriteUseButton(message.button);
+  if (favoriteUseId) {
+    await handleUseFavorite(message.phone, message.name, favoriteUseId);
     return;
   }
 
@@ -731,7 +754,7 @@ export async function handleIncomingMessage(
       bookingDraft: null,
     });
 
-    await sendPassengerWelcomeMenu(message.phone);
+    await sendPassengerWelcomeMenu(message.phone, message.name);
     return;
   }
 

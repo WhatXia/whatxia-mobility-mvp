@@ -1,6 +1,7 @@
 export {
   MAX_ROUTE_FAVORITES,
   listRouteFavorites,
+  getRouteFavoriteById,
   countRouteFavorites,
   createRouteFavorite,
   tripHasCompleteRoute,
@@ -13,11 +14,14 @@ export {
   offerSaveFavoriteAfterRating,
   handleFavoriteOfferChoice,
   handleFavoriteNameChoice,
+  handleUseFavorite,
   continueFavoriteFlow,
   getActiveFavoriteSession,
   isFavoriteFlowState,
   isFavoriteFlowButton,
   parseFavoriteOfferButton,
   parseFavoriteNameButton,
+  parseFavoriteUseButton,
   buildFavoritesGreeting,
+  sendFavoritesHomeMenu,
 } from "@/lib/route-favorites/flow";

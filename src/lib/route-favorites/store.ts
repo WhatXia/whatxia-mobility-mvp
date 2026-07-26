@@ -73,6 +73,25 @@ export function tripHasCompleteRoute(trip: Trip): boolean {
   );
 }
 
+export async function getRouteFavoriteById(
+  favoriteId: string,
+): Promise<RouteFavorite | null> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("route_favorites")
+    .select(COLUMNS)
+    .eq("id", favoriteId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[route-favorites] error al leer por id:", error);
+    throw error;
+  }
+
+  return data ? mapRow(data as RouteFavoriteRow) : null;
+}
+
 export async function listRouteFavorites(
   passengerId: string,
 ): Promise<RouteFavorite[]> {

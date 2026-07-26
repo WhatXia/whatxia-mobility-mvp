@@ -275,6 +275,54 @@ export async function startBookingFlow(
   });
 }
 
+/**
+ * Cotización directa desde un recorrido favorito (origen + destino guardados).
+ * No pide ubicación ni destino de nuevo.
+ */
+export async function startBookingFromFavorite(
+  phone: string,
+  name: string,
+  favorite: {
+    pickupLat: number;
+    pickupLng: number;
+    pickupLabel: string;
+    pickupPlaceId: string | null;
+    dropoffLat: number;
+    dropoffLng: number;
+    dropoffLabel: string;
+    dropoffPlaceId: string | null;
+  },
+): Promise<void> {
+  const city = await getActiveCity();
+  const pickupLoc = { lat: favorite.pickupLat, lng: favorite.pickupLng };
+  const dropoffLoc = { lat: favorite.dropoffLat, lng: favorite.dropoffLng };
+
+  if (!isPointInCity(pickupLoc, city) || !isPointInCity(dropoffLoc, city)) {
+    await sendTextMessage(phone, outOfCityServiceMessage(city));
+    return;
+  }
+
+  const pickup: ResolvedPlace = {
+    placeId: favorite.pickupPlaceId,
+    name: favorite.pickupLabel,
+    address: favorite.pickupLabel,
+    location: pickupLoc,
+  };
+  const dropoff: ResolvedPlace = {
+    placeId: favorite.dropoffPlaceId,
+    name: favorite.dropoffLabel,
+    address: favorite.dropoffLabel,
+    location: dropoffLoc,
+  };
+
+  await buildAndSendQuote(phone, name, {
+    pickup,
+    pickupLabel: favorite.pickupLabel,
+    dropoff,
+    originCapture: "label_plus_whatsapp_location",
+  });
+}
+
 export type BookingIntentSlots = {
   pickupText: string | null;
   destinationText: string | null;
