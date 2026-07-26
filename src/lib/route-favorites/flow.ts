@@ -7,7 +7,10 @@
 
 import type { IncomingMessage, UserSession } from "@/types";
 import { clearSession, getSession, upsertSession } from "@/lib/sessions";
-import { findOrCreatePassenger } from "@/lib/supabase/passengers";
+import {
+  findOrCreatePassenger,
+  getPassengerDisplayName,
+} from "@/lib/supabase/passengers";
 import { getTrip, samePhone } from "@/lib/trips";
 import { closeTunnelForTrip } from "@/lib/tunnels";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
@@ -170,7 +173,7 @@ export async function sendPassengerActionMenu(
 ): Promise<void> {
   const passenger = await findOrCreatePassenger(phone, displayName);
   const favorites = await listRouteFavorites(passenger.id);
-  const name = passenger.name || displayName || "amigo";
+  const name = getPassengerDisplayName(passenger, displayName || "amigo");
 
   const fallbackButtons = [
     {

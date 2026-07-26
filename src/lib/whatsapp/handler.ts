@@ -112,8 +112,12 @@ import {
   getTaximeterSession,
 } from "@/lib/taximeter-test";
 import { findDriverByPhone } from "@/lib/supabase/drivers";
-import { findOrCreatePassenger } from "@/lib/supabase/passengers";
-import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+import {
+  continuePreferredNameFlow,
+  ensurePreferredNameOrPrompt,
+} from "@/lib/preferred-name";
+import { sendTextMessage } from "@/lib/whatsapp/client";
+
 import {
   clearSession,
   getSession,
@@ -229,8 +233,15 @@ async function startPassengerRequest(
   name: string,
   intent: MobilityIntentResult | null = null,
 ): Promise<void> {
-  await findOrCreatePassenger(phone, name);
-  await startBookingFromIntent(phone, name, {
+  const passenger = await ensurePreferredNameOrPrompt(phone, name);
+  if (!passenger) {
+    return;
+  }
+  const displayName =
+    passenger.preferred_name?.trim() ||
+    passenger.name?.trim() ||
+    name;
+  await startBookingFromIntent(phone, displayName, {
     pickupText: intent?.pickupText ?? null,
     destinationText: intent?.destinationText ?? null,
   });
@@ -245,6 +256,11 @@ export async function handleIncomingMessage(
     await processDueSearchTimeouts();
   } catch (error) {
     console.error("[search] processDueSearchTimeouts:", error);
+  }
+
+  // Nombre preferido: captura la respuesta antes de otros flujos de texto.
+  if (await continuePreferredNameFlow(message)) {
+    return;
   }
 
   const ratingButton = parseRatingButton(message.button);
@@ -713,14 +729,25 @@ export async function handleIncomingMessage(
   }
 
   if (isDriverIntent(message.text)) {
+    // Conductores registrados / registro: no bloquear por nombre preferido de pasajero.
+    const existingDriver = await findDriverByPhone(message.phone);
+    if (existingDriver) {
+      await routeDriverModuleEntry(message.phone);
+      return;
+    }
+    const passenger = await ensurePreferredNameOrPrompt(
+      message.phone,
+      message.name,
+    );
+    if (!passenger) {
+      return;
+    }
     await routeDriverModuleEntry(message.phone);
     return;
   }
 
   // Core Agent: menú / saludo (solo si no hubo túnel activo).
   if (isGreeting(message.text)) {
-    await findOrCreatePassenger(message.phone, message.name);
-
     const driver = await findDriverByPhone(message.phone);
 
     if (driver) {
@@ -757,8 +784,21 @@ export async function handleIncomingMessage(
       return;
     }
 
+    const passenger = await ensurePreferredNameOrPrompt(
+      message.phone,
+      message.name,
+    );
+    if (!passenger) {
+      return;
+    }
+
+    const displayName =
+      passenger.preferred_name?.trim() ||
+      passenger.name?.trim() ||
+      message.name;
+
     await upsertSession(message.phone, {
-      name: message.name,
+      name: displayName,
       state: "IDLE",
       pickupNeighborhood: null,
       driverName: null,
@@ -769,7 +809,7 @@ export async function handleIncomingMessage(
       bookingDraft: null,
     });
 
-    await sendPassengerWelcomeMenu(message.phone, message.name);
+    await sendPassengerWelcomeMenu(message.phone, displayName);
     return;
   }
 
