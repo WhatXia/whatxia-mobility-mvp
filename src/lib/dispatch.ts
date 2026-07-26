@@ -257,7 +257,7 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     ],
   );
 
-  // Conductor: UN solo mensaje. ETA explícito ANTES de la instrucción de navegación.
+  // Conductor: UN solo mensaje. ETA + tres acciones desde el inicio.
   await sendButtonsMessage(
     driverPhone,
     [
@@ -267,7 +267,14 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
       "",
       '📍 Usa "Ver ubicación" para navegar hacia el pasajero.',
     ].join("\n"),
-    [{ id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" }],
+    [
+      { id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" },
+      { id: llegueButtonId(updated.id), title: "✅ Llegué" },
+      {
+        id: cancelServicioButtonId(updated.id),
+        title: "❌ Cancelar servicio",
+      },
+    ],
   );
 
   console.log("[dispatch] asignación unificada + ETA automático:", {
@@ -277,21 +284,6 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     maxMinutes: range.maxMinutes,
     driverPhone,
   });
-}
-
-/** Tras Ver ubicación: Llegué / Cancelar (continúa el ciclo operativo). */
-async function sendArrivedActionsAfterLocation(
-  driverPhone: string,
-  tripId: string,
-): Promise<void> {
-  await sendButtonsMessage(
-    driverPhone,
-    'Al llegar al punto de recogida, presiona "Llegué".',
-    [
-      { id: llegueButtonId(tripId), title: "📍 Llegué" },
-      { id: cancelServicioButtonId(tripId), title: "❌ Cancelar servicio" },
-    ],
-  );
 }
 
 async function sendArrivedButton(driverPhone: string, tripId: string) {
@@ -982,11 +974,6 @@ export async function handleDriverVerUbicacion(
     displayText: "Abrir Google Maps",
     url,
   });
-
-  // Tras Ver ubicación (mensaje unificado de asignación), ofrecer Llegué.
-  if (trip.status === "ETA_INFORMED") {
-    await sendArrivedActionsAfterLocation(driverPhone, trip.id);
-  }
 
   console.log("[dispatch] ubicación de recogida enviada al conductor:", {
     tripId: trip.id,
