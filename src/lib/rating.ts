@@ -74,19 +74,11 @@ export async function sendRatingPrompt(passengerPhone: string, tripId: string) {
 
 export async function sendPostRatingMenu(
   passengerPhone: string,
-  tripId: string,
+  _tripId: string,
 ) {
-  // Títulos ≤ 20 caracteres (límite WhatsApp).
-  await sendButtonsMessage(passengerPhone, "¿Qué deseas hacer ahora?", [
-    {
-      id: postRatingButtonId("nuevo", tripId),
-      title: "🚖 Nuevo servicio",
-    },
-    {
-      id: postRatingButtonId("salir", tripId),
-      title: "❌ Salir",
-    },
-  ]);
+  // Menú continuo: favoritos / Solicitar / Cancelar (sin pedir "Hola").
+  const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
+  await sendPassengerActionMenu(passengerPhone);
 }
 
 export async function handlePassengerRating(
@@ -162,10 +154,9 @@ export async function handlePostRatingChoice(
 
   if (action === "salir") {
     await clearSession(passengerPhone);
-    await sendTextMessage(
-      passengerPhone,
-      "Listo. El canal se cerró. Escribe Hola cuando quieras volver.",
-    );
+    await sendTextMessage(passengerPhone, "Listo. El canal se cerró.");
+    const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
+    await sendPassengerActionMenu(passengerPhone, name);
     console.log("[rating:post] salir", { tripId, passengerPhone });
     return;
   }

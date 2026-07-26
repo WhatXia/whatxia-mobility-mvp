@@ -102,8 +102,9 @@ import {
   parseFavoriteNameButton,
   parseFavoriteOfferButton,
   parseFavoriteUseButton,
-  sendFavoritesHomeMenu,
+  sendPassengerActionMenu,
 } from "@/lib/route-favorites";
+
 
 import {
   handleTaximeterMessage,
@@ -219,15 +220,7 @@ async function routeDriverModuleEntry(phone: string): Promise<void> {
 }
 
 async function sendPassengerWelcomeMenu(phone: string, name: string) {
-  const shown = await sendFavoritesHomeMenu(phone, name);
-  if (shown) {
-    return;
-  }
-
-  await sendButtonsMessage(phone, "¡Hola! ¿Qué deseas hacer?", [
-    { id: BUTTON_IDS.SOLICITAR_SERVICIO, title: "Solicitar servicio" },
-    { id: BUTTON_IDS.CANCELAR, title: "❌ Cancelar" },
-  ]);
+  await sendPassengerActionMenu(phone, name);
 }
 
 
@@ -574,7 +567,9 @@ export async function handleIncomingMessage(
     const cancelled = await cancelTripByPhone(message.phone);
     if (!cancelled) {
       await sendTextMessage(message.phone, "Operación cancelada.");
+      await sendPassengerActionMenu(message.phone, message.name);
     }
+    // Si canceló un viaje, cancelTripAsPassenger ya envió el menú de acción.
     return;
   }
 
@@ -599,6 +594,9 @@ export async function handleIncomingMessage(
     if (cancelled) {
       return;
     }
+    await sendTextMessage(message.phone, "Operación cancelada.");
+    await sendPassengerActionMenu(message.phone, message.name);
+    return;
   }
 
   // Conversation Tunnel: ANTES del Core Agent y de flujos guiados.

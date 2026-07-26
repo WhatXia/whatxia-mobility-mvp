@@ -376,6 +376,12 @@ export async function cancelTripAsPassenger(
       : Promise.resolve(),
   ]);
 
+  const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
+  await sendPassengerActionMenu(
+    passengerPhone,
+    passenger?.name ?? "",
+  );
+
   console.log("[cancel:passenger]", { tripId: cancelled.id, passengerPhone });
   return cancelled;
 }

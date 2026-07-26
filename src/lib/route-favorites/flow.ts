@@ -154,23 +154,34 @@ export function buildFavoritesGreeting(
 }
 
 /**
- * Muestra el menú de favoritos si el pasajero tiene al menos uno.
- * @returns true si se envió el menú
+ * Menú de acción del pasajero (siempre envía botones).
+ * Con favoritos → buildFavoritesGreeting.
+ * Sin favoritos → Solicitar servicio + Cancelar.
  */
-export async function sendFavoritesHomeMenu(
+export async function sendPassengerActionMenu(
   phone: string,
-  displayName: string,
-): Promise<boolean> {
+  displayName: string = "",
+): Promise<void> {
   const passenger = await findOrCreatePassenger(phone, displayName);
   const favorites = await listRouteFavorites(passenger.id);
-  if (favorites.length === 0) {
-    return false;
-  }
+  const name = passenger.name || displayName || "amigo";
 
-  const { body, buttons } = buildFavoritesGreeting(
-    passenger.name || displayName || "amigo",
-    favorites,
-  );
+  const { body, buttons } =
+    favorites.length > 0
+      ? buildFavoritesGreeting(name, favorites)
+      : {
+          body: "¿Qué deseas hacer?",
+          buttons: [
+            {
+              id: PASSENGER_SOLICITAR_ID,
+              title: "Solicitar servicio",
+            },
+            {
+              id: PASSENGER_CANCELAR_ID,
+              title: "❌ Cancelar",
+            },
+          ],
+        };
 
   await upsertSession(phone, {
     name: displayName || passenger.name || undefined,
@@ -185,6 +196,17 @@ export async function sendFavoritesHomeMenu(
   });
 
   await sendButtonsMessage(phone, body, buttons);
+}
+
+/**
+ * Alias de sendPassengerActionMenu (compat con saludo / favoritos).
+ * @returns siempre true (el menú se envía con o sin favoritos)
+ */
+export async function sendFavoritesHomeMenu(
+  phone: string,
+  displayName: string,
+): Promise<boolean> {
+  await sendPassengerActionMenu(phone, displayName);
   return true;
 }
 
@@ -199,9 +221,9 @@ export async function handleUseFavorite(
   if (!favorite || favorite.passengerId !== passenger.id) {
     await sendTextMessage(
       phone,
-      "No encontramos ese recorrido favorito. Escribe Hola para ver tus opciones.",
+      "No encontramos ese recorrido favorito.",
     );
-    await sendFavoritesHomeMenu(phone, name);
+    await sendPassengerActionMenu(phone, name);
     return;
   }
 
@@ -219,8 +241,7 @@ export async function offerSaveFavoriteAfterRating(
   }
 
   if (!tripHasCompleteRoute(trip)) {
-    const { sendPostRatingMenu } = await import("@/lib/rating");
-    await sendPostRatingMenu(passengerPhone, tripId);
+    await sendPassengerActionMenu(passengerPhone);
     return;
   }
 
@@ -236,7 +257,7 @@ export async function offerSaveFavoriteAfterRating(
         "¡Gracias por elegir WhatXia! 🚖",
       ].join("\n"),
     );
-    await sendFavoritesHomeMenu(
+    await sendPassengerActionMenu(
       passengerPhone,
       passenger.name || trip.passengerPhone,
     );
@@ -248,6 +269,7 @@ export async function offerSaveFavoriteAfterRating(
     driverFlowStep: tripId,
     bookingDraft: null,
   });
+
 
   await sendButtonsMessage(
     passengerPhone,
@@ -288,6 +310,7 @@ async function finishFavoriteSave(
       phone,
       "No encontramos el recorrido para guardar como favorito.",
     );
+    await sendPassengerActionMenu(phone);
     return;
   }
 
@@ -297,6 +320,7 @@ async function finishFavoriteSave(
       phone,
       "No pudimos guardar este recorrido porque faltan datos de origen o destino.",
     );
+    await sendPassengerActionMenu(phone);
     return;
   }
 
@@ -311,7 +335,7 @@ async function finishFavoriteSave(
         "Si deseas cambiar alguno, primero deberás reemplazar uno existente.",
       ].join("\n"),
     );
-    await sendFavoritesHomeMenu(phone, passenger.name || "");
+    await sendPassengerActionMenu(phone, passenger.name || "");
     return;
   }
 
@@ -329,6 +353,7 @@ async function finishFavoriteSave(
       phone,
       "No se pudo guardar el recorrido favorito. Intenta más adelante.",
     );
+    await sendPassengerActionMenu(phone, passenger.name || "");
     return;
   }
 
@@ -346,7 +371,7 @@ async function finishFavoriteSave(
   );
 
   // Activa botones de inmediato (sin pedir otro "Hola").
-  await sendFavoritesHomeMenu(phone, passenger.name || "");
+  await sendPassengerActionMenu(phone, passenger.name || "");
 
   console.log("[route-favorites] guardado", {
     favoriteId: saved.id,
@@ -370,11 +395,7 @@ export async function handleFavoriteOfferChoice(
 
   if (action === "no") {
     await clearSession(phone);
-    const shown = await sendFavoritesHomeMenu(phone, "");
-    if (!shown) {
-      const { sendPostRatingMenu } = await import("@/lib/rating");
-      await sendPostRatingMenu(phone, tripId);
-    }
+    await sendPassengerActionMenu(phone);
     return;
   }
 
@@ -388,7 +409,7 @@ export async function handleFavoriteOfferChoice(
         "Si deseas cambiar alguno, primero deberás reemplazar uno existente.",
       ].join("\n"),
     );
-    await sendFavoritesHomeMenu(phone, passenger.name || "");
+    await sendPassengerActionMenu(phone, passenger.name || "");
     return;
   }
 
