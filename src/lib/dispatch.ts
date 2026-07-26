@@ -379,10 +379,10 @@ export async function offerTripToDrivers(
       reason: "listAvailableDrivers devolvió 0 tras filtros excludePhone/excludeDriverId/suspensión",
     });
     console.warn("[dispatch] no hay conductores disponibles");
-    await sendTextMessage(
-      passengerPhone,
-      "Por ahora no hay conductores disponibles. Intenta de nuevo en un momento.",
-    );
+    const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
+    await sendPassengerActionMenu(passengerPhone, "", {
+      body: "Por ahora no hay conductores disponibles. Intenta de nuevo en un momento.",
+    });
     return;
   }
 
@@ -858,7 +858,15 @@ export async function handleDriverReject(
   }
 
   console.log("[dispatch] conductor rechazó:", { tripId, driverPhone });
-  await sendTextMessage(driverPhone, "Has rechazado el servicio.");
+  const driver = await findDriverByPhone(driverPhone);
+  if (driver) {
+    const { sendDriverMainMenu } = await import("@/lib/driver-menu");
+    await sendDriverMainMenu(driver, driverPhone, {
+      body: "Has rechazado el servicio.",
+    });
+  } else {
+    await sendTextMessage(driverPhone, "Has rechazado el servicio.");
+  }
 }
 
 export async function handleDriverEta(

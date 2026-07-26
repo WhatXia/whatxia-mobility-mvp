@@ -315,7 +315,7 @@ export async function continueDriverLogin(
   await clearSession(message.phone);
   await createDriverAuthSession(message.phone, driver.id);
   await sendTextMessage(message.phone, "✅ Sesión iniciada correctamente.");
-  await sendDriverMainMenu(driver, message.phone);
+  await sendDriverMainMenu(driver, message.phone, { welcome: true });
   return true;
 }
 
@@ -479,7 +479,7 @@ async function finishExistingDriverPassword(
 
   const latest = updated ?? { ...driver, password_hash: passwordHash };
   await createDriverAuthSession(phone, latest.id);
-  await sendDriverMainMenu(latest, phone);
+  await sendDriverMainMenu(latest, phone, { welcome: true });
 }
 
 export async function continueDriverPasswordSetup(

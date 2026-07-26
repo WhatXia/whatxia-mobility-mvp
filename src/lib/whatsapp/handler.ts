@@ -566,8 +566,9 @@ export async function handleIncomingMessage(
     await clearSession(message.phone);
     const cancelled = await cancelTripByPhone(message.phone);
     if (!cancelled) {
-      await sendTextMessage(message.phone, "Operación cancelada.");
-      await sendPassengerActionMenu(message.phone, message.name);
+      await sendPassengerActionMenu(message.phone, message.name, {
+        body: "Operación cancelada.",
+      });
     }
     // Si canceló un viaje, cancelTripAsPassenger ya envió el menú de acción.
     return;
@@ -594,8 +595,9 @@ export async function handleIncomingMessage(
     if (cancelled) {
       return;
     }
-    await sendTextMessage(message.phone, "Operación cancelada.");
-    await sendPassengerActionMenu(message.phone, message.name);
+    await sendPassengerActionMenu(message.phone, message.name, {
+      body: "Operación cancelada.",
+    });
     return;
   }
 

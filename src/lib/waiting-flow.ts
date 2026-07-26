@@ -167,10 +167,11 @@ export async function closeSearchWithoutDriver(
 
   await closeTunnelForTrip(cancelled.id);
   await clearSession(cancelled.passengerPhone);
-  await sendTextMessage(cancelled.passengerPhone, message);
 
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-  await sendPassengerActionMenu(cancelled.passengerPhone);
+  await sendPassengerActionMenu(cancelled.passengerPhone, "", {
+    body: message,
+  });
 
   console.log("[waiting-flow:closed]", {
     tripId: cancelled.id,
@@ -308,10 +309,11 @@ export async function handleSearchCancel(
 
   await closeTunnelForTrip(cancelled.id);
   await clearSession(cancelled.passengerPhone);
-  await sendTextMessage(passengerPhone, "Solicitud cancelada.");
 
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-  await sendPassengerActionMenu(passengerPhone);
+  await sendPassengerActionMenu(passengerPhone, "", {
+    body: "Solicitud cancelada.",
+  });
 
   console.log("[waiting-flow:user-cancel]", { tripId: cancelled.id });
 }

@@ -12,13 +12,16 @@ import {
   getPassengerRatingByTripId,
 } from "@/lib/reputation/store";
 
-async function returnDriverToMainMenu(driverPhone: string): Promise<void> {
+async function returnDriverToMainMenu(
+  driverPhone: string,
+  body: string,
+): Promise<void> {
   const driver = await findDriverByPhone(driverPhone);
   if (!driver) {
     return;
   }
-  // Menú existente; refleja is_available actual (sin forzar estado).
-  await sendDriverMainMenu(driver, driverPhone);
+  // CTA universal: confirmación + menú, sin saludo de sesión.
+  await sendDriverMainMenu(driver, driverPhone, { body });
 }
 
 const DRIVER_RATES_PAX_PREFIX = "pax_rating";
@@ -112,11 +115,10 @@ export async function handleDriverRatesPassenger(
 
   const already = await getPassengerRatingByTripId(tripId);
   if (already) {
-    await sendTextMessage(
+    await returnDriverToMainMenu(
       driverPhone,
       "Ya registramos tu calificación de este pasajero. ¡Gracias!",
     );
-    await returnDriverToMainMenu(driverPhone);
     return;
   }
 
@@ -131,11 +133,10 @@ export async function handleDriverRatesPassenger(
   });
 
   if (!saved) {
-    await sendTextMessage(
+    await returnDriverToMainMenu(
       driverPhone,
       "No se pudo guardar la calificación del pasajero.",
     );
-    await returnDriverToMainMenu(driverPhone);
     return;
   }
 
@@ -143,8 +144,7 @@ export async function handleDriverRatesPassenger(
     DRIVER_RATING_REPLIES[rating] ??
     "¡Gracias! Registramos tu calificación del pasajero.";
 
-  await sendTextMessage(driverPhone, reply);
-  await returnDriverToMainMenu(driverPhone);
+  await returnDriverToMainMenu(driverPhone, reply);
 
   console.log("[reputation] conductor calificó pasajero", {
     tripId,

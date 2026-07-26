@@ -39,12 +39,27 @@ export const DRIVER_MENU_IDS = {
   LOGOUT: "driver_auth_logout",
 } as const;
 
+export type SendDriverMainMenuOptions = {
+  /**
+   * Saludo completo (¡Hola! / Sesión iniciada / ¿Qué deseas hacer?).
+   * Solo inmediatamente después del inicio de sesión o creación de contraseña.
+   */
+  welcome?: boolean;
+  /**
+   * Cuerpo CTA (confirmación, cancelación, etc.).
+   * Si se define, reemplaza el saludo de bienvenida.
+   */
+  body?: string;
+};
+
 /**
  * Menú principal (sesión iniciada): disponibilidad · Mi cuenta · Cerrar sesión.
+ * Sprint 2.1: sin repetir saludo de sesión salvo `welcome: true`.
  */
 export async function sendDriverMainMenu(
   driver: DriverRow,
   toPhone?: string,
+  options?: SendDriverMainMenuOptions,
 ) {
   const availabilityButton = driver.is_available
     ? { id: DRIVER_MENU_IDS.TOGGLE_AVAILABILITY, title: "🔴 No disponible" }
@@ -56,21 +71,24 @@ export async function sendDriverMainMenu(
       ? "🟢 Disponible para recibir servicios"
       : "🔴 No disponible para recibir servicios";
 
-  await sendButtonsMessage(
-    toPhone ?? driver.phone,
-    `¡Hola ${driver.name}!\n\n${statusLabel}\n\nSesión iniciada. ¿Qué deseas hacer?`,
-    [
-      availabilityButton,
-      {
-        id: DRIVER_MENU_IDS.MI_CUENTA,
-        title: "👤 Mi cuenta",
-      },
-      {
-        id: DRIVER_MENU_IDS.LOGOUT,
-        title: "🔒 Cerrar sesión",
-      },
-    ],
-  );
+  const trimmedBody = options?.body?.trim();
+  const body = trimmedBody
+    ? trimmedBody
+    : options?.welcome
+      ? `¡Hola ${driver.name}!\n\n${statusLabel}\n\nSesión iniciada. ¿Qué deseas hacer?`
+      : statusLabel;
+
+  await sendButtonsMessage(toPhone ?? driver.phone, body, [
+    availabilityButton,
+    {
+      id: DRIVER_MENU_IDS.MI_CUENTA,
+      title: "👤 Mi cuenta",
+    },
+    {
+      id: DRIVER_MENU_IDS.LOGOUT,
+      title: "🔒 Cerrar sesión",
+    },
+  ]);
 }
 
 /**
@@ -162,8 +180,7 @@ export async function handleToggleAvailability(phone: string): Promise<void> {
     ? "✅ Ahora estás disponible para recibir servicios."
     : "✅ Ahora no estás disponible para recibir servicios.";
 
-  await sendTextMessage(phone, confirm);
-  await sendDriverMainMenu(updated, phone);
+  await sendDriverMainMenu(updated, phone, { body: confirm });
 }
 
 export async function handleDriverAccountMenu(phone: string): Promise<void> {

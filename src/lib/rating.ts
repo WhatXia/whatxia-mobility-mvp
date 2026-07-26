@@ -78,7 +78,9 @@ export async function sendPostRatingMenu(
 ) {
   // Menú continuo: favoritos / Solicitar / Cancelar (sin pedir "Hola").
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-  await sendPassengerActionMenu(passengerPhone);
+  await sendPassengerActionMenu(passengerPhone, "", {
+    body: "¿Qué deseas hacer?",
+  });
 }
 
 export async function handlePassengerRating(
@@ -97,11 +99,10 @@ export async function handlePassengerRating(
   }
 
   if (trip.rating !== null) {
-    await sendTextMessage(
-      passengerPhone,
-      "Ya registramos tu calificación. ¡Gracias!",
-    );
-    await sendPostRatingMenu(passengerPhone, tripId);
+    const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
+    await sendPassengerActionMenu(passengerPhone, "", {
+      body: "Ya registramos tu calificación. ¡Gracias!",
+    });
     return;
   }
 
@@ -154,9 +155,10 @@ export async function handlePostRatingChoice(
 
   if (action === "salir") {
     await clearSession(passengerPhone);
-    await sendTextMessage(passengerPhone, "Listo. El canal se cerró.");
     const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-    await sendPassengerActionMenu(passengerPhone, name);
+    await sendPassengerActionMenu(passengerPhone, name, {
+      body: "Listo. El canal se cerró.",
+    });
     console.log("[rating:post] salir", { tripId, passengerPhone });
     return;
   }

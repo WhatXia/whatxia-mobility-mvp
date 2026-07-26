@@ -753,9 +753,10 @@ export async function handleBookingMessage(
   if (session.state === "WAITING_QUOTE_CONFIRM") {
     if (message.button === BOOKING_BUTTON_IDS.CANCEL_QUOTE) {
       await clearSession(phone);
-      await sendTextMessage(phone, "Operación cancelada.");
       const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-      await sendPassengerActionMenu(phone, name);
+      await sendPassengerActionMenu(phone, name, {
+        body: "Operación cancelada.",
+      });
       return true;
     }
 

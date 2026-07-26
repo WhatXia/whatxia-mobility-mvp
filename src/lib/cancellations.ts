@@ -363,24 +363,27 @@ export async function cancelTripAsPassenger(
   await clearSession(passengerPhone);
   await releaseDriverIfAllowed(cancelled.assignedDriverId);
 
-  await Promise.allSettled([
-    sendTextMessage(
-      passengerPhone,
-      "Servicio cancelado. El canal de comunicación se cerró.",
-    ),
-    cancelled.assignedDriverPhone
-      ? sendTextMessage(
-          cancelled.assignedDriverPhone,
-          "El pasajero canceló el servicio. Ya puedes recibir nuevas ofertas.",
-        )
-      : Promise.resolve(),
-  ]);
-
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-  await sendPassengerActionMenu(
-    passengerPhone,
-    passenger?.name ?? "",
-  );
+  await sendPassengerActionMenu(passengerPhone, passenger?.name ?? "", {
+    body: "Servicio cancelado. El canal de comunicación se cerró.",
+  });
+
+  if (cancelled.assignedDriverPhone) {
+    const assignedDriver = await findDriverByPhone(
+      cancelled.assignedDriverPhone,
+    );
+    if (assignedDriver) {
+      const { sendDriverMainMenu } = await import("@/lib/driver-menu");
+      await sendDriverMainMenu(assignedDriver, cancelled.assignedDriverPhone, {
+        body: "⚠️ El pasajero canceló el servicio. Ya puedes recibir nuevas ofertas.",
+      });
+    } else {
+      await sendTextMessage(
+        cancelled.assignedDriverPhone,
+        "⚠️ El pasajero canceló el servicio. Ya puedes recibir nuevas ofertas.",
+      );
+    }
+  }
 
   console.log("[cancel:passenger]", { tripId: cancelled.id, passengerPhone });
   return cancelled;
@@ -476,16 +479,15 @@ export async function cancelTripAsDriver(
 
   const causalLabel = CANCEL_CAUSALS[causal].label;
 
-  await Promise.allSettled([
-    sendTextMessage(
-      driverPhone,
-      `Servicio cancelado (${causalLabel}). Ya puedes recibir otros servicios.`,
-    ),
-    sendTextMessage(
-      passengerPhone,
-      "Tu conductor canceló el servicio. Estamos buscando otro conductor para ti. Un momento, por favor.",
-    ),
-  ]);
+  await sendTextMessage(
+    passengerPhone,
+    "Tu conductor canceló el servicio. Estamos buscando otro conductor para ti. Un momento, por favor.",
+  );
+
+  const { sendDriverMainMenu } = await import("@/lib/driver-menu");
+  await sendDriverMainMenu(driver, driverPhone, {
+    body: `Servicio cancelado (${causalLabel}). Ya puedes recibir otros servicios.`,
+  });
 
   const { republishTripToDrivers } = await import("@/lib/dispatch");
   await republishTripToDrivers(researching.id);

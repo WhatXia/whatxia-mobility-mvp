@@ -153,35 +153,43 @@ export function buildFavoritesGreeting(
   return { body, buttons };
 }
 
+export type SendPassengerActionMenuOptions = {
+  /** Cuerpo CTA (cancelación / éxito). Evita repetir saludo ¡Hola! al cerrar un flujo. */
+  body?: string;
+};
+
 /**
  * Menú de acción del pasajero (siempre envía botones).
- * Con favoritos → buildFavoritesGreeting.
+ * Con favoritos → buildFavoritesGreeting (o body CTA + mismos botones).
  * Sin favoritos → Solicitar servicio + Cancelar.
  */
 export async function sendPassengerActionMenu(
   phone: string,
   displayName: string = "",
+  options?: SendPassengerActionMenuOptions,
 ): Promise<void> {
   const passenger = await findOrCreatePassenger(phone, displayName);
   const favorites = await listRouteFavorites(passenger.id);
   const name = passenger.name || displayName || "amigo";
 
-  const { body, buttons } =
+  const fallbackButtons = [
+    {
+      id: PASSENGER_SOLICITAR_ID,
+      title: "Solicitar servicio",
+    },
+    {
+      id: PASSENGER_CANCELAR_ID,
+      title: "❌ Cancelar",
+    },
+  ];
+
+  const greeting =
     favorites.length > 0
       ? buildFavoritesGreeting(name, favorites)
-      : {
-          body: "¿Qué deseas hacer?",
-          buttons: [
-            {
-              id: PASSENGER_SOLICITAR_ID,
-              title: "Solicitar servicio",
-            },
-            {
-              id: PASSENGER_CANCELAR_ID,
-              title: "❌ Cancelar",
-            },
-          ],
-        };
+      : { body: "¿Qué deseas hacer?", buttons: fallbackButtons };
+
+  const body = options?.body?.trim() || greeting.body;
+  const buttons = greeting.buttons;
 
   await upsertSession(phone, {
     name: displayName || passenger.name || undefined,
@@ -249,17 +257,13 @@ export async function offerSaveFavoriteAfterRating(
   const count = await countRouteFavorites(passenger.id);
 
   if (count >= MAX_ROUTE_FAVORITES) {
-    await sendTextMessage(
-      passengerPhone,
-      [
-        "Muchas gracias por tu calificación. ⭐",
-        "",
-        "¡Gracias por elegir WhatXia! 🚖",
-      ].join("\n"),
-    );
+    // La calificación ya envió el agradecimiento; aquí solo el CTA.
     await sendPassengerActionMenu(
       passengerPhone,
       passenger.name || trip.passengerPhone,
+      {
+        body: "¡Gracias por elegir WhatXia! 🚖",
+      },
     );
     return;
   }
@@ -357,9 +361,9 @@ async function finishFavoriteSave(
     return;
   }
 
-  await sendTextMessage(
-    phone,
-    [
+  // Activa botones de inmediato (confirmación + CTA, sin saludo ¡Hola!).
+  await sendPassengerActionMenu(phone, passenger.name || "", {
+    body: [
       "✅ ¡Listo!",
       "",
       `Tu recorrido favorito quedó guardado con el nombre "${saved.name}".`,
@@ -368,11 +372,7 @@ async function finishFavoriteSave(
       "",
       "¡Gracias por elegir WhatXia! 🚖",
     ].join("\n"),
-  );
-
-  // Activa botones de inmediato (sin pedir otro "Hola").
-  await sendPassengerActionMenu(phone, passenger.name || "");
-
+  });
   console.log("[route-favorites] guardado", {
     favoriteId: saved.id,
     passengerId: passenger.id,
@@ -395,7 +395,9 @@ export async function handleFavoriteOfferChoice(
 
   if (action === "no") {
     await clearSession(phone);
-    await sendPassengerActionMenu(phone);
+    await sendPassengerActionMenu(phone, "", {
+      body: "¿Qué deseas hacer?",
+    });
     return;
   }
 
