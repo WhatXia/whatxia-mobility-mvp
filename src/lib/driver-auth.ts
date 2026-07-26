@@ -1,7 +1,7 @@
 /**
- * Autenticación de conductores — Fase 1:
- * - Crear / confirmar contraseña (registro nuevo y conductores existentes).
- * - Stub de login con opción "Olvidé mi contraseña" (Fase 2).
+ * Autenticación de conductores:
+ * - Fase 1: crear / confirmar contraseña.
+ * - Fase 2: iniciar / cerrar sesión (separada de is_available).
  */
 
 import type { IncomingMessage, UserSession } from "@/types";
@@ -13,24 +13,37 @@ import {
 import {
   createDriver,
   draftToCreateInput,
+  findDriverByDocumentId,
   findDriverByPhone,
+  setDriverAvailability,
   updateDriverPasswordHash,
   type DriverRow,
 } from "@/lib/supabase/drivers";
+import {
+  createDriverAuthSession,
+  clearDriverAuthSession,
+  getAuthenticatedDriver,
+} from "@/lib/driver-auth-session";
 import { EXPIRED_DOCS_MESSAGE } from "@/lib/driver-documents";
 import { sendExpiredDocumentsPrompt } from "@/lib/expired-docs-prompt";
-import { sendDriverMainMenu } from "@/lib/driver-menu";
+import { DRIVER_MENU_IDS, sendDriverMainMenu } from "@/lib/driver-menu";
 import {
   hashPassword,
   validatePasswordPlain,
+  verifyPassword,
 } from "@/lib/driver-password";
+import { samePhone } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import type { DriverDraft } from "@/lib/driver-profile-fields";
 
 export const DRIVER_AUTH_BUTTON_IDS = {
-  /** Preparado para Fase 2 — aún no restablece la contraseña. */
+  LOGIN: "driver_auth_login",
   FORGOT_PASSWORD: "driver_auth_forgot_password",
+  LOGOUT: DRIVER_MENU_IDS.LOGOUT,
 } as const;
+
+/** Alias del botón pasajero / sesión cerrada. */
+export const DRIVER_CLOSED_SOLICITAR_ID = "solicitar_servicio";
 
 const PENDING_PASSWORD_KEY = "__password_pending";
 
@@ -79,16 +92,44 @@ function credentialsMessage(documentId: string, password: string): string {
   ].join("\n");
 }
 
-/** Prompt de login (Fase 2). Incluye opción Olvidé mi contraseña. */
-export async function sendDriverLoginPrompt(phone: string): Promise<void> {
+/** Sesión cerrada: solo Iniciar sesión + Solicitar servicio. */
+export async function sendDriverClosedSessionMenu(phone: string): Promise<void> {
   await sendButtonsMessage(
     phone,
     [
-      "🔐 Acceso de conductor WhatXia",
+      "👋 WhatXia Mobility — Conductores",
       "",
-      "Próximamente iniciarás sesión con tu cédula y contraseña.",
+      "Tu sesión está cerrada. ¿Qué deseas hacer?",
+    ].join("\n"),
+    [
+      {
+        id: DRIVER_AUTH_BUTTON_IDS.LOGIN,
+        title: "🔑 Iniciar sesión",
+      },
+      {
+        id: DRIVER_CLOSED_SOLICITAR_ID,
+        title: "🚕 Solicitar servicio",
+      },
+    ],
+  );
+}
+
+export async function startDriverLogin(phone: string): Promise<void> {
+  await upsertSession(phone, {
+    state: "DRIVER_LOGIN_DOCUMENT",
+    driverDraft: null,
+    driverFlowStep: null,
+    driverUpdateCategory: null,
+    driverUpdateField: null,
+    bookingDraft: null,
+  });
+
+  await sendButtonsMessage(
+    phone,
+    [
+      "🔐 Iniciar sesión",
       "",
-      "Si olvidaste tu contraseña, usa la opción de abajo.",
+      "Escribe tu número de cédula.",
     ].join("\n"),
     [
       {
@@ -101,23 +142,211 @@ export async function sendDriverLoginPrompt(phone: string): Promise<void> {
 
 export function isDriverAuthButton(
   button: string | null | undefined,
-): button is typeof DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD {
-  return button === DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD;
+): button is
+  | typeof DRIVER_AUTH_BUTTON_IDS.LOGIN
+  | typeof DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD
+  | typeof DRIVER_AUTH_BUTTON_IDS.LOGOUT {
+  return (
+    button === DRIVER_AUTH_BUTTON_IDS.LOGIN ||
+    button === DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD ||
+    button === DRIVER_AUTH_BUTTON_IDS.LOGOUT
+  );
+}
+
+export function isDriverLoginState(
+  session: UserSession | undefined,
+): boolean {
+  return (
+    session?.state === "DRIVER_LOGIN_DOCUMENT" ||
+    session?.state === "DRIVER_LOGIN_PASSWORD"
+  );
+}
+
+export async function getActiveLoginSession(
+  phone: string,
+): Promise<UserSession | undefined> {
+  const session = await getSession(phone);
+  return isDriverLoginState(session) ? session : undefined;
 }
 
 export async function handleDriverAuthButton(
   phone: string,
   button: string,
 ): Promise<boolean> {
+  if (button === DRIVER_AUTH_BUTTON_IDS.LOGIN) {
+    const driver = await findDriverByPhone(phone);
+    if (!driver) {
+      await sendTextMessage(
+        phone,
+        "No encontramos tu registro de conductor. Envía 🚖 o 🚕 para registrarte.",
+      );
+      return true;
+    }
+    if (driverNeedsPasswordSetup(driver)) {
+      await startExistingDriverPasswordSetup(phone, driver);
+      return true;
+    }
+    await startDriverLogin(phone);
+    return true;
+  }
+
   if (button === DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD) {
-    // Fase 2: restablecer contraseña. Por ahora solo aviso.
     await sendTextMessage(
       phone,
       "🔄 El restablecimiento de contraseña estará disponible en una próxima actualización.\n\nPor ahora, si no puedes acceder, comunícate con un administrador de WhatXia.",
     );
     return true;
   }
+
+  if (button === DRIVER_AUTH_BUTTON_IDS.LOGOUT) {
+    await handleDriverLogout(phone);
+    return true;
+  }
+
   return false;
+}
+
+export async function handleDriverLogout(phone: string): Promise<void> {
+  const driver = await getAuthenticatedDriver(phone);
+
+  if (driver?.is_available) {
+    await setDriverAvailability(driver.id, false);
+  }
+
+  await clearDriverAuthSession(phone);
+  await clearSession(phone);
+
+  await sendTextMessage(
+    phone,
+    [
+      "✅ Tu sesión ha finalizado correctamente.",
+      "",
+      "Gracias por tu apoyo el día de hoy. Te esperamos nuevamente en WhatXia Mobility.",
+    ].join("\n"),
+  );
+
+  await sendDriverClosedSessionMenu(phone);
+}
+
+/**
+ * Exige sesión autenticada para acciones del menú conductor.
+ * Si no hay sesión → menú cerrado.
+ */
+export async function requireDriverAuthenticated(
+  phone: string,
+): Promise<DriverRow | null> {
+  const driver = await getAuthenticatedDriver(phone);
+  if (!driver) {
+    await sendTextMessage(
+      phone,
+      "Debes iniciar sesión para usar el menú de conductor.",
+    );
+    await sendDriverClosedSessionMenu(phone);
+    return null;
+  }
+  return driver;
+}
+
+export async function continueDriverLogin(
+  message: IncomingMessage,
+  session: UserSession,
+): Promise<boolean> {
+  if (!isDriverLoginState(session)) {
+    return false;
+  }
+
+  if (message.button === DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD) {
+    await handleDriverAuthButton(message.phone, message.button);
+    return true;
+  }
+
+  if (!message.text) {
+    if (session.state === "DRIVER_LOGIN_PASSWORD") {
+      await sendButtonsMessage(
+        message.phone,
+        "Escribe tu contraseña.",
+        [
+          {
+            id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
+            title: "Olvidé contraseña",
+          },
+        ],
+      );
+    } else {
+      await sendTextMessage(message.phone, "Escribe tu número de cédula.");
+    }
+    return true;
+  }
+
+  const text = message.text.trim();
+  if (text === "🚖" || text === "🚕") {
+    await sendDriverClosedSessionMenu(message.phone);
+    await clearSession(message.phone);
+    return true;
+  }
+
+  if (session.state === "DRIVER_LOGIN_DOCUMENT") {
+    const digits = text.replace(/\D/g, "");
+    if (digits.length < 5) {
+      await sendTextMessage(
+        message.phone,
+        "Número de cédula inválido. Intenta de nuevo.",
+      );
+      return true;
+    }
+
+    await upsertSession(message.phone, {
+      state: "DRIVER_LOGIN_PASSWORD",
+      driverDraft: { document_id: digits },
+      driverFlowStep: null,
+    });
+
+    await sendButtonsMessage(
+      message.phone,
+      "Escribe tu contraseña.",
+      [
+        {
+          id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
+          title: "Olvidé contraseña",
+        },
+      ],
+    );
+    return true;
+  }
+
+  // DRIVER_LOGIN_PASSWORD
+  const documentId = session.driverDraft?.document_id;
+  if (!documentId) {
+    await startDriverLogin(message.phone);
+    return true;
+  }
+
+  const driver = await findDriverByDocumentId(documentId);
+  const passwordOk =
+    driver &&
+    driver.password_hash &&
+    samePhone(driver.phone, message.phone) &&
+    (await verifyPassword(text, driver.password_hash));
+
+  if (!driver || !passwordOk) {
+    await upsertSession(message.phone, {
+      state: "DRIVER_LOGIN_DOCUMENT",
+      driverDraft: null,
+      driverFlowStep: null,
+    });
+    await sendTextMessage(
+      message.phone,
+      "❌ Cédula o contraseña incorrectas. Intenta de nuevo.",
+    );
+    await sendTextMessage(message.phone, "Escribe tu número de cédula.");
+    return true;
+  }
+
+  await clearSession(message.phone);
+  await createDriverAuthSession(message.phone, driver.id);
+  await sendTextMessage(message.phone, "✅ Sesión iniciada correctamente.");
+  await sendDriverMainMenu(driver, message.phone);
+  return true;
 }
 
 export function isDriverPasswordSetupState(
@@ -233,9 +462,10 @@ async function finishNewDriverRegistration(
         "",
         "Ahora nuestro equipo realizará la validación correspondiente para activar tu cuenta como conductor de WhatXia.",
         "",
-        "Una vez sea aprobada, podrás acceder a tu módulo de conductor enviando 🚖 o 🚕.",
+        "Una vez sea aprobada, podrás iniciar sesión enviando 🚖 o 🚕.",
       ].join("\n"),
     );
+    await sendDriverClosedSessionMenu(phone);
   } catch (error) {
     const code =
       error && typeof error === "object" && "code" in error
@@ -277,11 +507,9 @@ async function finishExistingDriverPassword(
 
   await sendTextMessage(phone, credentialsMessage(documentId, plainPassword));
 
-  const latest = updated ?? driver;
-  await sendDriverMainMenu(
-    { ...latest, password_hash: passwordHash },
-    phone,
-  );
+  const latest = updated ?? { ...driver, password_hash: passwordHash };
+  await createDriverAuthSession(phone, latest.id);
+  await sendDriverMainMenu(latest, phone);
 }
 
 export async function continueDriverPasswordSetup(
@@ -384,8 +612,10 @@ export async function continueDriverPasswordSetup(
 }
 
 /**
- * Entrada al módulo conductor: si falta password_hash, obliga a crearla.
- * Si ya tiene hash → menú. No implementa login aún (Fase 2).
+ * Entrada al módulo conductor:
+ * 1) Sin password_hash → setup (Fase 1).
+ * 2) Con sesión autenticada → menú operativo.
+ * 3) Sin sesión → menú cerrado (Iniciar sesión / Solicitar servicio).
  */
 export async function routeAuthenticatedDriverEntry(
   phone: string,
@@ -397,6 +627,13 @@ export async function routeAuthenticatedDriverEntry(
     return;
   }
 
-  await clearSession(phone);
-  await sendDriverMainMenu(driver, phone);
+  const authenticated = await getAuthenticatedDriver(phone);
+  if (authenticated && authenticated.id === driver.id) {
+    await sendDriverMainMenu(authenticated, phone);
+    console.log("[driver-auth] sesión iniciada → menú", { phone });
+    return;
+  }
+
+  await sendDriverClosedSessionMenu(phone);
+  console.log("[driver-auth] sesión cerrada → login/solicitar", { phone });
 }

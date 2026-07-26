@@ -45,10 +45,13 @@ import {
   startDriverRegistration,
 } from "@/lib/driver-registration";
 import {
+  continueDriverLogin,
   continueDriverPasswordSetup,
+  getActiveLoginSession,
   getActivePasswordSetupSession,
   handleDriverAuthButton,
   isDriverAuthButton,
+  requireDriverAuthenticated,
   routeAuthenticatedDriverEntry,
 } from "@/lib/driver-auth";
 import {
@@ -330,32 +333,56 @@ export async function handleIncomingMessage(
     return;
   }
 
+  // Auth: Iniciar sesión / Olvidé contraseña / Cerrar sesión
+  if (isDriverAuthButton(message.button)) {
+    await handleDriverAuthButton(message.phone, message.button);
+    return;
+  }
+
   if (message.button === DRIVER_MENU_IDS.TOGGLE_AVAILABILITY) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
     await handleToggleAvailability(message.phone);
     return;
   }
 
   if (message.button === DRIVER_MENU_IDS.MENU_CONDUCTOR) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
     await handleDriverSubMenu(message.phone);
     return;
   }
 
   if (message.button === DRIVER_MENU_IDS.RENDIMIENTO) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
     await handleDriverPerformance(message.phone);
     return;
   }
 
   if (message.button === DRIVER_MENU_IDS.MIS_DATOS) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
     await handleDriverProfile(message.phone);
     return;
   }
 
   if (message.button === DRIVER_MENU_IDS.ACTUALIZAR_DATOS) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
     await handleUpdateDriverData(message.phone);
     return;
   }
 
   if (message.button === ACTUALIZAR_DOCUMENTOS_ID) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
     await startExpiredDocumentsUpdate(message.phone);
     return;
   }
@@ -365,11 +392,17 @@ export async function handleIncomingMessage(
     message.button === UPDATE_CATEGORY_IDS.VEHICLE ||
     message.button === UPDATE_CATEGORY_IDS.DOCUMENTS
   ) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
     await handleUpdateCategorySelection(message.phone, message.button);
     return;
   }
 
   if (message.button === DRIVER_MENU_IDS.REPORTAR) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
     await handleDriverReport(message.phone);
     return;
   }
@@ -377,12 +410,6 @@ export async function handleIncomingMessage(
   // Inscripción conductor: Cancelar / Salir / Continuar / Empezar de nuevo
   if (isDriverRegistrationButton(message.button)) {
     await handleDriverRegistrationButton(message.phone, message.button);
-    return;
-  }
-
-  // Auth conductor (Fase 1 stub): Olvidé mi contraseña
-  if (isDriverAuthButton(message.button)) {
-    await handleDriverAuthButton(message.phone, message.button);
     return;
   }
 
@@ -546,6 +573,15 @@ export async function handleIncomingMessage(
     }
   }
 
+  const loginSession = await getActiveLoginSession(message.phone);
+
+  if (loginSession) {
+    const handled = await continueDriverLogin(message, loginSession);
+    if (handled) {
+      return;
+    }
+  }
+
   if (isDriverIntent(message.text)) {
     await routeDriverModuleEntry(message.phone);
     return;
@@ -569,13 +605,22 @@ export async function handleIncomingMessage(
       pendingReg?.state === "DRIVER_REGISTRATION_PAUSED" ||
       pendingReg?.state === "DRIVER_REGISTRATION_RESUME_CHOICE" ||
       pendingReg?.state === "DRIVER_PASSWORD_CREATE" ||
-      pendingReg?.state === "DRIVER_PASSWORD_CONFIRM"
+      pendingReg?.state === "DRIVER_PASSWORD_CONFIRM" ||
+      pendingReg?.state === "DRIVER_LOGIN_DOCUMENT" ||
+      pendingReg?.state === "DRIVER_LOGIN_PASSWORD"
     ) {
       if (
         pendingReg.state === "DRIVER_PASSWORD_CREATE" ||
         pendingReg.state === "DRIVER_PASSWORD_CONFIRM"
       ) {
         await continueDriverPasswordSetup(message, pendingReg);
+        return;
+      }
+      if (
+        pendingReg.state === "DRIVER_LOGIN_DOCUMENT" ||
+        pendingReg.state === "DRIVER_LOGIN_PASSWORD"
+      ) {
+        await continueDriverLogin(message, pendingReg);
         return;
       }
       await startDriverRegistration(message.phone);

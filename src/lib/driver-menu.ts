@@ -21,8 +21,14 @@ export const DRIVER_MENU_IDS = {
   MIS_DATOS: "menu_mis_datos",
   ACTUALIZAR_DATOS: "menu_actualizar_datos",
   REPORTAR: "menu_reportar",
+  /** Sesión autenticada (Fase 2) */
+  LOGOUT: "driver_auth_logout",
 } as const;
 
+/**
+ * Menú con sesión iniciada (solo disponibilidad operativa + menú + cerrar sesión).
+ * No incluye "Solicitar servicio" ni "Iniciar sesión".
+ */
 export async function sendDriverMainMenu(
   driver: DriverRow,
   toPhone?: string,
@@ -39,16 +45,16 @@ export async function sendDriverMainMenu(
 
   await sendButtonsMessage(
     toPhone ?? driver.phone,
-    `¡Hola ${driver.name}!\n\n${statusLabel}\n\n¿Qué deseas hacer?`,
+    `¡Hola ${driver.name}!\n\n${statusLabel}\n\nSesión iniciada. ¿Qué deseas hacer?`,
     [
       availabilityButton,
       {
-        id: DRIVER_MENU_IDS.SOLICITAR_SERVICIO,
-        title: "🚖 Solicitar",
+        id: DRIVER_MENU_IDS.MENU_CONDUCTOR,
+        title: "👤 Menú conductor",
       },
       {
-        id: DRIVER_MENU_IDS.MENU_CONDUCTOR,
-        title: "🚗 Menú conductor",
+        id: DRIVER_MENU_IDS.LOGOUT,
+        title: "🔒 Cerrar sesión",
       },
     ],
   );
@@ -208,6 +214,7 @@ export function isDriverMenuButton(button: string | null): boolean {
     button === DRIVER_MENU_IDS.RENDIMIENTO ||
     button === DRIVER_MENU_IDS.MIS_DATOS ||
     button === DRIVER_MENU_IDS.ACTUALIZAR_DATOS ||
-    button === DRIVER_MENU_IDS.REPORTAR
+    button === DRIVER_MENU_IDS.REPORTAR ||
+    button === DRIVER_MENU_IDS.LOGOUT
   );
 }

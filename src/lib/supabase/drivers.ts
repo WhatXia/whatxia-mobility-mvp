@@ -39,6 +39,25 @@ export type DriverRow = {
 
 const DRIVER_COLUMNS = "*";
 
+export async function findDriverById(
+  driverId: string,
+): Promise<DriverRow | null> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .select(DRIVER_COLUMNS)
+    .eq("id", driverId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al buscar conductor por id:", error);
+    throw error;
+  }
+
+  return (data as DriverRow | null) ?? null;
+}
+
 export async function findDriverByPhone(
   phone: string,
 ): Promise<DriverRow | null> {
