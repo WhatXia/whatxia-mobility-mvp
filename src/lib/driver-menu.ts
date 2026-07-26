@@ -73,11 +73,20 @@ export async function sendDriverMainMenu(
   );
 }
 
-/** Nivel: Mi cuenta */
+/**
+ * Nivel: Mi cuenta.
+ *
+ * Módulo temporalmente deshabilitado.
+ * La funcionalidad de Soporte (Reportar novedad y Contactar administrador)
+ * se implementará en un sprint posterior, una vez se defina la estrategia
+ * de gestión de tickets y el modelo de costos de mensajería de WhatsApp Cloud API.
+ *
+ * El código de Soporte (`sendDriverSupportMenu`, handlers, button IDs) se conserva;
+ * solo se oculta el acceso desde esta navegación.
+ */
 export async function sendDriverAccountMenu(phone: string): Promise<void> {
   await sendButtonsMessage(phone, "👤 Mi cuenta\n\n¿Qué deseas consultar?", [
     { id: DRIVER_MENU_IDS.MI_PERFIL, title: "📋 Mi perfil" },
-    { id: DRIVER_MENU_IDS.SOPORTE, title: "🆘 Soporte" },
     { id: DRIVER_MENU_IDS.VOLVER_PRINCIPAL, title: "⬅️ Volver" },
   ]);
 }
@@ -91,7 +100,10 @@ export async function sendDriverProfileMenu(phone: string): Promise<void> {
   ]);
 }
 
-/** Nivel: Soporte */
+/**
+ * Nivel: Soporte.
+ * Conservado para reactivación futura; no expuesto en Mi cuenta por ahora.
+ */
 export async function sendDriverSupportMenu(phone: string): Promise<void> {
   await sendButtonsMessage(phone, "🆘 Soporte\n\n¿Cómo podemos ayudarte?", [
     { id: DRIVER_MENU_IDS.REPORTAR, title: "⚠️ Reportar novedad" },
