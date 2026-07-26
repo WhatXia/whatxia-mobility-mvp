@@ -13,12 +13,13 @@ import {
 import {
   createDriver,
   draftToCreateInput,
+  driverHasPreferredName,
   findDriverByPhone,
   setDriverAvailability,
   updateDriverPasswordHash,
+  updateDriverPreferredName,
   type DriverRow,
 } from "@/lib/supabase/drivers";
-
 import {
   createDriverAuthSession,
   clearDriverAuthSession,
@@ -32,8 +33,11 @@ import {
   validatePasswordPlain,
   verifyPassword,
 } from "@/lib/driver-password";
+import {
+  findPassengerByPhone,
+  setPassengerPreferredName,
+} from "@/lib/supabase/passengers";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
-
 import type { DriverDraft } from "@/lib/driver-profile-fields";
 
 export const DRIVER_AUTH_BUTTON_IDS = {
@@ -314,8 +318,117 @@ export async function continueDriverLogin(
 
   await clearSession(message.phone);
   await createDriverAuthSession(message.phone, driver.id);
-  await sendTextMessage(message.phone, "✅ Sesión iniciada correctamente.");
-  await sendDriverMainMenu(driver, message.phone, { welcome: true });
+  await enterDriverAfterAuthentication(message.phone, driver);
+  return true;
+}
+
+const DRIVER_PREFERRED_PROMPT = [
+  "👋 Antes de continuar...",
+  "",
+  "¿Cómo prefieres que te llamemos?",
+].join("\n");
+
+export function isDriverPreferredNameState(
+  session: UserSession | undefined,
+): boolean {
+  return session?.state === "DRIVER_PREFERRED_NAME";
+}
+
+export async function getActiveDriverPreferredNameSession(
+  phone: string,
+): Promise<UserSession | undefined> {
+  const session = await getSession(phone);
+  return isDriverPreferredNameState(session) ? session : undefined;
+}
+
+async function promptDriverPreferredName(phone: string): Promise<void> {
+  await upsertSession(phone, {
+    state: "DRIVER_PREFERRED_NAME",
+    driverDraft: null,
+    driverFlowStep: null,
+    bookingDraft: null,
+  });
+  await sendTextMessage(phone, DRIVER_PREFERRED_PROMPT);
+}
+
+/**
+ * Tras autenticar (o con sesión activa): pedir preferred_name una sola vez, luego menú.
+ */
+export async function enterDriverAfterAuthentication(
+  phone: string,
+  driver: DriverRow,
+): Promise<void> {
+  if (!driverHasPreferredName(driver)) {
+    // Reutilizar preferred_name del mismo WhatsApp (pasajero) si ya existe.
+    const passenger = await findPassengerByPhone(phone);
+    const fromPassenger = passenger?.preferred_name?.trim();
+    if (fromPassenger) {
+      const synced = await updateDriverPreferredName(driver.id, fromPassenger);
+      const latest = synced ?? { ...driver, preferred_name: fromPassenger };
+      await clearSession(phone);
+      await sendDriverMainMenu(latest, phone, { welcome: true });
+      console.log("[driver-auth] preferred_name sincronizado desde pasajero", {
+        phone,
+        preferredName: fromPassenger,
+      });
+      return;
+    }
+
+    await promptDriverPreferredName(phone);
+    console.log("[driver-auth] pedir preferred_name", { phone });
+    return;
+  }
+
+  await clearSession(phone);
+  await sendDriverMainMenu(driver, phone, { welcome: true });
+  console.log("[driver-auth] menú con preferred_name", {
+    phone,
+    preferredName: driver.preferred_name,
+  });
+}
+
+export async function continueDriverPreferredName(
+  message: IncomingMessage,
+  session: UserSession,
+): Promise<boolean> {
+  if (!isDriverPreferredNameState(session)) {
+    return false;
+  }
+
+  const driver = await getAuthenticatedDriver(message.phone);
+  if (!driver) {
+    await clearSession(message.phone);
+    await sendDriverClosedSessionMenu(message.phone);
+    return true;
+  }
+
+  const raw = message.text?.trim() ?? "";
+  if (!raw || raw === "🚖" || raw === "🚕") {
+    await sendTextMessage(
+      message.phone,
+      "¿Cómo prefieres que te llamemos? Escribe solo ese nombre (ej. Carlos).",
+    );
+    return true;
+  }
+
+  const preferred = raw.slice(0, 40);
+  const updated = await updateDriverPreferredName(driver.id, preferred);
+  // Espejo en pasajero (mismo WhatsApp) sin alterar el flujo de pasajeros nuevos.
+  await setPassengerPreferredName(message.phone, preferred).catch(() => null);
+
+  await clearSession(message.phone);
+  await sendTextMessage(
+    message.phone,
+    "✅ Gracias. Tu nombre preferido ha sido registrado.",
+  );
+
+  const latest = updated ?? { ...driver, preferred_name: preferred };
+  await sendDriverMainMenu(latest, message.phone, { welcome: true });
+
+  console.log("[driver-auth] preferred_name registrado", {
+    phone: message.phone,
+    preferredName: preferred,
+  });
   return true;
 }
 
@@ -479,7 +592,7 @@ async function finishExistingDriverPassword(
 
   const latest = updated ?? { ...driver, password_hash: passwordHash };
   await createDriverAuthSession(phone, latest.id);
-  await sendDriverMainMenu(latest, phone, { welcome: true });
+  await enterDriverAfterAuthentication(phone, latest);
 }
 
 export async function continueDriverPasswordSetup(
@@ -582,10 +695,10 @@ export async function continueDriverPasswordSetup(
 }
 
 /**
- * Entrada al módulo conductor:
- * 1) Sin password_hash → setup (Fase 1).
- * 2) Con sesión autenticada → menú operativo.
- * 3) Sin sesión → menú cerrado (Iniciar sesión / Solicitar servicio).
+ * Entrada al módulo conductor (típicamente vía 🚖):
+ * 1) Sin password_hash → setup.
+ * 2) Con sesión autenticada → preferred_name (si falta) o menú.
+ * 3) Sin sesión → pedir solo contraseña (WhatsApp ya identifica).
  */
 export async function routeAuthenticatedDriverEntry(
   phone: string,
@@ -599,11 +712,11 @@ export async function routeAuthenticatedDriverEntry(
 
   const authenticated = await getAuthenticatedDriver(phone);
   if (authenticated && authenticated.id === driver.id) {
-    await sendDriverMainMenu(authenticated, phone);
-    console.log("[driver-auth] sesión iniciada → menú", { phone });
+    await enterDriverAfterAuthentication(phone, authenticated);
+    console.log("[driver-auth] sesión activa → post-auth", { phone });
     return;
   }
 
-  await sendDriverClosedSessionMenu(phone);
-  console.log("[driver-auth] sesión cerrada → login/solicitar", { phone });
+  await startDriverLogin(phone);
+  console.log("[driver-auth] sin sesión → pedir contraseña", { phone });
 }

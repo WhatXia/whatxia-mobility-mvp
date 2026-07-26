@@ -47,6 +47,8 @@ import {
 import {
   continueDriverLogin,
   continueDriverPasswordSetup,
+  continueDriverPreferredName,
+  getActiveDriverPreferredNameSession,
   getActiveLoginSession,
   getActivePasswordSetupSession,
   handleDriverAuthButton,
@@ -258,7 +260,21 @@ export async function handleIncomingMessage(
     console.error("[search] processDueSearchTimeouts:", error);
   }
 
-  // Nombre preferido: captura la respuesta antes de otros flujos de texto.
+  // Conductor: captura preferred_name post-login (antes del flujo de pasajero).
+  const driverPreferredSession = await getActiveDriverPreferredNameSession(
+    message.phone,
+  );
+  if (driverPreferredSession) {
+    const handled = await continueDriverPreferredName(
+      message,
+      driverPreferredSession,
+    );
+    if (handled) {
+      return;
+    }
+  }
+
+  // Pasajero: full_name / preferred_name.
   if (await continuePreferredNameFlow(message)) {
     return;
   }
@@ -729,12 +745,13 @@ export async function handleIncomingMessage(
   }
 
   if (isDriverIntent(message.text)) {
-    // Conductores registrados / registro: no bloquear por nombre preferido de pasajero.
+    // Conductor registrado: 🚖 → sesión o contraseña (sin cédula / sin identidad de pasajero).
     const existingDriver = await findDriverByPhone(message.phone);
     if (existingDriver) {
       await routeDriverModuleEntry(message.phone);
       return;
     }
+    // Nuevo conductor: identidad de pasajero solo si aún no está registrado como driver.
     const passenger = await ensureIdentityOrPrompt(
       message.phone,
       message.name,

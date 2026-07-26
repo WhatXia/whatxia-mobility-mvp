@@ -400,6 +400,33 @@ export async function updateDriverPasswordHash(
   return data as DriverRow | null;
 }
 
+export async function updateDriverPreferredName(
+  driverId: string,
+  preferredName: string,
+): Promise<DriverRow | null> {
+  const trimmed = preferredName.trim();
+  if (!trimmed) return null;
+
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("drivers")
+    .update({ preferred_name: trimmed })
+    .eq("id", driverId)
+    .select(DRIVER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al guardar preferred_name conductor:", error);
+    throw error;
+  }
+
+  return data as DriverRow | null;
+}
+
+export function driverHasPreferredName(driver: DriverRow): boolean {
+  return Boolean(driver.preferred_name?.trim());
+}
+
 export function draftToCreateInput(
   phone: string,
   draft: DriverDraft,

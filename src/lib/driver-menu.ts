@@ -79,13 +79,16 @@ export async function sendDriverMainMenu(
     if (passenger?.preferred_name?.trim()) {
       greetName = passenger.preferred_name.trim();
     }
+    if (driver.preferred_name?.trim()) {
+      greetName = driver.preferred_name.trim();
+    }
   }
 
   const trimmedBody = options?.body?.trim();
   const body = trimmedBody
     ? trimmedBody
     : options?.welcome
-      ? `¡Hola ${greetName}!\n\n${statusLabel}\n\nSesión iniciada. ¿Qué deseas hacer?`
+      ? `¡Hola, ${greetName}! 👋\n\n¿Qué deseas hacer?`
       : statusLabel;
 
   await sendButtonsMessage(toPhone ?? driver.phone, body, [
