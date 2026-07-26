@@ -26,7 +26,6 @@ import {
 
 /** IDs alineados con BUTTON_IDS del handler (evitar import circular). */
 const PASSENGER_SOLICITAR_ID = "solicitar_servicio";
-const PASSENGER_CANCELAR_ID = "cancelar";
 
 export const FAVORITE_BUTTON_IDS = {
   OFFER_YES: "fav_offer_yes",
@@ -122,8 +121,8 @@ export function isFavoriteFlowButton(button: string | null): boolean {
 
 /**
  * Saludo / home con favoritos.
- * 1 favorito → Favorito + Solicitar + Cancelar
- * 2 favoritos → Favorito1 + Favorito2 + Solicitar (máx. 3 botones WA)
+ * UX-002: sin Cancelar (no hay operación activa).
+ * Favoritos + Solicitar (máx. 3 botones WA).
  */
 export function buildFavoritesGreeting(
   passengerName: string,
@@ -146,13 +145,6 @@ export function buildFavoritesGreeting(
     title: "Solicitar servicio",
   });
 
-  if (slice.length < MAX_ROUTE_FAVORITES) {
-    buttons.push({
-      id: PASSENGER_CANCELAR_ID,
-      title: "❌ Cancelar",
-    });
-  }
-
   return { body, buttons };
 }
 
@@ -163,8 +155,7 @@ export type SendPassengerActionMenuOptions = {
 
 /**
  * Menú de acción del pasajero (siempre envía botones).
- * Con favoritos → buildFavoritesGreeting (o body CTA + mismos botones).
- * Sin favoritos → Solicitar servicio + Cancelar.
+ * UX-002: solo Solicitar (+ favoritos si hay). Sin Cancelar — no hay operación activa.
  */
 export async function sendPassengerActionMenu(
   phone: string,
@@ -179,10 +170,6 @@ export async function sendPassengerActionMenu(
     {
       id: PASSENGER_SOLICITAR_ID,
       title: "Solicitar servicio",
-    },
-    {
-      id: PASSENGER_CANCELAR_ID,
-      title: "❌ Cancelar",
     },
   ];
 

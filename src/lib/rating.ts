@@ -76,7 +76,7 @@ export async function sendPostRatingMenu(
   passengerPhone: string,
   _tripId: string,
 ) {
-  // Menú continuo: favoritos / Solicitar / Cancelar (sin pedir "Hola").
+  // Menú continuo: favoritos / Solicitar (UX-002: sin Cancelar).
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
   await sendPassengerActionMenu(passengerPhone, "", {
     body: "¿Qué deseas hacer?",
