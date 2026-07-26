@@ -13,21 +13,34 @@ import { sendExpiredDocumentsPrompt } from "@/lib/expired-docs-prompt";
 import { startDriverUpdate } from "@/lib/driver-update";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
+/**
+ * Navegación jerárquica (máx. 3 botones WhatsApp por pantalla).
+ *
+ * Principal → Mi cuenta → Mi perfil | Soporte
+ * Volver usa IDs distintos por nivel (sin nueva sesión / sin clearSession).
+ */
 export const DRIVER_MENU_IDS = {
   TOGGLE_AVAILABILITY: "toggle_disponibilidad",
   SOLICITAR_SERVICIO: "solicitar_servicio",
-  MENU_CONDUCTOR: "menu_conductor",
-  RENDIMIENTO: "menu_rendimiento",
+  /** Nivel 1 → abre Mi cuenta */
+  MI_CUENTA: "menu_mi_cuenta",
+  /** Compat: mismo destino que MI_CUENTA */
+  MENU_CONDUCTOR: "menu_mi_cuenta",
+  MI_PERFIL: "menu_mi_perfil",
+  SOPORTE: "menu_soporte",
   MIS_DATOS: "menu_mis_datos",
-  ACTUALIZAR_DATOS: "menu_actualizar_datos",
+  RENDIMIENTO: "menu_rendimiento",
   REPORTAR: "menu_reportar",
-  /** Sesión autenticada (Fase 2) */
+  CONTACTAR_ADMIN: "menu_contactar_admin",
+  ACTUALIZAR_DATOS: "menu_actualizar_datos",
+  VOLVER_PRINCIPAL: "menu_volver_principal",
+  VOLVER_CUENTA: "menu_volver_cuenta",
+  VOLVER_PERFIL: "menu_volver_perfil",
   LOGOUT: "driver_auth_logout",
 } as const;
 
 /**
- * Menú con sesión iniciada (solo disponibilidad operativa + menú + cerrar sesión).
- * No incluye "Solicitar servicio" ni "Iniciar sesión".
+ * Menú principal (sesión iniciada): disponibilidad · Mi cuenta · Cerrar sesión.
  */
 export async function sendDriverMainMenu(
   driver: DriverRow,
@@ -49,8 +62,8 @@ export async function sendDriverMainMenu(
     [
       availabilityButton,
       {
-        id: DRIVER_MENU_IDS.MENU_CONDUCTOR,
-        title: "👤 Menú conductor",
+        id: DRIVER_MENU_IDS.MI_CUENTA,
+        title: "👤 Mi cuenta",
       },
       {
         id: DRIVER_MENU_IDS.LOGOUT,
@@ -60,12 +73,36 @@ export async function sendDriverMainMenu(
   );
 }
 
-export async function sendDriverSubMenu(driverPhone: string) {
-  await sendButtonsMessage(driverPhone, "Menú del conductor:", [
-    { id: DRIVER_MENU_IDS.RENDIMIENTO, title: "📊 Mi rendimiento" },
-    { id: DRIVER_MENU_IDS.MIS_DATOS, title: "👤 Mis datos" },
-    { id: DRIVER_MENU_IDS.REPORTAR, title: "⚠️ Reportar novedad" },
+/** Nivel: Mi cuenta */
+export async function sendDriverAccountMenu(phone: string): Promise<void> {
+  await sendButtonsMessage(phone, "👤 Mi cuenta\n\n¿Qué deseas consultar?", [
+    { id: DRIVER_MENU_IDS.MI_PERFIL, title: "📋 Mi perfil" },
+    { id: DRIVER_MENU_IDS.SOPORTE, title: "🆘 Soporte" },
+    { id: DRIVER_MENU_IDS.VOLVER_PRINCIPAL, title: "⬅️ Volver" },
   ]);
+}
+
+/** Nivel: Mi perfil */
+export async function sendDriverProfileMenu(phone: string): Promise<void> {
+  await sendButtonsMessage(phone, "📋 Mi perfil\n\n¿Qué deseas ver?", [
+    { id: DRIVER_MENU_IDS.MIS_DATOS, title: "👤 Mis datos" },
+    { id: DRIVER_MENU_IDS.RENDIMIENTO, title: "📊 Mi rendimiento" },
+    { id: DRIVER_MENU_IDS.VOLVER_CUENTA, title: "⬅️ Volver" },
+  ]);
+}
+
+/** Nivel: Soporte */
+export async function sendDriverSupportMenu(phone: string): Promise<void> {
+  await sendButtonsMessage(phone, "🆘 Soporte\n\n¿Cómo podemos ayudarte?", [
+    { id: DRIVER_MENU_IDS.REPORTAR, title: "⚠️ Reportar novedad" },
+    { id: DRIVER_MENU_IDS.CONTACTAR_ADMIN, title: "📞 Contactar admin" },
+    { id: DRIVER_MENU_IDS.VOLVER_CUENTA, title: "⬅️ Volver" },
+  ]);
+}
+
+/** @deprecated Usar sendDriverAccountMenu */
+export async function sendDriverSubMenu(driverPhone: string) {
+  await sendDriverAccountMenu(driverPhone);
 }
 
 export async function handleToggleAvailability(phone: string): Promise<void> {
@@ -117,7 +154,7 @@ export async function handleToggleAvailability(phone: string): Promise<void> {
   await sendDriverMainMenu(updated, phone);
 }
 
-export async function handleDriverSubMenu(phone: string): Promise<void> {
+export async function handleDriverAccountMenu(phone: string): Promise<void> {
   const driver = await findDriverByPhone(phone);
 
   if (!driver) {
@@ -125,7 +162,31 @@ export async function handleDriverSubMenu(phone: string): Promise<void> {
     return;
   }
 
-  await sendDriverSubMenu(phone);
+  await sendDriverAccountMenu(phone);
+}
+
+/** @deprecated Usar handleDriverAccountMenu */
+export async function handleDriverSubMenu(phone: string): Promise<void> {
+  await handleDriverAccountMenu(phone);
+}
+
+export async function handleDriverNavBackToMain(phone: string): Promise<void> {
+  const driver = await findDriverByPhone(phone);
+
+  if (!driver) {
+    await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    return;
+  }
+
+  await sendDriverMainMenu(driver, phone);
+}
+
+export async function handleDriverNavBackToAccount(phone: string): Promise<void> {
+  await sendDriverAccountMenu(phone);
+}
+
+export async function handleDriverNavBackToProfile(phone: string): Promise<void> {
+  await sendDriverProfileMenu(phone);
 }
 
 export async function handleDriverPerformance(phone: string): Promise<void> {
@@ -133,6 +194,8 @@ export async function handleDriverPerformance(phone: string): Promise<void> {
     phone,
     "📊 Mi rendimiento\n\nPronto podrás ver aquí tus viajes, calificaciones y estadísticas.",
   );
+  // Evitar quedar atrapado: volver al nivel Mi perfil
+  await sendDriverProfileMenu(phone);
 }
 
 function valueOrDash(value: string | number | null | undefined): string {
@@ -162,22 +225,22 @@ export async function handleDriverProfile(phone: string): Promise<void> {
       "— Personales —",
       `Nombre: ${valueOrDash(driver.name)}`,
       `Cédula: ${valueOrDash(driver.document_id)}`,
+      `Correo: ${valueOrDash(driver.email)}`,
       `Dirección: ${valueOrDash(driver.address)}`,
       `Ciudad: ${valueOrDash(driver.city)}`,
       `Teléfono: ${valueOrDash(driver.phone)}`,
-      `Emergencia: ${valueOrDash(driver.emergency_contact_name)} (${valueOrDash(driver.emergency_contact_phone)})`,
       "",
       "— Vehículo —",
       `Placa: ${valueOrDash(driver.plate)}`,
       `Marca: ${valueOrDash(driver.vehicle_brand)}`,
-      `Modelo: ${valueOrDash(driver.vehicle_model)}`,
+      `Línea: ${valueOrDash(driver.vehicle_model)}`,
       `Color: ${valueOrDash(driver.vehicle_color)}`,
-      `Año: ${valueOrDash(driver.vehicle_year)}`,
       "",
       "— Documentos —",
       `SOAT: ${formatDateForDisplay(driver.soat_expires_at)}`,
-      `Tecnomecánica: ${formatDateForDisplay(driver.techno_expires_at)}`,
-      `Licencia: ${formatDateForDisplay(driver.license_expires_at)}`,
+      `Técnico-mecánica: ${formatDateForDisplay(driver.techno_expires_at)}`,
+      `Tarjeta operación: ${formatDateForDisplay(driver.operation_expires_at)}`,
+      `Licencia tránsito: ${formatDateForDisplay(driver.license_expires_at)}`,
       "",
       `Disponibilidad: ${availability}`,
       `Cuenta: ${accountStatus}`,
@@ -187,6 +250,10 @@ export async function handleDriverProfile(phone: string): Promise<void> {
       {
         id: DRIVER_MENU_IDS.ACTUALIZAR_DATOS,
         title: "✏️ Actualizar datos",
+      },
+      {
+        id: DRIVER_MENU_IDS.VOLVER_PERFIL,
+        title: "⬅️ Volver",
       },
     ],
   );
@@ -201,6 +268,15 @@ export async function handleDriverReport(phone: string): Promise<void> {
     phone,
     "⚠️ Reportar una novedad\n\nPronto podrás reportar incidencias desde aquí.",
   );
+  await sendDriverSupportMenu(phone);
+}
+
+export async function handleDriverContactAdmin(phone: string): Promise<void> {
+  await sendTextMessage(
+    phone,
+    "📞 Contactar administrador\n\nPronto podrás comunicarte con el equipo de WhatXia desde aquí.\n\nPor ahora, escribe a soporte por los canales oficiales de WhatXia Mobility.",
+  );
+  await sendDriverSupportMenu(phone);
 }
 
 export function isDriverMenuButton(button: string | null): boolean {
@@ -210,11 +286,17 @@ export function isDriverMenuButton(button: string | null): boolean {
 
   return (
     button === DRIVER_MENU_IDS.TOGGLE_AVAILABILITY ||
-    button === DRIVER_MENU_IDS.MENU_CONDUCTOR ||
+    button === DRIVER_MENU_IDS.MI_CUENTA ||
+    button === DRIVER_MENU_IDS.MI_PERFIL ||
+    button === DRIVER_MENU_IDS.SOPORTE ||
     button === DRIVER_MENU_IDS.RENDIMIENTO ||
     button === DRIVER_MENU_IDS.MIS_DATOS ||
     button === DRIVER_MENU_IDS.ACTUALIZAR_DATOS ||
     button === DRIVER_MENU_IDS.REPORTAR ||
+    button === DRIVER_MENU_IDS.CONTACTAR_ADMIN ||
+    button === DRIVER_MENU_IDS.VOLVER_PRINCIPAL ||
+    button === DRIVER_MENU_IDS.VOLVER_CUENTA ||
+    button === DRIVER_MENU_IDS.VOLVER_PERFIL ||
     button === DRIVER_MENU_IDS.LOGOUT
   );
 }

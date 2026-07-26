@@ -68,13 +68,19 @@ import {
 } from "@/lib/driver-expired-docs-update";
 import {
   DRIVER_MENU_IDS,
+  handleDriverAccountMenu,
+  handleDriverContactAdmin,
+  handleDriverNavBackToAccount,
+  handleDriverNavBackToMain,
+  handleDriverNavBackToProfile,
   handleDriverPerformance,
   handleDriverProfile,
   handleDriverReport,
-  handleDriverSubMenu,
   handleToggleAvailability,
   handleUpdateDriverData,
   sendDriverMainMenu,
+  sendDriverProfileMenu,
+  sendDriverSupportMenu,
 } from "@/lib/driver-menu";
 import {
   handlePassengerRating,
@@ -347,11 +353,52 @@ export async function handleIncomingMessage(
     return;
   }
 
-  if (message.button === DRIVER_MENU_IDS.MENU_CONDUCTOR) {
+  // Navegación jerárquica (máx. 3 botones): Mi cuenta → Perfil | Soporte
+  if (message.button === DRIVER_MENU_IDS.MI_CUENTA) {
     if (!(await requireDriverAuthenticated(message.phone))) {
       return;
     }
-    await handleDriverSubMenu(message.phone);
+    await handleDriverAccountMenu(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.MI_PERFIL) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await sendDriverProfileMenu(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.SOPORTE) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await sendDriverSupportMenu(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.VOLVER_PRINCIPAL) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await handleDriverNavBackToMain(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.VOLVER_CUENTA) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await handleDriverNavBackToAccount(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.VOLVER_PERFIL) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await handleDriverNavBackToProfile(message.phone);
     return;
   }
 
@@ -404,6 +451,14 @@ export async function handleIncomingMessage(
       return;
     }
     await handleDriverReport(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.CONTACTAR_ADMIN) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await handleDriverContactAdmin(message.phone);
     return;
   }
 
