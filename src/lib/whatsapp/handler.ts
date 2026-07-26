@@ -46,10 +46,12 @@ import {
 } from "@/lib/driver-registration";
 import {
   continueDriverLogin,
+  continueDriverPasswordReset,
   continueDriverPasswordSetup,
   continueDriverPreferredName,
   getActiveDriverPreferredNameSession,
   getActiveLoginSession,
+  getActivePasswordResetSession,
   getActivePasswordSetupSession,
   handleDriverAuthButton,
   isDriverAuthButton,
@@ -735,6 +737,20 @@ export async function handleIncomingMessage(
     }
   }
 
+  const passwordResetSession = await getActivePasswordResetSession(
+    message.phone,
+  );
+
+  if (passwordResetSession) {
+    const handled = await continueDriverPasswordReset(
+      message,
+      passwordResetSession,
+    );
+    if (handled) {
+      return;
+    }
+  }
+
   const loginSession = await getActiveLoginSession(message.phone);
 
   if (loginSession) {
@@ -781,13 +797,24 @@ export async function handleIncomingMessage(
       pendingReg?.state === "DRIVER_PASSWORD_CREATE" ||
       pendingReg?.state === "DRIVER_PASSWORD_CONFIRM" ||
       pendingReg?.state === "DRIVER_LOGIN_DOCUMENT" ||
-      pendingReg?.state === "DRIVER_LOGIN_PASSWORD"
+      pendingReg?.state === "DRIVER_LOGIN_PASSWORD" ||
+      pendingReg?.state === "DRIVER_RESET_DOCUMENT" ||
+      pendingReg?.state === "DRIVER_RESET_PASSWORD" ||
+      pendingReg?.state === "DRIVER_RESET_CONFIRM"
     ) {
       if (
         pendingReg.state === "DRIVER_PASSWORD_CREATE" ||
         pendingReg.state === "DRIVER_PASSWORD_CONFIRM"
       ) {
         await continueDriverPasswordSetup(message, pendingReg);
+        return;
+      }
+      if (
+        pendingReg.state === "DRIVER_RESET_DOCUMENT" ||
+        pendingReg.state === "DRIVER_RESET_PASSWORD" ||
+        pendingReg.state === "DRIVER_RESET_CONFIRM"
+      ) {
+        await continueDriverPasswordReset(message, pendingReg);
         return;
       }
       if (

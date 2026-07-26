@@ -50,9 +50,16 @@ export const DRIVER_AUTH_BUTTON_IDS = {
 export const DRIVER_CLOSED_SOLICITAR_ID = "solicitar_servicio";
 
 const PENDING_PASSWORD_KEY = "__password_pending";
+const RESET_STARTED_AT_KEY = "__reset_started_at";
+const RESET_ATTEMPTS_KEY = "__reset_attempts";
+
+const RESET_TIMEOUT_MS = 10 * 60 * 1000;
+const RESET_MAX_DOCUMENT_ATTEMPTS = 3;
 
 type DraftWithPending = DriverDraft & {
   [PENDING_PASSWORD_KEY]?: string;
+  [RESET_STARTED_AT_KEY]?: string;
+  [RESET_ATTEMPTS_KEY]?: number;
 };
 
 function getPendingPassword(draft: DriverDraft | null | undefined): string | null {
@@ -81,6 +88,45 @@ function stripPendingPassword(
   const copy = { ...(draft as DraftWithPending) };
   delete copy[PENDING_PASSWORD_KEY];
   return copy;
+}
+
+function normalizeDocumentId(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+function getResetStartedAt(draft: DriverDraft | null | undefined): number | null {
+  const raw = (draft as DraftWithPending | null | undefined)?.[RESET_STARTED_AT_KEY];
+  if (typeof raw !== "string" || !raw) return null;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function getResetAttempts(draft: DriverDraft | null | undefined): number {
+  const value = (draft as DraftWithPending | null | undefined)?.[RESET_ATTEMPTS_KEY];
+  return typeof value === "number" && value >= 0 ? value : 0;
+}
+
+function withResetMeta(
+  draft: DriverDraft | null | undefined,
+  meta: { startedAt?: string; attempts?: number },
+): DraftWithPending {
+  const current = (draft ?? {}) as DraftWithPending;
+  return {
+    ...current,
+    [RESET_STARTED_AT_KEY]:
+      meta.startedAt ?? current[RESET_STARTED_AT_KEY] ?? new Date().toISOString(),
+    [RESET_ATTEMPTS_KEY]:
+      meta.attempts ?? current[RESET_ATTEMPTS_KEY] ?? 0,
+  };
+}
+
+async function cancelPasswordReset(
+  phone: string,
+  reasonMessage: string,
+): Promise<void> {
+  await clearSession(phone);
+  await sendTextMessage(phone, reasonMessage);
+  await startDriverLogin(phone);
 }
 
 function credentialsMessage(documentId: string, password: string): string {
@@ -170,6 +216,252 @@ export function isDriverLoginState(
   );
 }
 
+export function isDriverPasswordResetState(
+  session: UserSession | undefined,
+): boolean {
+  return (
+    session?.state === "DRIVER_RESET_DOCUMENT" ||
+    session?.state === "DRIVER_RESET_PASSWORD" ||
+    session?.state === "DRIVER_RESET_CONFIRM"
+  );
+}
+
+export async function getActivePasswordResetSession(
+  phone: string,
+): Promise<UserSession | undefined> {
+  const session = await getSession(phone);
+  return isDriverPasswordResetState(session) ? session : undefined;
+}
+
+/**
+ * AUTH-WA-001: restablecimiento conversacional (documento → nueva clave → hash).
+ * Sin correo, enlaces ni OTP.
+ */
+export async function startDriverPasswordReset(phone: string): Promise<void> {
+  const driver = await findDriverByPhone(phone);
+  if (!driver) {
+    await sendTextMessage(
+      phone,
+      "No encontramos tu registro de conductor. Envía 🚖 o 🚕 para registrarte.",
+    );
+    return;
+  }
+
+  if (driverNeedsPasswordSetup(driver)) {
+    await startExistingDriverPasswordSetup(phone, driver);
+    return;
+  }
+
+  await upsertSession(phone, {
+    state: "DRIVER_RESET_DOCUMENT",
+    driverDraft: withResetMeta(null, {
+      startedAt: new Date().toISOString(),
+      attempts: 0,
+    }),
+    driverFlowStep: null,
+    driverUpdateCategory: null,
+    driverUpdateField: null,
+    bookingDraft: null,
+  });
+
+  await sendTextMessage(
+    phone,
+    "Para verificar tu identidad necesito tu número de documento registrado en WhatXia.",
+  );
+
+  console.log("[driver-auth:reset] inicio", { phone });
+}
+
+export async function continueDriverPasswordReset(
+  message: IncomingMessage,
+  session: UserSession,
+): Promise<boolean> {
+  if (!isDriverPasswordResetState(session)) {
+    return false;
+  }
+
+  const lastActivityAt = getResetStartedAt(session.driverDraft);
+  if (
+    lastActivityAt != null &&
+    Date.now() - lastActivityAt > RESET_TIMEOUT_MS
+  ) {
+    await cancelPasswordReset(
+      message.phone,
+      "⏱️ Se agotó el tiempo para restablecer la contraseña (10 minutos sin respuesta). Inténtalo de nuevo.",
+    );
+    return true;
+  }
+
+  // Renovar actividad en cada mensaje del flujo (timeout = 10 min sin respuesta).
+  const touchActivity = () =>
+    withResetMeta(session.driverDraft, {
+      startedAt: new Date().toISOString(),
+    });
+
+  const intent = message.text?.trim() ?? "";
+  if (intent === "🚖" || intent === "🚕") {
+    await clearSession(message.phone);
+    await sendDriverClosedSessionMenu(message.phone);
+    return true;
+  }
+
+  if (session.state === "DRIVER_RESET_DOCUMENT") {
+    if (!message.text?.trim()) {
+      await upsertSession(message.phone, {
+        state: "DRIVER_RESET_DOCUMENT",
+        driverDraft: touchActivity(),
+      });
+      await sendTextMessage(
+        message.phone,
+        "Para verificar tu identidad necesito tu número de documento registrado en WhatXia.",
+      );
+      return true;
+    }
+
+    const documentDigits = normalizeDocumentId(message.text);
+    const driver = await findDriverByPhone(message.phone);
+    const registeredDoc = normalizeDocumentId(driver?.document_id ?? "");
+    const matches =
+      Boolean(driver) &&
+      Boolean(documentDigits) &&
+      registeredDoc.length > 0 &&
+      documentDigits === registeredDoc;
+
+    if (!matches) {
+      const attempts = getResetAttempts(session.driverDraft) + 1;
+      if (attempts >= RESET_MAX_DOCUMENT_ATTEMPTS) {
+        await cancelPasswordReset(
+          message.phone,
+          "Has superado el máximo de intentos de verificación. Por seguridad, el restablecimiento fue cancelado. Comunícate con un administrador si necesitas ayuda.",
+        );
+        console.log("[driver-auth:reset] documento bloqueado por intentos", {
+          phone: message.phone,
+          attempts,
+        });
+        return true;
+      }
+
+      await upsertSession(message.phone, {
+        state: "DRIVER_RESET_DOCUMENT",
+        driverDraft: withResetMeta(touchActivity(), { attempts }),
+      });
+      await sendTextMessage(
+        message.phone,
+        "El documento no coincide con el registrado en tu cuenta. Inténtalo nuevamente o comunícate con un administrador.",
+      );
+      return true;
+    }
+
+    await upsertSession(message.phone, {
+      state: "DRIVER_RESET_PASSWORD",
+      driverDraft: withResetMeta(stripPendingPassword(touchActivity()), {
+        attempts: getResetAttempts(session.driverDraft),
+      }),
+    });
+    await sendTextMessage(message.phone, "Escribe tu nueva contraseña.");
+    console.log("[driver-auth:reset] documento OK", { phone: message.phone });
+    return true;
+  }
+
+  if (session.state === "DRIVER_RESET_PASSWORD") {
+    if (!message.text) {
+      await upsertSession(message.phone, {
+        state: "DRIVER_RESET_PASSWORD",
+        driverDraft: touchActivity(),
+      });
+      await sendTextMessage(message.phone, "Escribe tu nueva contraseña.");
+      return true;
+    }
+
+    const plain = message.text;
+    const error = validatePasswordPlain(plain);
+    if (error) {
+      await upsertSession(message.phone, {
+        state: "DRIVER_RESET_PASSWORD",
+        driverDraft: touchActivity(),
+      });
+      await sendTextMessage(message.phone, error);
+      return true;
+    }
+
+    await upsertSession(message.phone, {
+      state: "DRIVER_RESET_CONFIRM",
+      driverDraft: withPendingPassword(touchActivity(), plain),
+    });
+    await sendTextMessage(
+      message.phone,
+      "Confirma nuevamente tu contraseña.",
+    );
+    return true;
+  }
+
+  // DRIVER_RESET_CONFIRM
+  if (!message.text) {
+    await upsertSession(message.phone, {
+      state: "DRIVER_RESET_CONFIRM",
+      driverDraft: touchActivity(),
+    });
+    await sendTextMessage(
+      message.phone,
+      "Confirma nuevamente tu contraseña.",
+    );
+    return true;
+  }
+
+  const pending = getPendingPassword(session.driverDraft);
+  if (!pending) {
+    await upsertSession(message.phone, {
+      state: "DRIVER_RESET_PASSWORD",
+      driverDraft: withResetMeta(stripPendingPassword(touchActivity()), {}),
+    });
+    await sendTextMessage(message.phone, "Escribe tu nueva contraseña.");
+    return true;
+  }
+
+  if (message.text !== pending) {
+    // Solo re-pedir confirmación (no reiniciar desde la nueva contraseña).
+    await upsertSession(message.phone, {
+      state: "DRIVER_RESET_CONFIRM",
+      driverDraft: touchActivity(),
+    });
+    await sendTextMessage(
+      message.phone,
+      "Las contraseñas no coinciden. Confirma nuevamente tu contraseña.",
+    );
+    return true;
+  }
+
+  const driver = await findDriverByPhone(message.phone);
+  if (!driver) {
+    await cancelPasswordReset(
+      message.phone,
+      "No encontramos tu registro de conductor. Envía 🚖 o 🚕 para continuar.",
+    );
+    return true;
+  }
+
+  const passwordHash = await hashPassword(pending);
+  await updateDriverPasswordHash(driver.id, passwordHash);
+  await clearSession(message.phone);
+
+  await sendTextMessage(
+    message.phone,
+    [
+      "✅ Tu contraseña fue actualizada correctamente.",
+      "",
+      "Ya puedes iniciar sesión nuevamente.",
+    ].join("\n"),
+  );
+
+  await startDriverLogin(message.phone);
+
+  console.log("[driver-auth:reset] contraseña actualizada", {
+    phone: message.phone,
+    driverId: driver.id,
+  });
+  return true;
+}
+
 export async function getActiveLoginSession(
   phone: string,
 ): Promise<UserSession | undefined> {
@@ -199,10 +491,7 @@ export async function handleDriverAuthButton(
   }
 
   if (button === DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD) {
-    await sendTextMessage(
-      phone,
-      "🔄 El restablecimiento de contraseña estará disponible en una próxima actualización.\n\nPor ahora, si no puedes acceder, comunícate con un administrador de WhatXia.",
-    );
+    await startDriverPasswordReset(phone);
     return true;
   }
 
