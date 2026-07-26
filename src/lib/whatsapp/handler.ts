@@ -45,6 +45,13 @@ import {
   startDriverRegistration,
 } from "@/lib/driver-registration";
 import {
+  continueDriverPasswordSetup,
+  getActivePasswordSetupSession,
+  handleDriverAuthButton,
+  isDriverAuthButton,
+  routeAuthenticatedDriverEntry,
+} from "@/lib/driver-auth";
+import {
   continueDriverUpdate,
   getActiveUpdateSession,
   handleUpdateCategorySelection,
@@ -169,8 +176,8 @@ export function isDriverIntent(text: string | null): boolean {
 async function routeDriverModuleEntry(phone: string): Promise<void> {
   const driver = await findDriverByPhone(phone);
   if (driver) {
-    await sendDriverMainMenu(driver, phone);
-    console.log("[core-agent] módulo conductor → menú", { phone });
+    await routeAuthenticatedDriverEntry(phone, driver);
+    console.log("[core-agent] módulo conductor → auth/menú", { phone });
     return;
   }
 
@@ -373,6 +380,12 @@ export async function handleIncomingMessage(
     return;
   }
 
+  // Auth conductor (Fase 1 stub): Olvidé mi contraseña
+  if (isDriverAuthButton(message.button)) {
+    await handleDriverAuthButton(message.phone, message.button);
+    return;
+  }
+
   // Taxímetro de prueba: sesión activa o botones (🚖/🚕 abren módulo conductor).
   if (
     isTaximeterButton(message.button) ||
@@ -519,6 +532,20 @@ export async function handleIncomingMessage(
     }
   }
 
+  const passwordSetupSession = await getActivePasswordSetupSession(
+    message.phone,
+  );
+
+  if (passwordSetupSession) {
+    const handled = await continueDriverPasswordSetup(
+      message,
+      passwordSetupSession,
+    );
+    if (handled) {
+      return;
+    }
+  }
+
   if (isDriverIntent(message.text)) {
     await routeDriverModuleEntry(message.phone);
     return;
@@ -531,28 +558,26 @@ export async function handleIncomingMessage(
     const driver = await findDriverByPhone(message.phone);
 
     if (driver) {
-      await upsertSession(message.phone, {
-        name: message.name,
-        state: "IDLE",
-        pickupNeighborhood: null,
-        driverName: null,
-        driverDraft: null,
-        driverFlowStep: null,
-        driverUpdateCategory: null,
-        driverUpdateField: null,
-        bookingDraft: null,
-      });
-      await sendDriverMainMenu(driver, message.phone);
+      await routeAuthenticatedDriverEntry(message.phone, driver);
       return;
     }
 
-    // No borrar inscripción pausada: ofrecer continuar / empezar de nuevo.
+    // No borrar inscripción pausada / setup de contraseña.
     const pendingReg = await getSession(message.phone);
     if (
       pendingReg?.state === "DRIVER_REGISTRATION_WELCOME" ||
       pendingReg?.state === "DRIVER_REGISTRATION_PAUSED" ||
-      pendingReg?.state === "DRIVER_REGISTRATION_RESUME_CHOICE"
+      pendingReg?.state === "DRIVER_REGISTRATION_RESUME_CHOICE" ||
+      pendingReg?.state === "DRIVER_PASSWORD_CREATE" ||
+      pendingReg?.state === "DRIVER_PASSWORD_CONFIRM"
     ) {
+      if (
+        pendingReg.state === "DRIVER_PASSWORD_CREATE" ||
+        pendingReg.state === "DRIVER_PASSWORD_CONFIRM"
+      ) {
+        await continueDriverPasswordSetup(message, pendingReg);
+        return;
+      }
       await startDriverRegistration(message.phone);
       return;
     }
@@ -579,8 +604,8 @@ export async function handleIncomingMessage(
     if (mobility.isServiceIntent) {
       const driver = await findDriverByPhone(message.phone);
       if (driver) {
-        // Conductores siguen con menú; no forzar booking de pasajero.
-        await sendDriverMainMenu(driver, message.phone);
+        // Conductores siguen con menú / setup contraseña; no forzar booking.
+        await routeAuthenticatedDriverEntry(message.phone, driver);
         return;
       }
 

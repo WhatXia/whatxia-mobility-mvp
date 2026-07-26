@@ -33,6 +33,7 @@ export type DriverRow = {
   cancel_policy_count: number;
   suspended_until: string | null;
   city_id: string | null;
+  password_hash: string | null;
   created_at: string;
 };
 
@@ -255,6 +256,7 @@ export type CreateDriverInput = {
   techno_expires_at: string;
   operation_expires_at: string;
   license_expires_at: string;
+  password_hash: string;
 };
 
 export async function createDriver(
@@ -285,6 +287,7 @@ export async function createDriver(
       techno_expires_at: input.techno_expires_at,
       operation_expires_at: input.operation_expires_at,
       license_expires_at: input.license_expires_at,
+      password_hash: input.password_hash,
       is_available: !documentsExpired,
       status: documentsExpired ? "inactive" : "active",
       documents_blocked: documentsExpired,
@@ -328,10 +331,31 @@ export async function updateDriverField(
   return data as DriverRow | null;
 }
 
+export async function updateDriverPasswordHash(
+  driverId: string,
+  passwordHash: string,
+): Promise<DriverRow | null> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .update({ password_hash: passwordHash })
+    .eq("id", driverId)
+    .select(DRIVER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al guardar password_hash:", error);
+    throw error;
+  }
+
+  return data as DriverRow | null;
+}
+
 export function draftToCreateInput(
   phone: string,
   draft: DriverDraft,
-): CreateDriverInput | null {
+): Omit<CreateDriverInput, "password_hash"> | null {
   const required: DriverFieldKey[] = [
     "name",
     "document_id",

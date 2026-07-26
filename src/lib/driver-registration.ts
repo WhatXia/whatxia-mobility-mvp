@@ -12,14 +12,14 @@ import {
   upsertSession,
 } from "@/lib/sessions";
 import {
-  createDriver,
   draftToCreateInput,
   findDriverByDocumentId,
   findDriverByPhone,
 } from "@/lib/supabase/drivers";
-import { EXPIRED_DOCS_MESSAGE } from "@/lib/driver-documents";
-import { sendExpiredDocumentsPrompt } from "@/lib/expired-docs-prompt";
-import { sendDriverMainMenu } from "@/lib/driver-menu";
+import {
+  beginRegistrationPasswordSetup,
+  routeAuthenticatedDriverEntry,
+} from "@/lib/driver-auth";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 export const DRIVER_REG_BUTTON_IDS = {
@@ -150,8 +150,7 @@ export async function startDriverRegistration(phone: string): Promise<void> {
   const existing = await findDriverByPhone(phone);
 
   if (existing) {
-    await clearSession(phone);
-    await sendDriverMainMenu(existing, phone);
+    await routeAuthenticatedDriverEntry(phone, existing);
     return;
   }
 
@@ -327,43 +326,13 @@ export async function continueDriverRegistration(
       return true;
     }
 
-    try {
-      const { documentsExpired } = await createDriver(input);
-      await clearSession(message.phone);
-
-      if (documentsExpired) {
-        await sendExpiredDocumentsPrompt(message.phone, EXPIRED_DOCS_MESSAGE);
-        return true;
-      }
-
-      await sendTextMessage(
-        message.phone,
-        [
-          "✅ ¡Perfecto!",
-          "",
-          "Ya recibimos tu información.",
-          "",
-          "Ahora nuestro equipo realizará la validación correspondiente para activar tu cuenta como conductor de WhatXia.",
-          "",
-          "Una vez sea aprobada, podrás acceder a tu módulo de conductor enviando 🚖 o 🚕.",
-        ].join("\n"),
-      );
-      return true;
-    } catch (error) {
-      const code =
-        error && typeof error === "object" && "code" in error
-          ? String((error as { code?: string }).code)
-          : "";
-      if (code === "23505") {
-        await clearSession(message.phone);
-        await sendTextMessage(
-          message.phone,
-          "Este conductor ya se encuentra registrado en WhatXia. Si necesitas actualizar tus datos, comunícate con un administrador.",
-        );
-        return true;
-      }
-      throw error;
-    }
+    // Fase 1 auth: pedir contraseña antes de crear el conductor.
+    await beginRegistrationPasswordSetup(
+      message.phone,
+      draft,
+      draft.name ?? session.driverName,
+    );
+    return true;
   }
 
   await upsertSession(message.phone, {
