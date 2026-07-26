@@ -56,6 +56,11 @@ export async function getDriverRatingAggregate(
 export async function getPassengerRatingAggregate(
   passengerId: string,
 ): Promise<RatingAggregate> {
+  console.log("[publish:diag] STEP_R_query_passenger_ratings_enter", {
+    passengerId,
+    table: "passenger_ratings",
+  });
+
   const supabase = getSupabase();
 
   const { data, error } = await supabase
@@ -65,6 +70,14 @@ export async function getPassengerRatingAggregate(
 
   if (error) {
     console.error("[reputation] error al leer calificaciones del pasajero:", error);
+    console.error("[publish:diag] STOP_at_passenger_ratings_query", {
+      passengerId,
+      continues: false,
+      error,
+      code: (error as { code?: string }).code ?? null,
+      message: (error as { message?: string }).message ?? null,
+      hint: "Tabla/migración 034 ausente → corta publishTripOffer antes de WhatsApp",
+    });
     throw error;
   }
 
@@ -72,7 +85,14 @@ export async function getPassengerRatingAggregate(
     .map((row) => row.rating as number | null)
     .filter((r): r is number => typeof r === "number" && Number.isFinite(r));
 
-  return computeAverage(ratings);
+  const aggregate = computeAverage(ratings);
+  console.log("[publish:diag] STEP_R_query_passenger_ratings_ok", {
+    passengerId,
+    count: aggregate.count,
+    average: aggregate.average,
+    continues: true,
+  });
+  return aggregate;
 }
 
 export async function getPassengerRatingByTripId(

@@ -619,7 +619,20 @@ async function buildAndSendQuote(
   name: string,
   draft: BookingDraft,
 ): Promise<void> {
+  console.log("[publish:diag] STEP_P0_PricingEngine_enter", {
+    phone,
+    hasPickup: Boolean(draft.pickup?.location),
+    hasDropoff: Boolean(draft.dropoff),
+    hasCachedRoute: Boolean(draft.route),
+    hasCachedQuote: Boolean(draft.quote),
+    note: "Equivale a PricingEngine (estimateRoute + estimateFare)",
+  });
+
   if (!draft.pickup?.location || !draft.dropoff) {
+    console.warn("[publish:diag] STOP_at_PricingEngine_missing_places", {
+      phone,
+      continues: false,
+    });
     await sendTextMessage(
       phone,
       "Falta origen o destino. Escribe Hola para reiniciar.",
@@ -653,14 +666,31 @@ async function buildAndSendQuote(
         durationSeconds: route.durationSeconds,
       });
       quote = tariffQuoteToFareQuote(tariff);
+      console.log("[publish:diag] STEP_P1_PricingEngine_ok", {
+        phone,
+        amount: quote.amount,
+        distanceMeters: route.distanceMeters,
+        continues: true,
+      });
     } catch (error) {
       console.error("[booking] Routes/tariff error:", error);
+      console.error("[publish:diag] STOP_at_PricingEngine", {
+        phone,
+        continues: false,
+        error,
+      });
       await sendTextMessage(
         phone,
         "No pudimos calcular la ruta. Revisa origen/destino o intenta luego.",
       );
       return;
     }
+  } else {
+    console.log("[publish:diag] STEP_P1_PricingEngine_cached", {
+      phone,
+      amount: quote.amount,
+      continues: true,
+    });
   }
 
   const nextDraft: BookingDraft = {
@@ -728,7 +758,21 @@ export async function handleBookingMessage(
     }
 
     if (message.button === BOOKING_BUTTON_IDS.REQUEST_TRIP) {
+      console.log("[publish:diag] STEP_0_REQUEST_TRIP_enter", {
+        phone,
+        state: session.state,
+        hasPickup: Boolean(draft.pickup),
+        hasDropoff: Boolean(draft.dropoff),
+        hasRoute: Boolean(draft.route),
+        hasQuote: Boolean(draft.quote),
+        quotedAmount: draft.quote?.amount ?? null,
+      });
+
       if (!draft.pickup || !draft.dropoff || !draft.route || !draft.quote) {
+        console.warn("[publish:diag] STOP_at_REQUEST_TRIP_incomplete_draft", {
+          phone,
+          continues: false,
+        });
         await sendTextMessage(
           phone,
           "La cotización expiró. Escribe Hola para solicitar de nuevo.",
@@ -751,16 +795,45 @@ export async function handleBookingMessage(
         "Estamos buscando un conductor. Un momento por favor.",
       );
 
-      // Despacho / asignación: sin cambios de lógica.
-      await offerTripToDrivers(phone, label, {
-        pickup: {
-          ...draft.pickup,
-          name: label,
-        },
-        dropoff: draft.dropoff,
-        route: draft.route,
-        quote: draft.quote,
+      console.log("[publish:diag] STEP_0b_calling_offerTripToDrivers", {
+        phone,
+        label,
+        note: "Equivale a requestTrip() / DispatchEngine; PricingEngine ya corrió en cotización (WAITING_QUOTE_CONFIRM)",
+        continues: true,
       });
+
+      // Despacho / asignación: sin cambios de lógica.
+      try {
+        await offerTripToDrivers(phone, label, {
+          pickup: {
+            ...draft.pickup,
+            name: label,
+          },
+          dropoff: draft.dropoff,
+          route: draft.route,
+          quote: draft.quote,
+        });
+        console.log("[publish:diag] STEP_0c_offerTripToDrivers_returned", {
+          phone,
+          continues: true,
+          note: "Si no hubo oferta WA, revisar STOP_* anteriores en dispatch:diag",
+        });
+      } catch (error) {
+        console.error("[publish:diag] STOP_at_offerTripToDrivers_threw", {
+          phone,
+          continues: false,
+          error,
+          errorMessage:
+            error && typeof error === "object" && "message" in error
+              ? (error as { message?: string }).message
+              : String(error),
+          errorCode:
+            error && typeof error === "object" && "code" in error
+              ? (error as { code?: string }).code
+              : null,
+        });
+        throw error;
+      }
       return true;
     }
 

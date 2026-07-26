@@ -247,11 +247,20 @@ export async function offerTripToDrivers(
   pickupNeighborhood: string,
   details?: TripOfferDetails,
 ) {
+  console.log("[publish:diag] STEP_1_offerTripToDrivers_enter", {
+    passengerPhone,
+    pickupNeighborhood,
+    hasGeo: Boolean(details),
+    quotedFare: details?.quote.amount ?? null,
+    note: "Mapa: requestTrip() → offerTripToDrivers; status trip será SEARCHING (no 'requested')",
+    continues: true,
+  });
   console.log("[dispatch:diag] STEP_1_start", {
     passengerPhone,
     pickupNeighborhood,
     hasGeo: Boolean(details),
   });
+
 
   const requesterDriver = await findDriverByPhone(passengerPhone);
   console.log("[dispatch:diag] STEP_2_requesterDriver", {
@@ -344,16 +353,34 @@ export async function offerTripToDrivers(
       searchDeadlineAt: trip.searchDeadlineAt ?? null,
       quotedFare: trip.quotedFare,
     });
+    console.log("[publish:diag] STEP_5_trip_created", {
+      tripId: trip.id,
+      status: trip.status,
+      expectedStatus: "SEARCHING",
+      statusOk: trip.status === "SEARCHING",
+      passengerId: trip.passengerId,
+      quotedFare: trip.quotedFare,
+      continues: true,
+    });
   } catch (error) {
     console.error("[dispatch:diag] STOP_at_createTrip", {
       error,
       hint: "Posibles columnas faltantes search_* (011) o geo/fare (014)",
+    });
+    console.error("[publish:diag] STOP_at_createTrip", {
+      continues: false,
+      error,
     });
     throw error;
   }
 
   console.log("[dispatch:diag] STEP_6_calling_publishTripOffer", {
     tripId: trip.id,
+  });
+  console.log("[publish:diag] STEP_6_publishTripOffer_enter", {
+    tripId: trip.id,
+    note: "Equivale a DispatchEngine.publishOffer()",
+    continues: true,
   });
 
   await publishTripOffer(trip, {
@@ -363,6 +390,10 @@ export async function offerTripToDrivers(
 
   console.log("[dispatch:diag] STEP_7_publishTripOffer_returned", {
     tripId: trip.id,
+  });
+  console.log("[publish:diag] STEP_7_offerTripToDrivers_done", {
+    tripId: trip.id,
+    continues: true,
   });
 }
 
@@ -472,12 +503,54 @@ async function publishTripOffer(
 
   const pickupLabel = trip.pickupLabel ?? trip.pickupNeighborhood;
 
+  console.log("[publish:diag] STEP_R1_reputation_enter", {
+    tripId: trip.id,
+    tripPassengerId: trip.passengerId,
+    note: "NUEVO post-reputación: getPassengerRatingAggregateSafe → tabla passenger_ratings",
+  });
+
   let passengerId = trip.passengerId;
   if (!passengerId) {
+    console.log("[publish:diag] STEP_R1b_resolve_passengerId", {
+      tripId: trip.id,
+      continues: true,
+    });
     const passenger = await findOrCreatePassenger(trip.passengerPhone);
     passengerId = passenger.id;
   }
-  const passengerRep = await getPassengerRatingAggregateSafe(passengerId);
+
+  let passengerRep;
+  try {
+    passengerRep = await getPassengerRatingAggregateSafe(passengerId);
+    console.log("[publish:diag] STEP_R2_reputation_ok", {
+      tripId: trip.id,
+      passengerId,
+      average: passengerRep.average,
+      count: passengerRep.count,
+      continues: true,
+    });
+  } catch (error) {
+    console.error("[publish:diag] STOP_at_reputation_passenger_ratings", {
+      tripId: trip.id,
+      passengerId,
+      continues: false,
+      hint: "Si migración 034 no está aplicada, SELECT a passenger_ratings falla AQUÍ y nunca llega a WhatsApp",
+      error,
+      errorMessage:
+        error && typeof error === "object" && "message" in error
+          ? (error as { message?: string }).message
+          : String(error),
+      errorCode:
+        error && typeof error === "object" && "code" in error
+          ? (error as { code?: string }).code
+          : null,
+      errorDetails:
+        error && typeof error === "object" && "details" in error
+          ? (error as { details?: string }).details
+          : null,
+    });
+    throw error;
+  }
 
   const body = [
     "🚖 Nuevo servicio",
@@ -496,11 +569,19 @@ async function publishTripOffer(
     .filter((line) => line !== null)
     .join("\n");
 
-
   const buttons = [
     { id: acceptButtonId(trip.id), title: "✅ Aceptar" },
     { id: rejectButtonId(trip.id), title: "❌ Rechazar" },
   ];
+
+  console.log("[publish:diag] STEP_W1_whatsapp_send_enter", {
+    tripId: trip.id,
+    recipientCount: availableDrivers.length,
+    recipients: availableDrivers.map((d) => d.phone),
+    channel: "1:1 sendButtonsMessage (no hay grupos WA en este flujo)",
+    bodyPreview: body.slice(0, 180),
+    continues: true,
+  });
 
   console.log("[dispatch:diag] publish_STEP_E_whatsapp_sendButtonsMessage", {
     tripId: trip.id,
@@ -529,10 +610,19 @@ async function publishTripOffer(
       console.log("[dispatch:diag] publish_STEP_F_whatsapp_ok", {
         phone: driver.phone,
       });
+      console.log("[publish:diag] STEP_W2_whatsapp_ok", {
+        phone: driver.phone,
+        continues: true,
+      });
       console.log("[dispatch] oferta enviada:", driver.phone);
     } else {
       console.error("[dispatch:diag] publish_STEP_F_whatsapp_fail", {
         phone: driver.phone,
+        reason: result.reason,
+      });
+      console.error("[publish:diag] STEP_W2_whatsapp_fail", {
+        phone: driver.phone,
+        continues: false,
         reason: result.reason,
       });
       console.error(
@@ -541,6 +631,14 @@ async function publishTripOffer(
         result.reason,
       );
     }
+  });
+
+  const okCount = results.filter((r) => r.status === "fulfilled").length;
+  console.log("[publish:diag] STEP_W3_publishTripOffer_done", {
+    tripId: trip.id,
+    okCount,
+    failCount: results.length - okCount,
+    continues: true,
   });
 }
 
