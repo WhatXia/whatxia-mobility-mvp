@@ -272,12 +272,14 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     ],
   );
 
-  // Conductor: UN solo mensaje (UX-004: breve; botones sin cambio).
+  // Conductor: UN solo mensaje (UX-004/004.1: breve + líneas en blanco).
   await sendButtonsMessage(
     driverPhone,
     [
       "✅ Servicio asignado",
+      "",
       `👤 Pasajero: ${passengerFullName}`,
+      "",
       "📍 Dirígete al punto de recogida.",
     ].join("\n"),
     [
@@ -646,14 +648,18 @@ async function publishTripOffer(
     throw error;
   }
 
-  // UX-004: oferta breve (sin distancia, tiempo ni aviso de taxímetro).
+  // UX-004 / 004.1: oferta breve + líneas en blanco entre bloques.
   const body = [
     "🚖 Nuevo servicio",
+    "",
     `📍 Origen: ${pickupLabel}`,
+    "",
     trip.dropoffLabel ? `🏁 Destino: ${trip.dropoffLabel}` : null,
+    trip.dropoffLabel ? "" : null,
     trip.quotedFare != null
       ? formatEstimatedFareRangeLine(trip.quotedFare)
       : null,
+    trip.quotedFare != null ? "" : null,
     formatPassengerReputationForOffer(passengerRep),
   ]
     .filter((line) => line !== null)
