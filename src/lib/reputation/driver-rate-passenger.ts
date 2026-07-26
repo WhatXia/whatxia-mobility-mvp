@@ -2,6 +2,8 @@
  * Flujo: conductor califica al pasajero al finalizar el viaje.
  */
 
+import { sendDriverMainMenu } from "@/lib/driver-menu";
+import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import { getTrip, samePhone } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
@@ -9,6 +11,15 @@ import {
   createPassengerRating,
   getPassengerRatingByTripId,
 } from "@/lib/reputation/store";
+
+async function returnDriverToMainMenu(driverPhone: string): Promise<void> {
+  const driver = await findDriverByPhone(driverPhone);
+  if (!driver) {
+    return;
+  }
+  // Menú existente; refleja is_available actual (sin forzar estado).
+  await sendDriverMainMenu(driver, driverPhone);
+}
 
 const DRIVER_RATES_PAX_PREFIX = "pax_rating";
 
@@ -105,6 +116,7 @@ export async function handleDriverRatesPassenger(
       driverPhone,
       "Ya registramos tu calificación de este pasajero. ¡Gracias!",
     );
+    await returnDriverToMainMenu(driverPhone);
     return;
   }
 
@@ -123,6 +135,7 @@ export async function handleDriverRatesPassenger(
       driverPhone,
       "No se pudo guardar la calificación del pasajero.",
     );
+    await returnDriverToMainMenu(driverPhone);
     return;
   }
 
@@ -131,6 +144,7 @@ export async function handleDriverRatesPassenger(
     "¡Gracias! Registramos tu calificación del pasajero.";
 
   await sendTextMessage(driverPhone, reply);
+  await returnDriverToMainMenu(driverPhone);
 
   console.log("[reputation] conductor calificó pasajero", {
     tripId,
