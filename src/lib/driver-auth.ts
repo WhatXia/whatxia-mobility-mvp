@@ -13,12 +13,12 @@ import {
 import {
   createDriver,
   draftToCreateInput,
-  findDriverByDocumentId,
   findDriverByPhone,
   setDriverAvailability,
   updateDriverPasswordHash,
   type DriverRow,
 } from "@/lib/supabase/drivers";
+
 import {
   createDriverAuthSession,
   clearDriverAuthSession,
@@ -32,8 +32,8 @@ import {
   validatePasswordPlain,
   verifyPassword,
 } from "@/lib/driver-password";
-import { samePhone } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+
 import type { DriverDraft } from "@/lib/driver-profile-fields";
 
 export const DRIVER_AUTH_BUTTON_IDS = {
@@ -104,7 +104,7 @@ export async function sendDriverClosedSessionMenu(phone: string): Promise<void> 
     [
       {
         id: DRIVER_AUTH_BUTTON_IDS.LOGIN,
-        title: "🔑 Iniciar sesión",
+        title: "🔐 Iniciar sesión",
       },
       {
         id: DRIVER_CLOSED_SOLICITAR_ID,
@@ -114,9 +114,13 @@ export async function sendDriverClosedSessionMenu(phone: string): Promise<void> 
   );
 }
 
+/**
+ * Sprint 1.3: login solo con contraseña.
+ * El conductor se identifica por el WhatsApp del mensaje (no se pide cédula).
+ */
 export async function startDriverLogin(phone: string): Promise<void> {
   await upsertSession(phone, {
-    state: "DRIVER_LOGIN_DOCUMENT",
+    state: "DRIVER_LOGIN_PASSWORD",
     driverDraft: null,
     driverFlowStep: null,
     driverUpdateCategory: null,
@@ -129,7 +133,7 @@ export async function startDriverLogin(phone: string): Promise<void> {
     [
       "🔐 Iniciar sesión",
       "",
-      "Escribe tu número de cédula.",
+      "Escribe tu contraseña.",
     ].join("\n"),
     [
       {
@@ -260,21 +264,19 @@ export async function continueDriverLogin(
     return true;
   }
 
+  // Sesiones antiguas en DRIVER_LOGIN_DOCUMENT → redirigir a solo contraseña.
+  if (session.state === "DRIVER_LOGIN_DOCUMENT") {
+    await startDriverLogin(message.phone);
+    return true;
+  }
+
   if (!message.text) {
-    if (session.state === "DRIVER_LOGIN_PASSWORD") {
-      await sendButtonsMessage(
-        message.phone,
-        "Escribe tu contraseña.",
-        [
-          {
-            id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
-            title: "Olvidé contraseña",
-          },
-        ],
-      );
-    } else {
-      await sendTextMessage(message.phone, "Escribe tu número de cédula.");
-    }
+    await sendButtonsMessage(message.phone, "Escribe tu contraseña.", [
+      {
+        id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
+        title: "Olvidé contraseña",
+      },
+    ]);
     return true;
   }
 
@@ -285,60 +287,28 @@ export async function continueDriverLogin(
     return true;
   }
 
-  if (session.state === "DRIVER_LOGIN_DOCUMENT") {
-    const digits = text.replace(/\D/g, "");
-    if (digits.length < 5) {
-      await sendTextMessage(
-        message.phone,
-        "Número de cédula inválido. Intenta de nuevo.",
-      );
-      return true;
-    }
-
-    await upsertSession(message.phone, {
-      state: "DRIVER_LOGIN_PASSWORD",
-      driverDraft: { document_id: digits },
-      driverFlowStep: null,
-    });
-
-    await sendButtonsMessage(
-      message.phone,
-      "Escribe tu contraseña.",
-      [
-        {
-          id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
-          title: "Olvidé contraseña",
-        },
-      ],
-    );
-    return true;
-  }
-
-  // DRIVER_LOGIN_PASSWORD
-  const documentId = session.driverDraft?.document_id;
-  if (!documentId) {
-    await startDriverLogin(message.phone);
-    return true;
-  }
-
-  const driver = await findDriverByDocumentId(documentId);
+  // Identificación por WhatsApp + validación de contraseña.
+  const driver = await findDriverByPhone(message.phone);
   const passwordOk =
-    driver &&
-    driver.password_hash &&
-    samePhone(driver.phone, message.phone) &&
+    driver?.password_hash != null &&
     (await verifyPassword(text, driver.password_hash));
 
   if (!driver || !passwordOk) {
     await upsertSession(message.phone, {
-      state: "DRIVER_LOGIN_DOCUMENT",
+      state: "DRIVER_LOGIN_PASSWORD",
       driverDraft: null,
       driverFlowStep: null,
     });
     await sendTextMessage(
       message.phone,
-      "❌ Cédula o contraseña incorrectas. Intenta de nuevo.",
+      "❌ Contraseña incorrecta. Intenta de nuevo.",
     );
-    await sendTextMessage(message.phone, "Escribe tu número de cédula.");
+    await sendButtonsMessage(message.phone, "Escribe tu contraseña.", [
+      {
+        id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
+        title: "Olvidé contraseña",
+      },
+    ]);
     return true;
   }
 
