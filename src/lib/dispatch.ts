@@ -27,6 +27,14 @@ import {
 } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
 import {
+  formatDriverReputationForPassenger,
+  formatPassengerReputationForOffer,
+  getDriverRatingAggregate,
+  getPassengerRatingAggregateSafe,
+  sendDriverRatesPassengerPrompt,
+} from "@/lib/reputation";
+
+import {
   cancelServicioButtonId,
   yaVoyButtonId,
 } from "@/lib/cancellations";
@@ -464,21 +472,30 @@ async function publishTripOffer(
 
   const pickupLabel = trip.pickupLabel ?? trip.pickupNeighborhood;
 
+  let passengerId = trip.passengerId;
+  if (!passengerId) {
+    const passenger = await findOrCreatePassenger(trip.passengerPhone);
+    passengerId = passenger.id;
+  }
+  const passengerRep = await getPassengerRatingAggregateSafe(passengerId);
+
   const body = [
     "🚖 Nuevo servicio",
     "",
-    `📍 Recoger en: ${pickupLabel}`,
-    trip.dropoffLabel ? `🎯 Destino: ${trip.dropoffLabel}` : null,
+    `📍 Origen: ${pickupLabel}`,
+    trip.dropoffLabel ? `📍 Destino: ${trip.dropoffLabel}` : null,
     distanceKm ? `📏 Distancia estimada: ${distanceKm} km` : null,
     durationMin ? `⏱️ Tiempo estimado: ${durationMin} min` : null,
     trip.quotedFare != null
       ? formatEstimatedFareRangeLine(trip.quotedFare)
       : null,
+    formatPassengerReputationForOffer(passengerRep),
     "",
     "Aceptar el servicio:",
   ]
     .filter((line) => line !== null)
     .join("\n");
+
 
   const buttons = [
     { id: acceptButtonId(trip.id), title: "✅ Aceptar" },
@@ -624,17 +641,23 @@ export async function handleDriverAccept(
     });
   }
 
+  const driverRep = await getDriverRatingAggregate(driver.id);
+  const vehicleLabel = driver.plate?.trim()
+    ? `Taxi ${driver.plate.trim()}`
+    : "Taxi";
+
   await Promise.allSettled([
     sendTextMessage(
       assigned.passengerPhone,
       [
-        "✅ Conductor asignado",
-        "",
-        `Nombre: ${driver.name}`,
-        `Placa: ${driver.plate}`,
+        "🚖 ¡Tu conductor está en camino!",
+        `👤 Conductor: ${driver.name}`,
+        `🚕 Vehículo: ${vehicleLabel}`,
+        formatDriverReputationForPassenger(driverRep),
       ].join("\n"),
     ),
   ]);
+
 
   // Diagnóstico: justo después de informar al pasajero (conductor / vehículo).
   await diagnoseTunnelVisibility({
@@ -1083,6 +1106,7 @@ export async function handleDriverFinalizarViaje(
   ]);
 
   await sendRatingPrompt(updated.passengerPhone, updated.id);
+  await sendDriverRatesPassengerPrompt(driverPhone, updated.id);
 
   // active → closing + closes_at = now + 5 min
   try {
@@ -1090,6 +1114,7 @@ export async function handleDriverFinalizarViaje(
   } catch (error) {
     console.error("[dispatch] no se pudo programar cierre de túnel:", error);
   }
+
 
   console.log("[dispatch] viaje finalizado:", {
     tripId: updated.id,

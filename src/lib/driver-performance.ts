@@ -8,7 +8,9 @@
 import { getSupabase } from "@/lib/supabase/client";
 import { getAuthenticatedDriver } from "@/lib/driver-auth-session";
 import { DRIVER_MENU_IDS } from "@/lib/driver-menu";
+import { getDriverRatingAggregate } from "@/lib/reputation";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+
 
 /** Zona horaria operativa WhatXia (Colombia). */
 const TZ = "America/Bogota";
@@ -90,36 +92,6 @@ async function countCompletedServices(
   return count ?? 0;
 }
 
-async function loadRatingAggregate(
-  driverId: string,
-): Promise<{ average: number | null; count: number }> {
-  const supabase = getSupabase();
-
-  const { data, error } = await supabase
-    .from("trips")
-    .select("rating")
-    .eq("driver_id", driverId)
-    .eq("status", "COMPLETED")
-    .not("rating", "is", null);
-
-  if (error) {
-    console.error("[driver-performance] error al leer calificaciones:", error);
-    throw error;
-  }
-
-  const ratings = (data ?? [])
-    .map((row) => row.rating)
-    .filter((r): r is number => typeof r === "number" && Number.isFinite(r));
-
-  if (ratings.length === 0) {
-    return { average: null, count: 0 };
-  }
-
-  const sum = ratings.reduce((acc, n) => acc + n, 0);
-  const average = Math.round((sum / ratings.length) * 10) / 10;
-  return { average, count: ratings.length };
-}
-
 export async function getDriverPerformanceStats(
   driverId: string,
   driverName: string,
@@ -130,7 +102,7 @@ export async function getDriverPerformanceStats(
   const [servicesThisMonth, servicesThisYear, ratingAgg] = await Promise.all([
     countCompletedServices(driverId, monthFrom),
     countCompletedServices(driverId, yearFrom),
-    loadRatingAggregate(driverId),
+    getDriverRatingAggregate(driverId),
   ]);
 
   return {

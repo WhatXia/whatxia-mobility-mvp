@@ -89,6 +89,11 @@ import {
   parseRatingButton,
 } from "@/lib/rating";
 import {
+  handleDriverRatesPassenger,
+  parseDriverRatesPassengerButton,
+} from "@/lib/reputation";
+
+import {
   continueFavoriteFlow,
   getActiveFavoriteSession,
   handleFavoriteNameChoice,
@@ -256,6 +261,16 @@ export async function handleIncomingMessage(
       message.phone,
       ratingButton.tripId,
       ratingButton.rating,
+    );
+    return;
+  }
+
+  const driverRatesPax = parseDriverRatesPassengerButton(message.button);
+  if (driverRatesPax) {
+    await handleDriverRatesPassenger(
+      message.phone,
+      driverRatesPax.tripId,
+      driverRatesPax.rating,
     );
     return;
   }
