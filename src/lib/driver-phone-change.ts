@@ -136,14 +136,8 @@ export async function startDriverPhoneChange(phone: string): Promise<void> {
         "⚠️ Solo puedes cambiar tu número de WhatsApp una vez cada 30 días.",
         "",
         `Tu próximo cambio estará disponible el ${fecha}.`,
-        "",
-        "Si necesitas realizar el cambio antes de esa fecha, comunícate con un administrador de WhatXia.",
       ].join("\n"),
       [
-        {
-          id: DRIVER_MENU_IDS.CONTACTAR_ADMIN,
-          title: "Contactar admin",
-        },
         {
           id: DRIVER_MENU_IDS.VOLVER_PRINCIPAL,
           title: "🔙 Volver al menú",
