@@ -178,6 +178,37 @@ function normalizeText(text: string): string {
     .replace(/\p{M}/gu, "");
 }
 
+/** WhatsApp suele enviar 🚖/🚕 con Variation Selector-16 (U+FE0F). */
+function stripEmojiVariationSelectors(text: string): string {
+  return text.replace(/\uFE0F|\uFE0E/g, "");
+}
+
+function codePointsHex(text: string | null): string[] {
+  if (!text) {
+    return [];
+  }
+  return [...text].map((ch) => {
+    const cp = ch.codePointAt(0);
+    return cp == null ? "?" : cp.toString(16);
+  });
+}
+
+/**
+ * 🚖 / 🚕 exacto, con espacios, con VS16, o seguido de texto ("🚖 hola").
+ * Debe evaluarse ANTES de parseMobilityIntent / saludo pasajero.
+ */
+export function matchesDriverTaxiEmoji(text: string | null): boolean {
+  if (!text) {
+    return false;
+  }
+  const cleaned = stripEmojiVariationSelectors(text).trim();
+  if (!cleaned) {
+    return false;
+  }
+  // Exacto o emoji al inicio + resto opcional (espacios / texto).
+  return /^[🚖🚕](?:\s+.*)?$/u.test(cleaned);
+}
+
 function isGreeting(text: string | null): boolean {
   if (!text) {
     return false;
@@ -195,11 +226,12 @@ export function isDriverIntent(text: string | null): boolean {
     return false;
   }
 
-  const trimmed = text.trim();
-  if (trimmed === "🚖" || trimmed === "🚕") {
+  // Emoji taxi ANTES de normalizar a minúsculas / clasificador de frases.
+  if (matchesDriverTaxiEmoji(text)) {
     return true;
   }
 
+  const trimmed = text.trim();
   const normalized = normalizeText(trimmed);
   if (!normalized) {
     return false;
@@ -210,6 +242,26 @@ export function isDriverIntent(text: string | null): boolean {
   }
 
   return DRIVER_INTENT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+/** Log temporal de diagnóstico de enrutamiento (Sprint debug 🚖). */
+function logRouteDiag(payload: {
+  received: string | null;
+  intentDetected: string;
+  flowSelected: string;
+  reason: string;
+  extra?: Record<string, unknown>;
+}) {
+  console.log("[route:diag]", {
+    received: payload.received,
+    receivedCodePoints: codePointsHex(payload.received),
+    intentDetected: payload.intentDetected,
+    flowSelected: payload.flowSelected,
+    reason: payload.reason,
+    isDriverIntent: isDriverIntent(payload.received),
+    matchesDriverTaxiEmoji: matchesDriverTaxiEmoji(payload.received),
+    ...payload.extra,
+  });
 }
 
 /**
@@ -256,6 +308,19 @@ export async function handleIncomingMessage(
 ): Promise<void> {
   console.log("[whatsapp] mensaje recibido:", message);
 
+  // TEMP DIAG: punto de entrada (equivalente a processIncomingMessage).
+  logRouteDiag({
+    received: message.text,
+    intentDetected: "pending",
+    flowSelected: "handleIncomingMessage",
+    reason: "mensaje entrante; evaluación de ramas pendientes",
+    extra: {
+      phone: message.phone,
+      button: message.button,
+      hasLocation: Boolean(message.location),
+    },
+  });
+
   try {
     await processDueSearchTimeouts();
   } catch (error) {
@@ -272,12 +337,30 @@ export async function handleIncomingMessage(
       driverPreferredSession,
     );
     if (handled) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: matchesDriverTaxiEmoji(message.text)
+          ? "driver_emoji_but_swallowed"
+          : "driver_preferred_name_session",
+        flowSelected: "continueDriverPreferredName",
+        reason:
+          "Sesión preferred_name de conductor activa; se evalúa ANTES de isDriverIntent",
+      });
       return;
     }
   }
 
   // Pasajero: full_name / preferred_name.
   if (await continuePreferredNameFlow(message)) {
+    logRouteDiag({
+      received: message.text,
+      intentDetected: matchesDriverTaxiEmoji(message.text)
+        ? "driver_emoji_but_swallowed"
+        : "passenger_identity_session",
+      flowSelected: "continuePreferredNameFlow",
+      reason:
+        "Sesión WAITING_FULL_NAME / preferred_name de pasajero activa; 🚖 NUNCA llega a isDriverIntent en este caso",
+    });
     return;
   }
 
@@ -614,6 +697,15 @@ export async function handleIncomingMessage(
   if (session && isBookingState(session.state)) {
     const handled = await handleBookingMessage(message, session);
     if (handled) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: matchesDriverTaxiEmoji(message.text)
+          ? "driver_emoji_but_swallowed"
+          : "booking_session",
+        flowSelected: "handleBookingMessage",
+        reason: `Sesión booking activa (${session.state}); se evalúa ANTES de isDriverIntent`,
+        extra: { sessionState: session.state },
+      });
       return;
     }
   }
@@ -764,26 +856,66 @@ export async function handleIncomingMessage(
     // Conductor registrado: 🚖 → sesión o contraseña (sin cédula / sin identidad de pasajero).
     const existingDriver = await findDriverByPhone(message.phone);
     if (existingDriver) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: matchesDriverTaxiEmoji(message.text)
+          ? "driver_taxi_emoji"
+          : "driver_phrase",
+        flowSelected: "routeDriverModuleEntry",
+        reason:
+          "isDriverIntent=true y driver existe → módulo conductor (auth/menú)",
+        extra: { driverId: existingDriver.id },
+      });
       await routeDriverModuleEntry(message.phone);
       return;
     }
     // Nuevo conductor: identidad de pasajero solo si aún no está registrado como driver.
+    logRouteDiag({
+      received: message.text,
+      intentDetected: matchesDriverTaxiEmoji(message.text)
+        ? "driver_taxi_emoji"
+        : "driver_phrase",
+      flowSelected: "ensureIdentityOrPrompt_then_routeDriverModuleEntry",
+      reason:
+        "isDriverIntent=true pero NO hay driver: ANTES de inscripción se pide identidad de pasajero (aquí puede parecer flujo pasajero)",
+    });
     const passenger = await ensureIdentityOrPrompt(
       message.phone,
       message.name,
     );
     if (!passenger) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: "driver_intent_blocked_by_passenger_identity",
+        flowSelected: "ensureIdentityOrPrompt",
+        reason:
+          "Intención conductor detectada, pero ensureIdentityOrPrompt bloqueó y pidió full_name/preferred_name de pasajero",
+      });
       return;
     }
     await routeDriverModuleEntry(message.phone);
     return;
   }
 
+  logRouteDiag({
+    received: message.text,
+    intentDetected: "not_driver_intent",
+    flowSelected: "fallthrough_after_isDriverIntent",
+    reason:
+      "isDriverIntent=false → continúa a saludo / parseMobilityIntent (clasificador general). Si el texto era 🚖, aquí se perdió el enrutamiento conductor.",
+  });
+
   // Core Agent: menú / saludo (solo si no hubo túnel activo).
   if (isGreeting(message.text)) {
     const driver = await findDriverByPhone(message.phone);
 
     if (driver) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: "greeting",
+        flowSelected: "routeAuthenticatedDriverEntry",
+        reason: "Saludo + driver existente",
+      });
       await routeAuthenticatedDriverEntry(message.phone, driver);
       return;
     }
@@ -833,6 +965,12 @@ export async function handleIncomingMessage(
       message.name,
     );
     if (!passenger) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: "greeting",
+        flowSelected: "passenger_identity_from_greeting",
+        reason: "Saludo sin driver → ensureIdentityOrPrompt (flujo pasajero)",
+      });
       return;
     }
 
@@ -853,6 +991,12 @@ export async function handleIncomingMessage(
       bookingDraft: null,
     });
 
+    logRouteDiag({
+      received: message.text,
+      intentDetected: "greeting",
+      flowSelected: "sendPassengerWelcomeMenu",
+      reason: "Saludo sin driver → menú de pasajero",
+    });
     await sendPassengerWelcomeMenu(message.phone, displayName);
     return;
   }
@@ -864,6 +1008,13 @@ export async function handleIncomingMessage(
       const driver = await findDriverByPhone(message.phone);
       if (driver) {
         // Conductores siguen con menú / setup contraseña; no forzar booking.
+        logRouteDiag({
+          received: message.text,
+          intentDetected: "mobility_service_intent",
+          flowSelected: "routeAuthenticatedDriverEntry",
+          reason:
+            "Clasificador general (parseMobilityIntent) detectó servicio, pero hay driver",
+        });
         await routeAuthenticatedDriverEntry(message.phone, driver);
         return;
       }
@@ -872,6 +1023,17 @@ export async function handleIncomingMessage(
         phone: message.phone,
         pickupText: mobility.pickupText,
         destinationText: mobility.destinationText,
+      });
+      logRouteDiag({
+        received: message.text,
+        intentDetected: "mobility_service_intent",
+        flowSelected: "startPassengerRequest",
+        reason:
+          "Clasificador general parseMobilityIntent → booking pasajero (isDriverIntent ya fue false)",
+        extra: {
+          pickupText: mobility.pickupText,
+          destinationText: mobility.destinationText,
+        },
       });
       await startPassengerRequest(message.phone, message.name, mobility);
       return;
