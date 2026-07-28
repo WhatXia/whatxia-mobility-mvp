@@ -175,7 +175,7 @@ export const REGISTRATION_ORDER: DriverFieldKey[] = [
 ];
 
 export const CATEGORY_FIELDS: Record<DriverFieldCategory, DriverFieldKey[]> = {
-  personal: ["document_id", "name", "email", "address", "city"],
+  personal: ["email", "address", "city"],
   vehicle: ["plate", "vehicle_brand", "vehicle_model", "vehicle_color"],
   documents: [
     "soat_expires_at",
@@ -184,6 +184,21 @@ export const CATEGORY_FIELDS: Record<DriverFieldCategory, DriverFieldKey[]> = {
     "license_expires_at",
   ],
 };
+
+/** Opciones del menú Datos personales (DRIVER-004): lectura / editable / WhatsApp. */
+export type PersonalUpdateOption =
+  | { kind: "readonly"; key: "document_id" | "name" }
+  | { kind: "editable"; key: "email" | "address" | "city" }
+  | { kind: "whatsapp" };
+
+export const PERSONAL_UPDATE_OPTIONS: PersonalUpdateOption[] = [
+  { kind: "readonly", key: "document_id" },
+  { kind: "readonly", key: "name" },
+  { kind: "editable", key: "email" },
+  { kind: "editable", key: "address" },
+  { kind: "editable", key: "city" },
+  { kind: "whatsapp" },
+];
 
 export type DriverDraft = Partial<Record<DriverFieldKey, string>>;
 

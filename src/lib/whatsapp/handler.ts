@@ -62,8 +62,16 @@ import {
   continueDriverUpdate,
   getActiveUpdateSession,
   handleUpdateCategorySelection,
+  handleUpdateFlowButton,
+  isUpdateFlowButton,
   UPDATE_CATEGORY_IDS,
 } from "@/lib/driver-update";
+import {
+  continueDriverPhoneChange,
+  getActivePhoneChangeSession,
+  handlePhoneChangeConfirmButton,
+  parsePhoneChangeButton,
+} from "@/lib/driver-phone-change";
 import {
   ACTUALIZAR_DOCUMENTOS_ID,
   continueExpiredDocumentsUpdate,
@@ -622,6 +630,27 @@ export async function handleIncomingMessage(
     return;
   }
 
+  if (isUpdateFlowButton(message.button)) {
+    // Confirmación / post-menú: no exige re-auth si la sesión de update sigue abierta.
+    const handled = await handleUpdateFlowButton(
+      message.phone,
+      message.button!,
+    );
+    if (handled) {
+      return;
+    }
+  }
+
+  const phoneChangeButton = parsePhoneChangeButton(message.button);
+  if (phoneChangeButton) {
+    await handlePhoneChangeConfirmButton(
+      message.phone,
+      phoneChangeButton.action,
+      phoneChangeButton.requestId,
+    );
+    return;
+  }
+
   if (message.button === DRIVER_MENU_IDS.REPORTAR) {
     if (!(await requireDriverAuthenticated(message.phone))) {
       return;
@@ -779,6 +808,18 @@ export async function handleIncomingMessage(
     const handled = await continueExpiredDocumentsUpdate(
       message,
       expiredDocsSession,
+    );
+    if (handled) {
+      return;
+    }
+  }
+
+  const phoneChangeSession = await getActivePhoneChangeSession(message.phone);
+
+  if (phoneChangeSession) {
+    const handled = await continueDriverPhoneChange(
+      message,
+      phoneChangeSession,
     );
     if (handled) {
       return;

@@ -363,6 +363,11 @@ export async function updateDriverField(
   value: string | number,
 ): Promise<DriverRow | null> {
   const supabase = getSupabase();
+  const current = await findDriverById(driverId);
+  const oldValue =
+    current && field in current
+      ? (current[field as keyof DriverRow] as string | number | null)
+      : null;
 
   const { data, error } = await supabase
     .from("drivers")
@@ -374,6 +379,57 @@ export async function updateDriverField(
   if (error) {
     console.error("[supabase] error al actualizar conductor:", error);
     throw error;
+  }
+
+  if (data) {
+    const { recordDriverProfileAudit, auditValue } = await import(
+      "@/lib/driver-profile-audit"
+    );
+    await recordDriverProfileAudit({
+      driverId,
+      fieldName: field,
+      oldValue: auditValue(oldValue),
+      newValue: auditValue(value),
+      source: "WhatsApp",
+    });
+  }
+
+  return data as DriverRow | null;
+}
+
+/** AUTH-WA-002: cambia el teléfono WhatsApp del conductor. */
+export async function updateDriverPhone(
+  driverId: string,
+  newPhone: string,
+): Promise<DriverRow | null> {
+  const supabase = getSupabase();
+  const normalized = normalizePhone(newPhone);
+  const current = await findDriverById(driverId);
+  if (!current) return null;
+
+  const { data, error } = await supabase
+    .from("drivers")
+    .update({ phone: normalized })
+    .eq("id", driverId)
+    .select(DRIVER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al actualizar teléfono conductor:", error);
+    throw error;
+  }
+
+  if (data) {
+    const { recordDriverProfileAudit, auditValue } = await import(
+      "@/lib/driver-profile-audit"
+    );
+    await recordDriverProfileAudit({
+      driverId,
+      fieldName: "phone",
+      oldValue: auditValue(current.phone),
+      newValue: auditValue(normalized),
+      source: "WhatsApp",
+    });
   }
 
   return data as DriverRow | null;
