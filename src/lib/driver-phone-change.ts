@@ -22,6 +22,12 @@ import { verifyPassword } from "@/lib/driver-password";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizePhone, samePhone } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+import {
+  evaluatePhoneChangeCooldown,
+  formatPhoneChangeAvailableDate,
+  getLastPhoneChangeAt,
+} from "@/lib/driver-profile-audit";
+import { DRIVER_MENU_IDS } from "@/lib/driver-menu";
 
 const RESET_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_DOCUMENT_ATTEMPTS = 3;
@@ -116,6 +122,38 @@ export async function startDriverPhoneChange(phone: string): Promise<void> {
   const driver = await findDriverByPhone(phone);
   if (!driver) {
     await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    return;
+  }
+
+  // DRIVER-004.1: máximo un cambio cada 30 días (vía auditoría de phone).
+  const lastChangeAt = await getLastPhoneChangeAt(driver.id);
+  const cooldown = evaluatePhoneChangeCooldown(lastChangeAt);
+  if (!cooldown.allowed) {
+    const fecha = formatPhoneChangeAvailableDate(cooldown.nextAvailableAt);
+    await sendButtonsMessage(
+      phone,
+      [
+        "⚠️ Solo puedes cambiar tu número de WhatsApp una vez cada 30 días.",
+        "",
+        `Tu próximo cambio estará disponible el ${fecha}.`,
+        "",
+        "Si necesitas realizar el cambio antes de esa fecha, comunícate con un administrador de WhatXia.",
+      ].join("\n"),
+      [
+        {
+          id: DRIVER_MENU_IDS.CONTACTAR_ADMIN,
+          title: "Contactar admin",
+        },
+        {
+          id: DRIVER_MENU_IDS.VOLVER_PRINCIPAL,
+          title: "🔙 Volver al menú",
+        },
+      ],
+    );
+    console.log("[auth-wa-002] cambio bloqueado por cooldown 30d", {
+      phone,
+      nextAvailableAt: cooldown.nextAvailableAt.toISOString(),
+    });
     return;
   }
 
