@@ -10,6 +10,7 @@ import {
   isRegistrationSource,
   type RegistrationSource,
 } from "@/lib/registration-source";
+import { applyPendingReferralForPassenger } from "@/lib/referrals";
 
 export type PassengerRow = {
   id: string;
@@ -25,10 +26,12 @@ export type PassengerRow = {
   city_id: string | null;
   status: PassengerStatus;
   registration_source: RegistrationSource | null;
+  /** Conductor referente (una sola vez). */
+  referred_by_driver_id: string | null;
 };
 
 const PASSENGER_COLUMNS =
-  "id, phone, name, full_name, preferred_name, whatsapp_name, no_show_count, created_at, registered_at, city_id, status, registration_source";
+  "id, phone, name, full_name, preferred_name, whatsapp_name, no_show_count, created_at, registered_at, city_id, status, registration_source, referred_by_driver_id";
 
 function mapPassenger(data: PassengerRow): PassengerRow {
   const status = isPassengerStatus(data.status) ? data.status : "ACTIVE";
@@ -45,6 +48,7 @@ function mapPassenger(data: PassengerRow): PassengerRow {
     registered_at: data.registered_at ?? data.created_at,
     status,
     registration_source,
+    referred_by_driver_id: data.referred_by_driver_id ?? null,
   };
 }
 
@@ -125,6 +129,7 @@ export async function findPassengerById(
  * Crea o reutiliza pasajero.
  * `whatsappName` solo actualiza whatsapp_name (referencia).
  * Status inicial de nuevos: PIONEER o ACTIVE según PRE_LAUNCH_MODE.
+ * REF-003: si hay código de referido pendiente, atribuye sin cambiar el onboarding.
  */
 export async function findOrCreatePassenger(
   phone: string,
@@ -143,6 +148,7 @@ export async function findOrCreatePassenger(
     if (wa && wa !== existing.whatsapp_name) {
       patch.whatsapp_name = wa;
     }
+    let passenger = existing;
     if (Object.keys(patch).length > 0) {
       const { data, error } = await supabase
         .from("passengers")
@@ -154,17 +160,28 @@ export async function findOrCreatePassenger(
         console.error("[passenger] error al actualizar referencia:", error);
         throw error;
       }
-      return mapPassenger(data as PassengerRow);
+      passenger = mapPassenger(data as PassengerRow);
+    } else {
+      console.log("[passenger] reutilizado:", {
+        id: existing.id,
+        phone: existing.phone,
+        cityId: existing.city_id,
+        status: existing.status,
+        hasIdentity: hasCompleteIdentity(existing),
+      });
     }
 
-    console.log("[passenger] reutilizado:", {
-      id: existing.id,
-      phone: existing.phone,
-      cityId: existing.city_id,
-      status: existing.status,
-      hasIdentity: hasCompleteIdentity(existing),
-    });
-    return existing;
+    // REF-003: si hay pending y aún no tiene referente, atribuye; nunca sobrescribe.
+    if (!passenger.referred_by_driver_id) {
+      await applyPendingReferralForPassenger(phone, passenger.id).catch(
+        (err) => {
+          console.error("[referrals] apply pending (existente):", err);
+        },
+      );
+      return (await findPassengerByPhone(phone)) ?? passenger;
+    }
+
+    return passenger;
   }
 
   const supabase = getSupabase();
@@ -190,7 +207,12 @@ export async function findOrCreatePassenger(
     if (error.code === "23505") {
       const again = await findPassengerByPhone(phone);
       if (again) {
-        return again;
+        await applyPendingReferralForPassenger(phone, again.id).catch(
+          (err) => {
+            console.error("[referrals] apply pending (race):", err);
+          },
+        );
+        return (await findPassengerByPhone(phone)) ?? again;
       }
     }
 
@@ -205,7 +227,12 @@ export async function findOrCreatePassenger(
     status: data.status,
   });
 
-  return mapPassenger(data as PassengerRow);
+  const created = mapPassenger(data as PassengerRow);
+  await applyPendingReferralForPassenger(phone, created.id).catch((err) => {
+    console.error("[referrals] apply pending (nuevo):", err);
+  });
+
+  return (await findPassengerByPhone(phone)) ?? created;
 }
 
 export async function setPassengerFullName(

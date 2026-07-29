@@ -18,8 +18,8 @@ import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 /**
  * Navegación jerárquica (máx. 3 botones WhatsApp por pantalla).
  *
- * Principal → Mi cuenta → Mi perfil | Soporte
- * Volver usa IDs distintos por nivel (sin nueva sesión / sin clearSession).
+ * Principal → Disponibilidad · Referidos · Mi cuenta
+ * Mi cuenta → Mi perfil · Cerrar sesión · Volver
  */
 export const DRIVER_MENU_IDS = {
   TOGGLE_AVAILABILITY: "toggle_disponibilidad",
@@ -28,6 +28,8 @@ export const DRIVER_MENU_IDS = {
   MI_CUENTA: "menu_mi_cuenta",
   /** Compat: mismo destino que MI_CUENTA */
   MENU_CONDUCTOR: "menu_mi_cuenta",
+  /** REF-003: enlace de referidos del conductor */
+  REFERIDOS: "menu_referidos",
   MI_PERFIL: "menu_mi_perfil",
   SOPORTE: "menu_soporte",
   MIS_DATOS: "menu_mis_datos",
@@ -55,8 +57,9 @@ export type SendDriverMainMenuOptions = {
 };
 
 /**
- * Menú principal (sesión iniciada): disponibilidad · Mi cuenta · Cerrar sesión.
+ * Menú principal (sesión iniciada): disponibilidad · Referidos · Mi cuenta.
  * Sprint 2.1: sin repetir saludo de sesión salvo `welcome: true`.
+ * Cerrar sesión vive en Mi cuenta (límite 3 botones WhatsApp).
  */
 export async function sendDriverMainMenu(
   driver: DriverRow,
@@ -94,12 +97,12 @@ export async function sendDriverMainMenu(
   await sendButtonsMessage(toPhone ?? driver.phone, body, [
     availabilityButton,
     {
-      id: DRIVER_MENU_IDS.MI_CUENTA,
-      title: "👤 Mi cuenta",
+      id: DRIVER_MENU_IDS.REFERIDOS,
+      title: "👥 Referidos",
     },
     {
-      id: DRIVER_MENU_IDS.LOGOUT,
-      title: "🔒 Cerrar sesión",
+      id: DRIVER_MENU_IDS.MI_CUENTA,
+      title: "👤 Mi cuenta",
     },
   ]);
 }
@@ -118,6 +121,7 @@ export async function sendDriverMainMenu(
 export async function sendDriverAccountMenu(phone: string): Promise<void> {
   await sendButtonsMessage(phone, "👤 Mi cuenta\n\n¿Qué deseas consultar?", [
     { id: DRIVER_MENU_IDS.MI_PERFIL, title: "📋 Mi perfil" },
+    { id: DRIVER_MENU_IDS.LOGOUT, title: "🔒 Cerrar sesión" },
     { id: DRIVER_MENU_IDS.VOLVER_PRINCIPAL, title: "⬅️ Volver" },
   ]);
 }
@@ -320,6 +324,7 @@ export function isDriverMenuButton(button: string | null): boolean {
   return (
     button === DRIVER_MENU_IDS.TOGGLE_AVAILABILITY ||
     button === DRIVER_MENU_IDS.MI_CUENTA ||
+    button === DRIVER_MENU_IDS.REFERIDOS ||
     button === DRIVER_MENU_IDS.MI_PERFIL ||
     button === DRIVER_MENU_IDS.SOPORTE ||
     button === DRIVER_MENU_IDS.RENDIMIENTO ||

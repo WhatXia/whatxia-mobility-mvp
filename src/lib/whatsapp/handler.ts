@@ -138,6 +138,11 @@ import {
   canPassengerRequestService,
   isPreLaunchMode,
 } from "@/lib/passenger-status";
+import {
+  captureReferralCodeFromInbound,
+} from "@/lib/referrals";
+import { isReferralOnlyMessage } from "@/lib/referrals/codes";
+import { handleDriverReferrals } from "@/lib/referrals/bot";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
 import {
@@ -359,6 +364,20 @@ export async function handleIncomingMessage(
     await processDueSearchTimeouts();
   } catch (error) {
     console.error("[search] processDueSearchTimeouts:", error);
+  }
+
+  // REF-003: capturar código de referido del enlace sin alterar el onboarding.
+  // Si el mensaje es solo el token (p. ej. "REF DRV-XXXXX"), tratarlo como saludo.
+  try {
+    const captured = await captureReferralCodeFromInbound(
+      message.phone,
+      message.text,
+    );
+    if (captured && isReferralOnlyMessage(message.text)) {
+      message = { ...message, text: "hola" };
+    }
+  } catch (error) {
+    console.error("[referrals] capture inbound:", error);
   }
 
   // USER-001: identidad en curso (full_name / preferred / origen) — debe ir
@@ -620,6 +639,14 @@ export async function handleIncomingMessage(
       return;
     }
     await handleDriverAccountMenu(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.REFERIDOS) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await handleDriverReferrals(message.phone);
     return;
   }
 

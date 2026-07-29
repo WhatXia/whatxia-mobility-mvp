@@ -39,6 +39,8 @@ export type DriverRow = {
   suspended_until: string | null;
   city_id: string | null;
   password_hash: string | null;
+  /** Código único de referidos (DRV-XXXXX). */
+  referral_code: string | null;
   created_at: string;
 };
 
