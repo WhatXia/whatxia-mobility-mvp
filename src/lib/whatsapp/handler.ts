@@ -380,6 +380,26 @@ export async function handleIncomingMessage(
     console.error("[referrals] capture inbound:", error);
   }
 
+  // REF-003.1: conductor registrado → menú conductor (nunca onboarding / Pionero).
+  // Debe ir antes de identidad de pasajero y del gate PRE_LAUNCH.
+  if (isDriverIntent(message.text)) {
+    const existingDriver = await findDriverByPhone(message.phone);
+    if (existingDriver) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: matchesDriverTaxiEmoji(message.text)
+          ? "driver_taxi_emoji"
+          : "driver_phrase",
+        flowSelected: "routeDriverModuleEntry_early",
+        reason:
+          "REF-003.1: conductor registrado; bypass onboarding pasajero/Pionero",
+        extra: { driverId: existingDriver.id },
+      });
+      await routeDriverModuleEntry(message.phone);
+      return;
+    }
+  }
+
   // USER-001: identidad en curso (full_name / preferred / origen) — debe ir
   // antes del gate de nuevo usuario para no romper el onboarding pionero.
   if (await continuePreferredNameFlow(message)) {

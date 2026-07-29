@@ -1,13 +1,21 @@
 /**
- * Handlers WhatsApp del programa de referidos (REF-003).
+ * Handlers WhatsApp del programa de referidos (REF-003 / REF-003.1).
  */
 
 import { findDriverByPhone } from "@/lib/supabase/drivers";
-import { getDriverReferralLink } from "@/lib/referrals";
+import {
+  getDriverReferralLink,
+  getReferralStatsForDriver,
+} from "@/lib/referrals";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import { DRIVER_MENU_IDS } from "@/lib/driver-menu";
 
-export function buildReferralShareMessage(link: string): string {
+export function buildReferralShareMessage(input: {
+  code: string;
+  link: string;
+  totalReferrals?: number;
+}): string {
+  const total = input.totalReferrals ?? 0;
   return [
     "👥 Programa de Referidos",
     "",
@@ -15,8 +23,12 @@ export function buildReferralShareMessage(link: string): string {
     "",
     "Toda persona que se registre mediante este enlace quedará asociada a tu cuenta.",
     "",
+    `🏷️ Tu código: ${input.code}`,
+    "",
     "🔗 Tu enlace:",
-    link,
+    input.link,
+    "",
+    `📊 Referidos registrados: ${total}`,
   ].join("\n");
 }
 
@@ -28,10 +40,20 @@ export async function handleDriverReferrals(phone: string): Promise<void> {
   }
 
   try {
-    const { link } = await getDriverReferralLink(driver);
-    await sendTextMessage(phone, buildReferralShareMessage(link), {
-      previewUrl: true,
-    });
+    const { code, link } = await getDriverReferralLink(driver);
+    let totalReferrals = 0;
+    try {
+      const stats = await getReferralStatsForDriver(driver.id);
+      totalReferrals = stats.totalReferrals;
+    } catch (statsError) {
+      console.error("[referrals] stats:", statsError);
+    }
+
+    await sendTextMessage(
+      phone,
+      buildReferralShareMessage({ code, link, totalReferrals }),
+      { previewUrl: true },
+    );
   } catch (error) {
     console.error("[referrals] error al mostrar enlace:", error);
     await sendTextMessage(
@@ -41,6 +63,6 @@ export async function handleDriverReferrals(phone: string): Promise<void> {
   }
 
   await sendButtonsMessage(phone, "¿Qué deseas hacer?", [
-    { id: DRIVER_MENU_IDS.VOLVER_PRINCIPAL, title: "⬅️ Volver al menú" },
+    { id: DRIVER_MENU_IDS.VOLVER_CUENTA, title: "⬅️ Volver" },
   ]);
 }

@@ -93,9 +93,15 @@ assert(
 );
 assert(!isActiveReferrerDriver(null), "referrer null");
 
-const share = buildReferralShareMessage("https://whatxia.com/r/DRV-AB23C");
+const share = buildReferralShareMessage({
+  code: "DRV-AB23C",
+  link: "https://whatxia.com/r/DRV-AB23C",
+  totalReferrals: 3,
+});
 assert(share.includes("Programa de Referidos"), "copy título");
 assert(share.includes("https://whatxia.com/r/DRV-AB23C"), "copy enlace");
 assert(share.includes("🔗 Tu enlace:"), "copy label enlace");
+assert(share.includes("🏷️ Tu código: DRV-AB23C"), "copy código");
+assert(share.includes("Referidos registrados: 3"), "copy stats");
 
 console.log("referrals.certify: OK");
