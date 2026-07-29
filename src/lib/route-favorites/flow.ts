@@ -186,6 +186,10 @@ export async function sendPassengerActionMenu(
       phone,
       accessDeniedMessage(passenger.status, passenger.preferred_name),
     );
+    return;
+  }
+
+  const favorites = await listRouteFavorites(passenger.id);
 
   const fallbackButtons = [
     {
