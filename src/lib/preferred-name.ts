@@ -31,12 +31,36 @@ import { sendTextMessage } from "@/lib/whatsapp/client";
 export const FULL_NAME_PROMPT = [
   "👋 ¡Bienvenido a WhatXia!",
   "",
-  "Antes de comenzar...",
+  "Estamos a pocos días de transformar la movilidad.",
   "",
-  "¿Cuál es tu nombre y apellido?",
+  "Conviértete en un Pionero y sé de los primeros en vivir esta nueva experiencia.",
+  "",
+  "Para comenzar, cuéntame cuál es tu nombre y apellido. 😊",
 ].join("\n");
 
-export const PREFERRED_NAME_PROMPT = "¿Cómo prefieres que te llamemos?";
+/** Primer token del nombre completo (para copy USER-001.3). */
+export function extractFirstName(fullName: string | null | undefined): string {
+  const first = fullName?.trim().split(/\s+/)[0];
+  return first || "";
+}
+
+/** Prompt preferido; personaliza con el primer nombre si existe. */
+export function preferredNamePrompt(
+  fullName?: string | null,
+): string {
+  const firstName = extractFirstName(fullName);
+  if (!firstName) {
+    return "¿Cómo te gusta que te llamemos?";
+  }
+  return [
+    `¡Mucho gusto, ${firstName}! 👋`,
+    "",
+    "¿Cómo te gusta que te llamemos?",
+  ].join("\n");
+}
+
+/** @deprecated usar preferredNamePrompt(fullName) */
+export const PREFERRED_NAME_PROMPT = preferredNamePrompt();
 
 const GREETING_BLOCKLIST = new Set([
   "hola",
@@ -88,7 +112,10 @@ export async function promptForFullName(phone: string): Promise<void> {
   await sendTextMessage(phone, FULL_NAME_PROMPT);
 }
 
-export async function promptForPreferredName(phone: string): Promise<void> {
+export async function promptForPreferredName(
+  phone: string,
+  fullName?: string | null,
+): Promise<void> {
   await upsertSession(phone, {
     state: "WAITING_PREFERRED_NAME",
     bookingDraft: null,
@@ -97,7 +124,7 @@ export async function promptForPreferredName(phone: string): Promise<void> {
     driverUpdateCategory: null,
     driverUpdateField: null,
   });
-  await sendTextMessage(phone, PREFERRED_NAME_PROMPT);
+  await sendTextMessage(phone, preferredNamePrompt(fullName));
 }
 
 async function finishIdentityOnboarding(
@@ -113,7 +140,10 @@ async function finishIdentityOnboarding(
   });
 
   if (!canPassengerRequestService(passenger.status)) {
-    await sendTextMessage(phone, accessDeniedMessage(passenger.status));
+    await sendTextMessage(
+      phone,
+      accessDeniedMessage(passenger.status, display),
+    );
   } else {
     const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
     await sendPassengerActionMenu(phone, display);
@@ -169,7 +199,7 @@ export async function ensureIdentityOrPrompt(
   }
 
   if (!hasPreferredName(passenger)) {
-    await promptForPreferredName(phone);
+    await promptForPreferredName(phone, passenger.full_name);
     return null;
   }
 
@@ -218,7 +248,7 @@ export async function continuePreferredNameFlow(
       updated?.preferred_name ?? null,
     );
 
-    await promptForPreferredName(message.phone);
+    await promptForPreferredName(message.phone, fullName);
     console.log("[identity] full_name guardado", {
       phone: message.phone,
       fullName,

@@ -37,26 +37,36 @@ export function canPassengerRequestService(
   return status === "ACTIVE" || status === "BETA";
 }
 
-export const PIONEER_WELCOME_MESSAGE = [
-  "🎉 ¡Ya eres un Pionero de WhatXia!",
-  "",
-  "Tu registro quedó confirmado.",
-  "",
-  "Muy pronto recibirás acceso a una nueva forma de vivir la movilidad.",
-  "",
-  "Algunos pioneros serán invitados antes del lanzamiento para realizar las primeras pruebas.",
-  "",
-  "🚀 Prepárate... lo mejor está por comenzar.",
-].join("\n");
+/** Mensaje final de onboarding / re-saludo Pionero (USER-001.3). */
+export function pioneerWelcomeMessage(
+  preferredName?: string | null,
+): string {
+  const name = preferredName?.trim() || "Pionero";
+  return [
+    `🎉 ¡${name}, ya eres un Pionero de WhatXia!`,
+    "",
+    "Tu registro quedó confirmado.",
+    "",
+    "Desde hoy haces parte de los primeros colombianos en descubrir una nueva forma de vivir la movilidad.",
+    "",
+    "Muy pronto recibirás noticias exclusivas y el acceso al lanzamiento oficial.",
+    "",
+    "🚀 Gracias por creer en WhatXia desde el principio. Lo mejor está por comenzar.",
+  ].join("\n");
+}
+
+/** @deprecated usar pioneerWelcomeMessage(preferredName) */
+export const PIONEER_WELCOME_MESSAGE = pioneerWelcomeMessage();
 
 export function accessDeniedMessage(
   status: PassengerStatus | string | null | undefined,
+  preferredName?: string | null,
 ): string {
   if (status === "BLOCKED") {
     return "Tu cuenta está bloqueada. Si crees que es un error, comunícate con WhatXia.";
   }
   if (status === "PIONEER") {
-    return PIONEER_WELCOME_MESSAGE;
+    return pioneerWelcomeMessage(preferredName);
   }
   return "Aún no tienes acceso para solicitar servicios. Pronto te avisaremos.";
 }

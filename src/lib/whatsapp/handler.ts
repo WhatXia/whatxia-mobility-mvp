@@ -416,7 +416,10 @@ export async function handleIncomingMessage(
         });
         await sendTextMessage(
           message.phone,
-          accessDeniedMessage(existingPassenger.status),
+          accessDeniedMessage(
+            existingPassenger.status,
+            existingPassenger.preferred_name,
+          ),
         );
         return;
       }

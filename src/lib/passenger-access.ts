@@ -25,7 +25,7 @@ export async function assertPassengerCanRequestService(
     return passenger;
   }
 
-  await sendTextMessage(phone, accessDeniedMessage(passenger.status));
+  await sendTextMessage(phone, accessDeniedMessage(passenger.status, passenger.preferred_name));
   console.log("[passenger-access] solicitud bloqueada", {
     phone: passenger.phone,
     status: passenger.status,
@@ -77,7 +77,10 @@ export async function handlePreLaunchNewUserIfNeeded(
   }
 
   if (!canPassengerRequestService(passenger.status)) {
-    await sendTextMessage(phone, accessDeniedMessage(passenger.status));
+    await sendTextMessage(
+      phone,
+      accessDeniedMessage(passenger.status, passenger.preferred_name),
+    );
     console.log("[user-001:prelaunch] pionero/bloqueado → mensaje acceso; fin", {
       status: passenger.status,
     });

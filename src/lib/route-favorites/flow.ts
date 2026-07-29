@@ -182,11 +182,10 @@ export async function sendPassengerActionMenu(
       driverUpdateField: null,
       bookingDraft: null,
     });
-    await sendTextMessage(phone, accessDeniedMessage(passenger.status));
-    return;
-  }
-
-  const favorites = await listRouteFavorites(passenger.id);
+    await sendTextMessage(
+      phone,
+      accessDeniedMessage(passenger.status, passenger.preferred_name),
+    );
 
   const fallbackButtons = [
     {
