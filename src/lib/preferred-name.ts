@@ -16,8 +16,17 @@ import {
   hasPreferredName,
   setPassengerFullName,
   setPassengerPreferredName,
+  setPassengerRegistrationSource,
   type PassengerRow,
 } from "@/lib/supabase/passengers";
+import {
+  accessDeniedMessage,
+  canPassengerRequestService,
+} from "@/lib/passenger-status";
+import {
+  parseRegistrationSourceChoice,
+  REGISTRATION_SOURCE_PROMPT,
+} from "@/lib/registration-source";
 import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/trips";
@@ -59,7 +68,8 @@ export function isWaitingIdentity(
 ): boolean {
   return (
     session?.state === "WAITING_FULL_NAME" ||
-    session?.state === "WAITING_PREFERRED_NAME"
+    session?.state === "WAITING_PREFERRED_NAME" ||
+    session?.state === "WAITING_REGISTRATION_SOURCE"
   );
 }
 
@@ -92,6 +102,38 @@ export async function promptForPreferredName(phone: string): Promise<void> {
     driverUpdateField: null,
   });
   await sendTextMessage(phone, PREFERRED_NAME_PROMPT);
+}
+
+export async function promptForRegistrationSource(phone: string): Promise<void> {
+  await upsertSession(phone, {
+    state: "WAITING_REGISTRATION_SOURCE",
+    bookingDraft: null,
+    driverDraft: null,
+    driverFlowStep: null,
+    driverUpdateCategory: null,
+    driverUpdateField: null,
+  });
+  await sendTextMessage(phone, REGISTRATION_SOURCE_PROMPT);
+}
+
+async function finishIdentityOnboarding(
+  phone: string,
+  passenger: PassengerRow,
+  display: string,
+): Promise<void> {
+  await clearSession(phone);
+  await upsertSession(phone, {
+    name: display,
+    state: "IDLE",
+    bookingDraft: null,
+  });
+
+  if (!canPassengerRequestService(passenger.status)) {
+    await sendTextMessage(phone, accessDeniedMessage(passenger.status));
+  } else {
+    const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
+    await sendPassengerActionMenu(phone, display);
+  }
 }
 
 /** Sincroniza identidad al perfil conductor si existe (mismo WhatsApp). */
@@ -201,48 +243,75 @@ export async function continuePreferredNameFlow(
   }
 
   // WAITING_PREFERRED_NAME
-  if (!raw) {
-    await sendTextMessage(
+  if (session?.state === "WAITING_PREFERRED_NAME") {
+    if (!raw) {
+      await sendTextMessage(
+        message.phone,
+        "Escribe el nombre con el que prefieres que te llamemos (ej. Carlos).",
+      );
+      return true;
+    }
+    if (isBlockedName(raw)) {
+      await sendTextMessage(
+        message.phone,
+        "¿Cómo prefieres que te llamemos? Escribe solo ese nombre (ej. Carlos).",
+      );
+      return true;
+    }
+
+    const preferred = raw.slice(0, 40);
+    const updated = await setPassengerPreferredName(message.phone, preferred);
+    const passenger = updated ?? (await findOrCreatePassenger(message.phone));
+    await syncIdentityToDriver(
       message.phone,
-      "Escribe el nombre con el que prefieres que te llamemos (ej. Carlos).",
+      passenger.full_name,
+      preferred,
     );
+
+    await promptForRegistrationSource(message.phone);
+
+    console.log("[identity] preferred_name guardado", {
+      phone: normalizePhone(message.phone),
+      preferredName: preferred,
+      fullName: passenger.full_name,
+    });
+
     return true;
   }
-  if (isBlockedName(raw)) {
-    await sendTextMessage(
+
+  if (session?.state === "WAITING_REGISTRATION_SOURCE") {
+    if (!raw) {
+      await sendTextMessage(message.phone, REGISTRATION_SOURCE_PROMPT);
+      return true;
+    }
+
+    const source = parseRegistrationSourceChoice(raw);
+    if (!source) {
+      await sendTextMessage(
+        message.phone,
+        "Opción no válida. Responde con un número del 1 al 7.\n\n" +
+          REGISTRATION_SOURCE_PROMPT,
+      );
+      return true;
+    }
+
+    const updated = await setPassengerRegistrationSource(
       message.phone,
-      "¿Cómo prefieres que te llamemos? Escribe solo ese nombre (ej. Carlos).",
+      source,
     );
+    const passenger =
+      updated ?? (await findOrCreatePassenger(message.phone, message.name));
+    const display = getPassengerDisplayName(passenger, message.name);
+
+    await finishIdentityOnboarding(message.phone, passenger, display);
+
+    console.log("[identity] registration_source guardado", {
+      phone: normalizePhone(message.phone),
+      source,
+      status: passenger.status,
+    });
     return true;
   }
-
-  const preferred = raw.slice(0, 40);
-  const updated = await setPassengerPreferredName(message.phone, preferred);
-  const passenger = updated ?? (await findOrCreatePassenger(message.phone));
-  await syncIdentityToDriver(
-    message.phone,
-    passenger.full_name,
-    preferred,
-  );
-
-  const display = getPassengerDisplayName(passenger, preferred);
-
-  await clearSession(message.phone);
-  await upsertSession(message.phone, {
-    name: display,
-    state: "IDLE",
-    bookingDraft: null,
-  });
-
-  // Continuar flujo normal (menú / favoritos con preferred_name).
-  const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-  await sendPassengerActionMenu(message.phone, display);
-
-  console.log("[identity] preferred_name guardado", {
-    phone: normalizePhone(message.phone),
-    preferredName: display,
-    fullName: passenger.full_name,
-  });
 
   return true;
 }

@@ -269,6 +269,12 @@ export async function startBookingFlow(
   phone: string,
   name: string,
 ): Promise<void> {
+  const { assertPassengerCanRequestService } = await import(
+    "@/lib/passenger-access"
+  );
+  if (!(await assertPassengerCanRequestService(phone, name))) {
+    return;
+  }
   await startBookingFromIntent(phone, name, {
     pickupText: null,
     destinationText: null,
@@ -293,6 +299,13 @@ export async function startBookingFromFavorite(
     dropoffPlaceId: string | null;
   },
 ): Promise<void> {
+  const { assertPassengerCanRequestService } = await import(
+    "@/lib/passenger-access"
+  );
+  if (!(await assertPassengerCanRequestService(phone, name))) {
+    return;
+  }
+
   const city = await getActiveCity();
   const pickupLoc = { lat: favorite.pickupLat, lng: favorite.pickupLng };
   const dropoffLoc = { lat: favorite.dropoffLat, lng: favorite.dropoffLng };
@@ -339,6 +352,13 @@ export async function startBookingFromIntent(
   name: string,
   slots: BookingIntentSlots,
 ): Promise<void> {
+  const { assertPassengerCanRequestService } = await import(
+    "@/lib/passenger-access"
+  );
+  if (!(await assertPassengerCanRequestService(phone, name))) {
+    return;
+  }
+
   const pickupText = slots.pickupText?.trim() || null;
   const destinationText = slots.destinationText?.trim() || null;
 
@@ -777,6 +797,14 @@ export async function handleBookingMessage(
           phone,
           "La cotización expiró. Escribe Hola para solicitar de nuevo.",
         );
+        await clearSession(phone);
+        return true;
+      }
+
+      const { assertPassengerCanRequestService } = await import(
+        "@/lib/passenger-access"
+      );
+      if (!(await assertPassengerCanRequestService(phone, name))) {
         await clearSession(phone);
         return true;
       }

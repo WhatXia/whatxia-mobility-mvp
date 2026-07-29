@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 import styles from "@/app/auth/auth.module.css";
 import { isValidEmail } from "@/lib/auth/password-policy";
@@ -8,6 +9,8 @@ import { mapAuthErrorMessage } from "@/lib/auth/messages";
 import { createBrowserSupabaseClient } from "@/lib/supabase/browser";
 
 export function LoginForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +45,13 @@ export function LoginForm() {
       }
 
       setSuccess("Sesión iniciada correctamente.");
+      const next = searchParams.get("next");
+      const target =
+        next && next.startsWith("/") && !next.startsWith("//")
+          ? next
+          : "/ops/users";
+      router.replace(target);
+      router.refresh();
     } catch {
       setError(mapAuthErrorMessage({ message: "network" }));
     } finally {

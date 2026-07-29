@@ -11,6 +11,10 @@ import {
   findOrCreatePassenger,
   getPassengerDisplayName,
 } from "@/lib/supabase/passengers";
+import {
+  accessDeniedMessage,
+  canPassengerRequestService,
+} from "@/lib/passenger-status";
 import { getTrip, samePhone } from "@/lib/trips";
 import { closeTunnelForTrip } from "@/lib/tunnels";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
@@ -163,8 +167,26 @@ export async function sendPassengerActionMenu(
   options?: SendPassengerActionMenuOptions,
 ): Promise<void> {
   const passenger = await findOrCreatePassenger(phone, displayName);
-  const favorites = await listRouteFavorites(passenger.id);
   const name = getPassengerDisplayName(passenger, displayName || "amigo");
+
+  // USER-001: PIONEER / BLOCKED no ven menú de solicitud.
+  if (!canPassengerRequestService(passenger.status)) {
+    await upsertSession(phone, {
+      name: displayName || passenger.name || undefined,
+      state: "IDLE",
+      pickupNeighborhood: null,
+      driverName: null,
+      driverDraft: null,
+      driverFlowStep: null,
+      driverUpdateCategory: null,
+      driverUpdateField: null,
+      bookingDraft: null,
+    });
+    await sendTextMessage(phone, accessDeniedMessage(passenger.status));
+    return;
+  }
+
+  const favorites = await listRouteFavorites(passenger.id);
 
   const fallbackButtons = [
     {

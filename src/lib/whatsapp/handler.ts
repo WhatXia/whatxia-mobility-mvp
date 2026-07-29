@@ -301,6 +301,15 @@ async function startPassengerRequest(
   if (!passenger) {
     return;
   }
+
+  const { assertPassengerCanRequestService } = await import(
+    "@/lib/passenger-access"
+  );
+  const allowed = await assertPassengerCanRequestService(phone, name);
+  if (!allowed) {
+    return;
+  }
+
   const displayName =
     passenger.preferred_name?.trim() ||
     passenger.name?.trim() ||

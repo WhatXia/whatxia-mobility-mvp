@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import styles from "@/app/auth/auth.module.css";
 import { LoginForm } from "./login-form";
 
@@ -14,7 +15,9 @@ export default function LoginPage() {
         <p className={styles.subtitle}>
           Accede con el correo registrado en WhatXia.
         </p>
-        <LoginForm />
+        <Suspense fallback={<p>Cargando…</p>}>
+          <LoginForm />
+        </Suspense>
       </div>
     </div>
   );

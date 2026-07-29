@@ -1,6 +1,15 @@
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/trips";
 import { getActiveCity } from "@/lib/city/context";
+import {
+  defaultStatusForNewPassenger,
+  isPassengerStatus,
+  type PassengerStatus,
+} from "@/lib/passenger-status";
+import {
+  isRegistrationSource,
+  type RegistrationSource,
+} from "@/lib/registration-source";
 
 export type PassengerRow = {
   id: string;
@@ -12,13 +21,20 @@ export type PassengerRow = {
   whatsapp_name: string | null;
   no_show_count: number;
   created_at: string;
+  registered_at: string;
   city_id: string | null;
+  status: PassengerStatus;
+  registration_source: RegistrationSource | null;
 };
 
 const PASSENGER_COLUMNS =
-  "id, phone, name, full_name, preferred_name, whatsapp_name, no_show_count, created_at, city_id";
+  "id, phone, name, full_name, preferred_name, whatsapp_name, no_show_count, created_at, registered_at, city_id, status, registration_source";
 
 function mapPassenger(data: PassengerRow): PassengerRow {
+  const status = isPassengerStatus(data.status) ? data.status : "ACTIVE";
+  const registration_source = isRegistrationSource(data.registration_source)
+    ? data.registration_source
+    : null;
   return {
     ...data,
     full_name: data.full_name ?? null,
@@ -26,6 +42,9 @@ function mapPassenger(data: PassengerRow): PassengerRow {
     whatsapp_name: data.whatsapp_name ?? null,
     no_show_count: data.no_show_count ?? 0,
     city_id: data.city_id ?? null,
+    registered_at: data.registered_at ?? data.created_at,
+    status,
+    registration_source,
   };
 }
 
@@ -84,9 +103,28 @@ export async function findPassengerByPhone(
   return data ? mapPassenger(data as PassengerRow) : null;
 }
 
+export async function findPassengerById(
+  id: string,
+): Promise<PassengerRow | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("passengers")
+    .select(PASSENGER_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[supabase] error al buscar pasajero por id:", error);
+    throw error;
+  }
+
+  return data ? mapPassenger(data as PassengerRow) : null;
+}
+
 /**
  * Crea o reutiliza pasajero.
  * `whatsappName` solo actualiza whatsapp_name (referencia).
+ * Status inicial de nuevos: PIONEER o ACTIVE según PRE_LAUNCH_MODE.
  */
 export async function findOrCreatePassenger(
   phone: string,
@@ -123,6 +161,7 @@ export async function findOrCreatePassenger(
       id: existing.id,
       phone: existing.phone,
       cityId: existing.city_id,
+      status: existing.status,
       hasIdentity: hasCompleteIdentity(existing),
     });
     return existing;
@@ -130,6 +169,7 @@ export async function findOrCreatePassenger(
 
   const supabase = getSupabase();
   const normalized = normalizePhone(phone);
+  const status = defaultStatusForNewPassenger();
 
   const { data, error } = await supabase
     .from("passengers")
@@ -140,6 +180,8 @@ export async function findOrCreatePassenger(
       preferred_name: null,
       whatsapp_name: wa,
       city_id: city.id,
+      status,
+      registered_at: new Date().toISOString(),
     })
     .select(PASSENGER_COLUMNS)
     .single();
@@ -160,6 +202,7 @@ export async function findOrCreatePassenger(
     id: data.id,
     phone: data.phone,
     cityId: data.city_id,
+    status: data.status,
   });
 
   return mapPassenger(data as PassengerRow);
@@ -216,4 +259,156 @@ export async function setPassengerPreferredName(
   }
 
   return data ? mapPassenger(data as PassengerRow) : null;
+}
+
+export async function setPassengerRegistrationSource(
+  phone: string,
+  source: RegistrationSource,
+): Promise<PassengerRow | null> {
+  const supabase = getSupabase();
+  const normalized = normalizePhone(phone);
+
+  const { data, error } = await supabase
+    .from("passengers")
+    .update({ registration_source: source })
+    .eq("phone", normalized)
+    .select(PASSENGER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[passenger] error al guardar registration_source:", error);
+    throw error;
+  }
+
+  return data ? mapPassenger(data as PassengerRow) : null;
+}
+
+export async function updatePassengerStatus(
+  passengerId: string,
+  status: PassengerStatus,
+): Promise<PassengerRow | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("passengers")
+    .update({ status })
+    .eq("id", passengerId)
+    .select(PASSENGER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[passenger] error al actualizar status:", error);
+    throw error;
+  }
+
+  return data ? mapPassenger(data as PassengerRow) : null;
+}
+
+export async function updatePassengersStatusBulk(
+  passengerIds: string[],
+  status: PassengerStatus,
+): Promise<number> {
+  if (passengerIds.length === 0) return 0;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("passengers")
+    .update({ status })
+    .in("id", passengerIds)
+    .select("id");
+
+  if (error) {
+    console.error("[passenger] error al actualizar status masivo:", error);
+    throw error;
+  }
+
+  return data?.length ?? 0;
+}
+
+export type ListPassengersFilter = "all" | PassengerStatus;
+
+export type PassengerStatusCounts = Record<PassengerStatus, number> & {
+  total: number;
+  pioneersToday: number;
+};
+
+export async function getPassengerStatusCounts(): Promise<PassengerStatusCounts> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("passengers")
+    .select("status, registered_at");
+
+  if (error) {
+    console.error("[passenger] error al contar status:", error);
+    throw error;
+  }
+
+  const counts: PassengerStatusCounts = {
+    PIONEER: 0,
+    BETA: 0,
+    ACTIVE: 0,
+    BLOCKED: 0,
+    total: 0,
+    pioneersToday: 0,
+  };
+
+  const startOfUtcDay = new Date();
+  startOfUtcDay.setUTCHours(0, 0, 0, 0);
+
+  for (const row of data ?? []) {
+    const status = isPassengerStatus(row.status) ? row.status : "ACTIVE";
+    counts[status] += 1;
+    counts.total += 1;
+    if (status === "PIONEER") {
+      const registered = new Date(
+        String(row.registered_at ?? ""),
+      ).getTime();
+      if (Number.isFinite(registered) && registered >= startOfUtcDay.getTime()) {
+        counts.pioneersToday += 1;
+      }
+    }
+  }
+
+  return counts;
+}
+
+export async function listPassengers(options?: {
+  status?: ListPassengersFilter;
+  query?: string;
+  limit?: number;
+}): Promise<PassengerRow[]> {
+  const supabase = getSupabase();
+  const limit = options?.limit ?? 300;
+  let dbQuery = supabase
+    .from("passengers")
+    .select(PASSENGER_COLUMNS)
+    .order("registered_at", { ascending: false })
+    .limit(limit);
+
+  if (options?.status && options.status !== "all") {
+    dbQuery = dbQuery.eq("status", options.status);
+  }
+
+  const { data, error } = await dbQuery;
+  if (error) {
+    console.error("[passenger] error al listar:", error);
+    throw error;
+  }
+
+  let rows = (data as PassengerRow[]).map(mapPassenger);
+  const q = options?.query?.trim().toLowerCase();
+  if (q) {
+    const digits = q.replace(/\D/g, "");
+    rows = rows.filter((row) => {
+      const full = (row.full_name ?? "").toLowerCase();
+      const preferred = (row.preferred_name ?? row.name ?? "").toLowerCase();
+      const phone = row.phone;
+      return (
+        full.includes(q) ||
+        preferred.includes(q) ||
+        (digits.length > 0 && phone.includes(digits)) ||
+        phone.includes(q)
+      );
+    });
+  }
+
+  return rows;
 }
