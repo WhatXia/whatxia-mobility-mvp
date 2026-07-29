@@ -131,7 +131,7 @@ import {
   isWaitingIdentity,
 } from "@/lib/preferred-name";
 import {
-  assertPassengerCanRequestService,
+  resolvePassengerForServiceRequest,
   handlePreLaunchNewUserIfNeeded,
 } from "@/lib/passenger-access";
 import {
@@ -319,17 +319,9 @@ async function startPassengerRequest(
     preLaunchEnv: process.env.PRE_LAUNCH_MODE ?? "(unset)",
   });
 
-  const passenger = await ensureIdentityOrPrompt(phone, name);
+  // BUG-001: identidad conocida (conductor) tiene prioridad sobre ensureIdentity/Pionero.
+  const passenger = await resolvePassengerForServiceRequest(phone, name);
   if (!passenger) {
-    return;
-  }
-
-  const allowed = await assertPassengerCanRequestService(phone, name);
-  if (!allowed) {
-    console.log("[user-001:prelaunch] startPassengerRequest BLOQUEADO", {
-      phone,
-      status: passenger.status,
-    });
     return;
   }
 

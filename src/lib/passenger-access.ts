@@ -1,6 +1,7 @@
 /**
- * Gate de acceso a solicitud de servicio (USER-001).
- * Depende del status del pasajero, no del Feature Flag.
+ * Gate de acceso a solicitud de servicio (USER-001 / BUG-001).
+ * La resolución de identidad conocida (conductor registrado) tiene prioridad
+ * sobre PRE_LAUNCH / onboarding Pionero.
  */
 
 import {
@@ -9,24 +10,102 @@ import {
   isPreLaunchMode,
 } from "@/lib/passenger-status";
 import {
+  ensureActivePassengerFromKnownIdentity,
   findOrCreatePassenger,
   findPassengerByPhone,
   type PassengerRow,
 } from "@/lib/supabase/passengers";
-import { findDriverByPhone } from "@/lib/supabase/drivers";
+import {
+  findDriverByPhone,
+  type DriverRow,
+} from "@/lib/supabase/drivers";
 import { ensureIdentityOrPrompt } from "@/lib/preferred-name";
 import { sendTextMessage } from "@/lib/whatsapp/client";
+
+function driverIdentityFields(driver: DriverRow) {
+  const fullName = driver.full_name?.trim() || driver.name?.trim() || null;
+  const preferredName =
+    driver.preferred_name?.trim() || driver.name?.trim() || fullName;
+  return { fullName, preferredName };
+}
+
+/**
+ * Resuelve el pasajero para una solicitud de servicio.
+ * - Conductor registrado: identidad del driver → pasajero ACTIVE (sin ensureIdentityOrPrompt).
+ * - Pasajero nuevo: onboarding / PRE_LAUNCH habitual.
+ */
+export async function resolvePassengerForServiceRequest(
+  phone: string,
+  whatsappName?: string,
+): Promise<PassengerRow | null> {
+  const driver = await findDriverByPhone(phone);
+  if (driver) {
+    const { fullName, preferredName } = driverIdentityFields(driver);
+    const passenger = await ensureActivePassengerFromKnownIdentity(phone, {
+      fullName,
+      preferredName,
+      whatsappName,
+    });
+
+    if (passenger.status === "BLOCKED") {
+      await sendTextMessage(
+        phone,
+        accessDeniedMessage(passenger.status, passenger.preferred_name),
+      );
+      console.log("[passenger-access] conductor/pasajero BLOCKED", {
+        phone: passenger.phone,
+      });
+      return null;
+    }
+
+    console.log("[passenger-access] BUG-001 identidad conductor → servicio", {
+      phone: passenger.phone,
+      status: passenger.status,
+      driverId: driver.id,
+    });
+    return passenger;
+  }
+
+  const passenger = await ensureIdentityOrPrompt(phone, whatsappName ?? "");
+  if (!passenger) {
+    return null;
+  }
+
+  return assertPassengerCanRequestService(phone, whatsappName);
+}
 
 export async function assertPassengerCanRequestService(
   phone: string,
   whatsappName?: string,
 ): Promise<PassengerRow | null> {
+  // BUG-001: si es conductor registrado, no usar findOrCreatePassenger (PIONEER).
+  const driver = await findDriverByPhone(phone);
+  if (driver) {
+    const { fullName, preferredName } = driverIdentityFields(driver);
+    const passenger = await ensureActivePassengerFromKnownIdentity(phone, {
+      fullName,
+      preferredName,
+      whatsappName,
+    });
+    if (passenger.status === "BLOCKED") {
+      await sendTextMessage(
+        phone,
+        accessDeniedMessage(passenger.status, passenger.preferred_name),
+      );
+      return null;
+    }
+    return passenger;
+  }
+
   const passenger = await findOrCreatePassenger(phone, whatsappName);
   if (canPassengerRequestService(passenger.status)) {
     return passenger;
   }
 
-  await sendTextMessage(phone, accessDeniedMessage(passenger.status, passenger.preferred_name));
+  await sendTextMessage(
+    phone,
+    accessDeniedMessage(passenger.status, passenger.preferred_name),
+  );
   console.log("[passenger-access] solicitud bloqueada", {
     phone: passenger.phone,
     status: passenger.status,
@@ -44,7 +123,7 @@ export async function handlePreLaunchNewUserIfNeeded(
   phone: string,
   whatsappName: string,
 ): Promise<boolean> {
-  // HOTFIX: nunca crear Pionero / onboarding pasajero si ya es conductor.
+  // Nunca crear Pionero / onboarding pasajero si ya es conductor.
   const existingDriver = await findDriverByPhone(phone);
   if (existingDriver) {
     console.log("[user-001:prelaunch] rama SKIP", {

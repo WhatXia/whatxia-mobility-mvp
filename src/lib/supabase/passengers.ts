@@ -235,6 +235,111 @@ export async function findOrCreatePassenger(
   return (await findPassengerByPhone(phone)) ?? created;
 }
 
+/**
+ * BUG-001: resuelve pasajero para un número que ya tiene identidad conocida
+ * (p. ej. conductor registrado), sin onboarding ni PRE_LAUNCH/PIONEER.
+ *
+ * - Reutiliza el pasajero si existe (completa identidad / eleva PIONEER→ACTIVE).
+ * - Si no existe, crea fila ACTIVE con la identidad aportada (necesaria para trips).
+ * - No ejecuta prompts conversacionales.
+ */
+export async function ensureActivePassengerFromKnownIdentity(
+  phone: string,
+  identity: {
+    fullName?: string | null;
+    preferredName?: string | null;
+    whatsappName?: string | null;
+  },
+): Promise<PassengerRow> {
+  const city = await getActiveCity();
+  const normalized = normalizePhone(phone);
+  const fullName =
+    identity.fullName?.trim() || identity.preferredName?.trim() || null;
+  const preferredName =
+    identity.preferredName?.trim() || identity.fullName?.trim() || null;
+  const wa = identity.whatsappName?.trim() || null;
+  const existing = await findPassengerByPhone(phone);
+
+  if (existing) {
+    const patch: Record<string, string> = {};
+    if (!existing.city_id) patch.city_id = city.id;
+    if (wa && wa !== existing.whatsapp_name) patch.whatsapp_name = wa;
+    if (fullName && !existing.full_name?.trim()) patch.full_name = fullName;
+    if (preferredName && !existing.preferred_name?.trim()) {
+      patch.preferred_name = preferredName;
+      patch.name = preferredName;
+    }
+    // Identidad conocida tiene prioridad sobre Pre-Launch (PIONEER).
+    if (existing.status === "PIONEER") {
+      patch.status = "ACTIVE";
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return existing;
+    }
+
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from("passengers")
+      .update(patch)
+      .eq("id", existing.id)
+      .select(PASSENGER_COLUMNS)
+      .single();
+
+    if (error) {
+      console.error(
+        "[passenger] error al sincronizar identidad conocida:",
+        error,
+      );
+      throw error;
+    }
+
+    console.log("[passenger] identidad conocida sincronizada (sin onboarding)", {
+      id: data.id,
+      phone: data.phone,
+      status: data.status,
+      wasPioneer: existing.status === "PIONEER",
+    });
+    return mapPassenger(data as PassengerRow);
+  }
+
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("passengers")
+    .insert({
+      phone: normalized,
+      name: preferredName,
+      full_name: fullName,
+      preferred_name: preferredName,
+      whatsapp_name: wa,
+      city_id: city.id,
+      status: "ACTIVE",
+      registered_at: new Date().toISOString(),
+    })
+    .select(PASSENGER_COLUMNS)
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      const again = await findPassengerByPhone(phone);
+      if (again) {
+        return ensureActivePassengerFromKnownIdentity(phone, identity);
+      }
+    }
+    console.error(
+      "[passenger] error al crear pasajero desde identidad conocida:",
+      error,
+    );
+    throw error;
+  }
+
+  console.log("[passenger] creado ACTIVE desde identidad conocida (BUG-001)", {
+    id: data.id,
+    phone: data.phone,
+  });
+  return mapPassenger(data as PassengerRow);
+}
+
 export async function setPassengerFullName(
   phone: string,
   fullName: string,
