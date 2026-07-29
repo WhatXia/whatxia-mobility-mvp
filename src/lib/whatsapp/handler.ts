@@ -124,10 +124,20 @@ import {
   getTaximeterSession,
 } from "@/lib/taximeter-test";
 import { findDriverByPhone } from "@/lib/supabase/drivers";
+import { findPassengerByPhone } from "@/lib/supabase/passengers";
 import {
   continuePreferredNameFlow,
   ensureIdentityOrPrompt,
 } from "@/lib/preferred-name";
+import {
+  assertPassengerCanRequestService,
+  handlePreLaunchNewUserIfNeeded,
+} from "@/lib/passenger-access";
+import {
+  accessDeniedMessage,
+  canPassengerRequestService,
+  isPreLaunchMode,
+} from "@/lib/passenger-status";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
 import {
@@ -297,16 +307,23 @@ async function startPassengerRequest(
   name: string,
   intent: MobilityIntentResult | null = null,
 ): Promise<void> {
+  console.log("[user-001:prelaunch] startPassengerRequest enter", {
+    phone,
+    preLaunch: isPreLaunchMode(),
+    preLaunchEnv: process.env.PRE_LAUNCH_MODE ?? "(unset)",
+  });
+
   const passenger = await ensureIdentityOrPrompt(phone, name);
   if (!passenger) {
     return;
   }
 
-  const { assertPassengerCanRequestService } = await import(
-    "@/lib/passenger-access"
-  );
   const allowed = await assertPassengerCanRequestService(phone, name);
   if (!allowed) {
+    console.log("[user-001:prelaunch] startPassengerRequest BLOQUEADO", {
+      phone,
+      status: passenger.status,
+    });
     return;
   }
 
@@ -344,6 +361,68 @@ export async function handleIncomingMessage(
     console.error("[search] processDueSearchTimeouts:", error);
   }
 
+  // USER-001: identidad en curso (full_name / preferred / origen) — debe ir
+  // antes del gate de nuevo usuario para no romper el onboarding pionero.
+  if (await continuePreferredNameFlow(message)) {
+    logRouteDiag({
+      received: message.text,
+      intentDetected: matchesDriverTaxiEmoji(message.text)
+        ? "driver_emoji_but_swallowed"
+        : "passenger_identity_session",
+      flowSelected: "continuePreferredNameFlow",
+      reason:
+        "Sesión identidad pasajero activa; no continúa a solicitud de servicios",
+    });
+    return;
+  }
+
+  // USER-001: !passenger && PRE_LAUNCH_MODE → onboarding pionero y return inmediato.
+  // No debe caer al funnel de Solicitar servicio / mobility intent.
+  if (await handlePreLaunchNewUserIfNeeded(message.phone, message.name)) {
+    logRouteDiag({
+      received: message.text,
+      intentDetected: "pre_launch_new_user",
+      flowSelected: "handlePreLaunchNewUserIfNeeded",
+      reason:
+        "!passenger && PRE_LAUNCH_MODE → onboarding pionero; return inmediato",
+      extra: {
+        preLaunch: isPreLaunchMode(),
+        preLaunchEnv: process.env.PRE_LAUNCH_MODE ?? "(unset)",
+      },
+    });
+    return;
+  }
+
+  // USER-001: pasajero existente sin acceso — bloquea saludo/menú y Solicitar.
+  // Conductores registrados no se cortan aquí (siguen al módulo conductor).
+  {
+    const existingPassenger = await findPassengerByPhone(message.phone);
+    const existingDriver = await findDriverByPhone(message.phone);
+    if (
+      existingPassenger &&
+      !canPassengerRequestService(existingPassenger.status) &&
+      !existingDriver
+    ) {
+      const blockNow =
+        message.button === BUTTON_IDS.SOLICITAR_SERVICIO ||
+        (isGreeting(message.text) && !message.button);
+
+      if (blockNow) {
+        console.log("[user-001:prelaunch] rama PIONEER_EXISTENTE bloqueado", {
+          phone: message.phone,
+          status: existingPassenger.status,
+          button: message.button,
+          text: message.text,
+        });
+        await sendTextMessage(
+          message.phone,
+          accessDeniedMessage(existingPassenger.status),
+        );
+        return;
+      }
+    }
+  }
+
   // Conductor: captura preferred_name post-login (antes del flujo de pasajero).
   const driverPreferredSession = await getActiveDriverPreferredNameSession(
     message.phone,
@@ -365,20 +444,6 @@ export async function handleIncomingMessage(
       });
       return;
     }
-  }
-
-  // Pasajero: full_name / preferred_name.
-  if (await continuePreferredNameFlow(message)) {
-    logRouteDiag({
-      received: message.text,
-      intentDetected: matchesDriverTaxiEmoji(message.text)
-        ? "driver_emoji_but_swallowed"
-        : "passenger_identity_session",
-      flowSelected: "continuePreferredNameFlow",
-      reason:
-        "Sesión WAITING_FULL_NAME / preferred_name de pasajero activa; 🚖 NUNCA llega a isDriverIntent en este caso",
-    });
-    return;
   }
 
   const ratingButton = parseRatingButton(message.button);
