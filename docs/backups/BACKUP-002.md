@@ -18,9 +18,9 @@
 | Campo | Valor |
 |-------|--------|
 | **Tag Git** | `backup/BACKUP-002` |
-| **Rama de respaldo** | `backup/BACKUP-002` |
-| **Commit canónico** | `c819ded345f1aed6669f74089d661a112f010479` |
-| **Commit corto** | `c819ded` |
+| **Commit canónico** | `e3ae87ecc08fe373aad145c8bd1c14a1af919cb6` |
+| **Commit corto** | `e3ae87e` |
+| **Freeze de código (+ hotfix)** | `c819ded345f1aed6669f74089d661a112f010479` (padre; mismo árbol de app + intro docs) |
 | **BACKUP-001 (referencia)** | Documentación en `docs/backup/` · commit documentado `d8a65d7513906117aef52e89d87edd8e344a69ad` (24 jul 2026) · migraciones hasta **029** |
 | **Migraciones en BACKUP-002** | `001` … `040` (inclusive) |
 
@@ -279,10 +279,10 @@ Ver `git log d8a65d7..BACKUP-002 --oneline` en el commit canónico. Incluye entr
 ### A. Volver exactamente a BACKUP-002 (código)
 
 ```bash
-git fetch origin
+git fetch origin --tags
 git checkout backup/BACKUP-002
 # equivalente:
-git checkout c819ded345f1aed6669f74089d661a112f010479
+git checkout e3ae87ecc08fe373aad145c8bd1c14a1af919cb6
 npm install
 npx tsc --noEmit
 npm run build
@@ -292,7 +292,7 @@ Verificación del commit:
 
 ```bash
 git log -1 --oneline
-# esperado: c819ded docs(infra): create BACKUP-002 restore point…
+# esperado: e3ae87e docs(infra): record BACKUP-002 canonical commit SHA…
 ```
 
 Para recrear `main` local desde este punto (destructivo — solo con acuerdo del equipo):
