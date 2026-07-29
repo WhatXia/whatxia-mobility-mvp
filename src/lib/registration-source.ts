@@ -1,5 +1,7 @@
 /**
  * Orígenes de registro (USER-001.1 — marketing / adquisición).
+ * Se conservan en BD; el bot NO los solicita (USER-001.2).
+ * Población futura: campañas, QR, UTM o asignación administrativa.
  */
 
 export const REGISTRATION_SOURCES = [

@@ -16,17 +16,12 @@ import {
   hasPreferredName,
   setPassengerFullName,
   setPassengerPreferredName,
-  setPassengerRegistrationSource,
   type PassengerRow,
 } from "@/lib/supabase/passengers";
 import {
   accessDeniedMessage,
   canPassengerRequestService,
 } from "@/lib/passenger-status";
-import {
-  parseRegistrationSourceChoice,
-  REGISTRATION_SOURCE_PROMPT,
-} from "@/lib/registration-source";
 import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/trips";
@@ -69,6 +64,7 @@ export function isWaitingIdentity(
   return (
     session?.state === "WAITING_FULL_NAME" ||
     session?.state === "WAITING_PREFERRED_NAME" ||
+    // Compat: sesiones antiguas que pedían origen de marketing.
     session?.state === "WAITING_REGISTRATION_SOURCE"
   );
 }
@@ -102,18 +98,6 @@ export async function promptForPreferredName(phone: string): Promise<void> {
     driverUpdateField: null,
   });
   await sendTextMessage(phone, PREFERRED_NAME_PROMPT);
-}
-
-export async function promptForRegistrationSource(phone: string): Promise<void> {
-  await upsertSession(phone, {
-    state: "WAITING_REGISTRATION_SOURCE",
-    bookingDraft: null,
-    driverDraft: null,
-    driverFlowStep: null,
-    driverUpdateCategory: null,
-    driverUpdateField: null,
-  });
-  await sendTextMessage(phone, REGISTRATION_SOURCE_PROMPT);
 }
 
 async function finishIdentityOnboarding(
@@ -268,46 +252,30 @@ export async function continuePreferredNameFlow(
       preferred,
     );
 
-    await promptForRegistrationSource(message.phone);
+    const latest = updated ?? passenger;
+    const display = getPassengerDisplayName(latest, preferred);
+    await finishIdentityOnboarding(message.phone, latest, display);
 
-    console.log("[identity] preferred_name guardado", {
+    console.log("[identity] preferred_name guardado → onboarding cerrado", {
       phone: normalizePhone(message.phone),
       preferredName: preferred,
       fullName: passenger.full_name,
+      status: latest.status,
     });
 
     return true;
   }
 
+  // Compat USER-001.2: si quedó en espera de origen, cerrar sin preguntar.
   if (session?.state === "WAITING_REGISTRATION_SOURCE") {
-    if (!raw) {
-      await sendTextMessage(message.phone, REGISTRATION_SOURCE_PROMPT);
-      return true;
-    }
-
-    const source = parseRegistrationSourceChoice(raw);
-    if (!source) {
-      await sendTextMessage(
-        message.phone,
-        "Opción no válida. Responde con un número del 1 al 7.\n\n" +
-          REGISTRATION_SOURCE_PROMPT,
-      );
-      return true;
-    }
-
-    const updated = await setPassengerRegistrationSource(
+    const passenger = await findOrCreatePassenger(
       message.phone,
-      source,
+      message.name,
     );
-    const passenger =
-      updated ?? (await findOrCreatePassenger(message.phone, message.name));
     const display = getPassengerDisplayName(passenger, message.name);
-
     await finishIdentityOnboarding(message.phone, passenger, display);
-
-    console.log("[identity] registration_source guardado", {
+    console.log("[identity] registration_source omitido (USER-001.2)", {
       phone: normalizePhone(message.phone),
-      source,
       status: passenger.status,
     });
     return true;
