@@ -143,7 +143,11 @@ import {
   captureReferralCodeFromInbound,
 } from "@/lib/referrals";
 import { isReferralOnlyMessage } from "@/lib/referrals/codes";
-import { handleDriverReferrals } from "@/lib/referrals/bot";
+import {
+  handleDriverReferralCopy,
+  handleDriverReferrals,
+  handleDriverReferralShare,
+} from "@/lib/referrals/bot";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
 import {
@@ -679,6 +683,22 @@ export async function handleIncomingMessage(
       return;
     }
     await handleDriverReferrals(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.REFERIDOS_COPY) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await handleDriverReferralCopy(message.phone);
+    return;
+  }
+
+  if (message.button === DRIVER_MENU_IDS.REFERIDOS_SHARE) {
+    if (!(await requireDriverAuthenticated(message.phone))) {
+      return;
+    }
+    await handleDriverReferralShare(message.phone);
     return;
   }
 

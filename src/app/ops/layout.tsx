@@ -23,10 +23,11 @@ export default async function OpsLayout({
         <div>
           <p className={styles.brand}>WhatXia Operations</p>
           <h1 className={styles.title}>Centro de operaciones</h1>
-          <p className={styles.subtitle}>Gestión de acceso de usuarios</p>
+          <p className={styles.subtitle}>Gestión de usuarios y referidos</p>
         </div>
         <nav className={styles.nav}>
           <Link href="/ops/users">Usuarios</Link>
+          <Link href="/ops/referrals">Referidos</Link>
           <Link href="/login">Cuenta</Link>
         </nav>
       </div>

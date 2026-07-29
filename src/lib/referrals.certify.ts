@@ -1,9 +1,12 @@
 /**
- * Certificación REF-003 (sin I/O de red/DB).
+ * Certificación REF-003 / REF-004 (sin I/O de red/DB).
  * Ejecutar: npm run test:referrals
  */
 
-import { buildReferralShareMessage } from "./referrals/bot";
+import {
+  buildReferralCopyMessage,
+  buildReferralShareMessage,
+} from "./referrals/bot";
 import {
   buildReferralLink,
   buildReferralWhatsAppPrefill,
@@ -15,7 +18,10 @@ import {
   normalizeReferralCode,
   REFERRAL_CODE_PATTERN,
 } from "./referrals/codes";
-import { isActiveReferrerDriver } from "./referrals";
+import {
+  computeReferralConversionPercent,
+  isActiveReferrerDriver,
+} from "./referrals";
 
 function assert(condition: boolean, label: string) {
   if (!condition) throw new Error(`FAIL: ${label}`);
@@ -85,13 +91,18 @@ assert(
 );
 assert(
   !isActiveReferrerDriver({ status: "inactive", documents_blocked: false }),
-  "referrer inactive",
+  "referrer inactive / deshabilitado",
 );
 assert(
   !isActiveReferrerDriver({ status: "active", documents_blocked: true }),
   "referrer docs bloqueados",
 );
 assert(!isActiveReferrerDriver(null), "referrer null");
+
+assert(computeReferralConversionPercent(0, 0) === 0, "conv 0/0 → 0");
+assert(computeReferralConversionPercent(5, 0) === 0, "conv sin clics → 0");
+assert(computeReferralConversionPercent(1, 4) === 25, "conv 1/4 → 25%");
+assert(computeReferralConversionPercent(1, 3) === 33.3, "conv 1/3 → 33.3%");
 
 const share = buildReferralShareMessage({
   code: "DRV-AB23C",
@@ -103,5 +114,22 @@ assert(share.includes("https://whatxia.com/r/DRV-AB23C"), "copy enlace");
 assert(share.includes("🔗 Tu enlace:"), "copy label enlace");
 assert(share.includes("🏷️ Tu código: DRV-AB23C"), "copy código");
 assert(share.includes("Referidos registrados: 3"), "copy stats");
+
+const copyMsg = buildReferralCopyMessage(
+  "DRV-AB23C",
+  "https://whatxia.com/r/DRV-AB23C",
+);
+assert(copyMsg.includes("Copia tu enlace"), "copy CTA texto");
+assert(copyMsg.includes("https://whatxia.com/r/DRV-AB23C"), "copy CTA link");
+
+// Escenarios REF-004 (reglas puras documentadas en certify)
+assert(
+  !isActiveReferrerDriver({ status: "inactive", documents_blocked: false }),
+  "escenario: código deshabilitado (driver inactive)",
+);
+assert(
+  !isValidReferralCodeFormat("DRV-ZZZZ"),
+  "escenario: código inexistente / formato inválido",
+);
 
 console.log("referrals.certify: OK");

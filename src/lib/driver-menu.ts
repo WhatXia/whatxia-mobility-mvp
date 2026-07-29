@@ -30,6 +30,10 @@ export const DRIVER_MENU_IDS = {
   MENU_CONDUCTOR: "menu_mi_cuenta",
   /** REF-003: referidos (solo dentro de Mi cuenta) */
   REFERIDOS: "menu_referidos",
+  /** REF-004: reenviar enlace para copiar */
+  REFERIDOS_COPY: "menu_referidos_copy",
+  /** REF-004: compartir por WhatsApp */
+  REFERIDOS_SHARE: "menu_referidos_share",
   MI_PERFIL: "menu_mi_perfil",
   SOPORTE: "menu_soporte",
   MIS_DATOS: "menu_mis_datos",
@@ -325,6 +329,8 @@ export function isDriverMenuButton(button: string | null): boolean {
     button === DRIVER_MENU_IDS.TOGGLE_AVAILABILITY ||
     button === DRIVER_MENU_IDS.MI_CUENTA ||
     button === DRIVER_MENU_IDS.REFERIDOS ||
+    button === DRIVER_MENU_IDS.REFERIDOS_COPY ||
+    button === DRIVER_MENU_IDS.REFERIDOS_SHARE ||
     button === DRIVER_MENU_IDS.MI_PERFIL ||
     button === DRIVER_MENU_IDS.SOPORTE ||
     button === DRIVER_MENU_IDS.RENDIMIENTO ||

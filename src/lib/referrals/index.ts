@@ -1,5 +1,5 @@
 /**
- * Persistencia y reglas de negocio del programa de referidos (REF-003).
+ * Persistencia y reglas de negocio del programa de referidos (REF-003 / REF-004).
  */
 
 import { getSupabase } from "@/lib/supabase/client";
@@ -15,7 +15,9 @@ import {
 export type ReferralEventType =
   | "link_opened"
   | "link_shared"
-  | "passenger_registered";
+  | "passenger_registered"
+  | "invalid_code"
+  | "conversion";
 
 export type ReferralAttributionRow = {
   id: string;
@@ -30,7 +32,26 @@ export type ReferralDriverStats = {
   referralCode: string | null;
   referralLink: string | null;
   totalReferrals: number;
+  totalClicks: number;
 };
+
+export type OpsReferralProgramStats = {
+  totalClicks: number;
+  totalRegistrations: number;
+  totalAttributed: number;
+  totalConversions: number;
+  /** Pasajeros atribuidos / clics × 100 */
+  conversionPercent: number;
+};
+
+/** Conversión % (atribuidos ÷ clics). */
+export function computeReferralConversionPercent(
+  attributed: number,
+  clicks: number,
+): number {
+  if (clicks <= 0) return 0;
+  return Math.round((attributed / clicks) * 1000) / 10;
+}
 
 /** Conductor válido para atribuir referidos. */
 export function isActiveReferrerDriver(
@@ -89,7 +110,6 @@ export async function getOrCreateDriverReferralCode(
       return normalizeReferralCode(String(data.referral_code));
     }
 
-    // Otro proceso pudo haber asignado el código; re-leer.
     const { data: again } = await supabase
       .from("drivers")
       .select("referral_code")
@@ -119,9 +139,14 @@ export async function recordReferralEvent(input: {
   meta?: Record<string, unknown> | null;
 }): Promise<void> {
   const supabase = getSupabase();
+  const codeRaw = input.referralCode?.trim() || "INVALID";
+  const referralCode = isValidReferralCodeFormat(codeRaw)
+    ? normalizeReferralCode(codeRaw)
+    : codeRaw.slice(0, 64).toUpperCase();
+
   const { error } = await supabase.from("referral_events").insert({
     event_type: input.eventType,
-    referral_code: normalizeReferralCode(input.referralCode),
+    referral_code: referralCode,
     referrer_driver_id: input.referrerDriverId ?? null,
     passenger_id: input.passengerId ?? null,
     meta: input.meta ?? null,
@@ -133,25 +158,56 @@ export async function recordReferralEvent(input: {
   }
 }
 
+/**
+ * Guarda código pendiente: first-write-wins (REF-004).
+ * No sobrescribe pending ni pasajeros ya atribuidos.
+ */
 export async function stashPendingReferralCode(
   phone: string,
   code: string,
-): Promise<void> {
-  if (!isValidReferralCodeFormat(code)) return;
+): Promise<{ stashed: boolean; reason: string }> {
+  if (!isValidReferralCodeFormat(code)) {
+    return { stashed: false, reason: "invalid_code" };
+  }
   const supabase = getSupabase();
   const normalized = normalizePhone(phone);
-  const { error } = await supabase.from("referral_pending").upsert(
-    {
-      phone: normalized,
-      referral_code: normalizeReferralCode(code),
-      created_at: new Date().toISOString(),
-    },
-    { onConflict: "phone" },
-  );
+  const normalizedCode = normalizeReferralCode(code);
+
+  const { data: passenger } = await supabase
+    .from("passengers")
+    .select("referred_by_driver_id")
+    .eq("phone", normalized)
+    .maybeSingle();
+
+  if (passenger?.referred_by_driver_id) {
+    return { stashed: false, reason: "already_attributed" };
+  }
+
+  const { data: pending } = await supabase
+    .from("referral_pending")
+    .select("referral_code")
+    .eq("phone", normalized)
+    .maybeSingle();
+
+  if (pending?.referral_code) {
+    return { stashed: false, reason: "pending_preserved" };
+  }
+
+  const { error } = await supabase.from("referral_pending").insert({
+    phone: normalized,
+    referral_code: normalizedCode,
+    created_at: new Date().toISOString(),
+  });
+
   if (error) {
+    if (error.code === "23505") {
+      return { stashed: false, reason: "pending_preserved" };
+    }
     console.error("[referrals] error al guardar pending:", error);
     throw error;
   }
+
+  return { stashed: true, reason: "stashed" };
 }
 
 export async function consumePendingReferralCode(
@@ -267,7 +323,6 @@ export async function attributePassengerReferral(
   });
 
   if (aErr) {
-    // Unique passenger → ya atribuido por carrera; no fallar duro.
     if (aErr.code !== "23505") {
       console.error("[referrals] error al insertar attribution:", aErr);
       return { ok: false, reason: "attribution_insert_error" };
@@ -299,10 +354,6 @@ export async function attributePassengerReferral(
   };
 }
 
-/**
- * Tras crear un pasajero: consume pending y atribuye si aplica.
- * Usuarios existentes: no sobrescribe (attributePassengerReferral lo garantiza).
- */
 export async function applyPendingReferralForPassenger(
   phone: string,
   passengerId: string,
@@ -315,7 +366,7 @@ export async function applyPendingReferralForPassenger(
 }
 
 /**
- * Captura código desde mensaje WhatsApp (stash + auditoría link_shared).
+ * Captura código desde mensaje WhatsApp (stash first-write-wins + auditoría).
  */
 export async function captureReferralCodeFromInbound(
   phone: string,
@@ -326,13 +377,17 @@ export async function captureReferralCodeFromInbound(
   if (!code) return null;
 
   const driver = await findDriverByReferralCode(code);
-  await stashPendingReferralCode(phone, code);
+  const stash = await stashPendingReferralCode(phone, code);
 
   await recordReferralEvent({
     eventType: "link_shared",
     referralCode: code,
     referrerDriverId: driver?.id ?? null,
-    meta: { phone: normalizePhone(phone), source: "whatsapp_inbound" },
+    meta: {
+      phone: normalizePhone(phone),
+      source: "whatsapp_inbound",
+      stash: stash.reason,
+    },
   }).catch((err) => {
     console.error("[referrals] evento link_shared:", err);
   });
@@ -340,7 +395,55 @@ export async function captureReferralCodeFromInbound(
   return code;
 }
 
-/** Stats que consume el módulo Ops de Referidos. */
+/** Primera conversión (viaje completado) del pasajero referido. */
+export async function recordReferralConversionIfFirstCompletedTrip(
+  passengerId: string,
+): Promise<boolean> {
+  const supabase = getSupabase();
+  const { data: passenger, error } = await supabase
+    .from("passengers")
+    .select("id, referred_by_driver_id")
+    .eq("id", passengerId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[referrals] conversion passenger read:", error);
+    return false;
+  }
+  if (!passenger?.referred_by_driver_id) return false;
+
+  const { data: existing } = await supabase
+    .from("referral_events")
+    .select("id")
+    .eq("passenger_id", passengerId)
+    .eq("event_type", "conversion")
+    .maybeSingle();
+
+  if (existing) return false;
+
+  const { data: attr } = await supabase
+    .from("referral_attributions")
+    .select("referral_code, referrer_driver_id")
+    .eq("passenger_id", passengerId)
+    .maybeSingle();
+
+  const code = attr?.referral_code
+    ? normalizeReferralCode(String(attr.referral_code))
+    : "UNKNOWN";
+
+  await recordReferralEvent({
+    eventType: "conversion",
+    referralCode: code,
+    referrerDriverId:
+      attr?.referrer_driver_id ?? passenger.referred_by_driver_id,
+    passengerId,
+    meta: { reason: "first_completed_trip" },
+  });
+
+  console.log("[referrals] conversión registrada", { passengerId, code });
+  return true;
+}
+
 export async function getReferralStatsForDriver(
   driverId: string,
 ): Promise<ReferralDriverStats> {
@@ -355,17 +458,150 @@ export async function getReferralStatsForDriver(
     ? normalizeReferralCode(String(driver.referral_code))
     : null;
 
-  const { count } = await supabase
-    .from("referral_attributions")
-    .select("id", { count: "exact", head: true })
-    .eq("referrer_driver_id", driverId);
+  const [{ count: attributions }, { count: clicks }] = await Promise.all([
+    supabase
+      .from("referral_attributions")
+      .select("id", { count: "exact", head: true })
+      .eq("referrer_driver_id", driverId),
+    code
+      ? supabase
+          .from("referral_events")
+          .select("id", { count: "exact", head: true })
+          .eq("referral_code", code)
+          .eq("event_type", "link_opened")
+      : Promise.resolve({ count: 0 }),
+  ]);
 
   return {
     driverId,
     referralCode: code,
     referralLink: code ? buildReferralLink(code) : null,
-    totalReferrals: count ?? 0,
+    totalReferrals: attributions ?? 0,
+    totalClicks: clicks ?? 0,
   };
+}
+
+export async function getOpsReferralProgramStats(): Promise<OpsReferralProgramStats> {
+  const supabase = getSupabase();
+
+  const [clicks, registrations, attributed, conversions] = await Promise.all([
+    supabase
+      .from("referral_events")
+      .select("id", { count: "exact", head: true })
+      .eq("event_type", "link_opened"),
+    supabase
+      .from("referral_events")
+      .select("id", { count: "exact", head: true })
+      .eq("event_type", "passenger_registered"),
+    supabase
+      .from("referral_attributions")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("referral_events")
+      .select("id", { count: "exact", head: true })
+      .eq("event_type", "conversion"),
+  ]);
+
+  const totalClicks = clicks.count ?? 0;
+  const totalRegistrations = registrations.count ?? 0;
+  const totalAttributed = attributed.count ?? 0;
+  const totalConversions = conversions.count ?? 0;
+
+  return {
+    totalClicks,
+    totalRegistrations,
+    totalAttributed,
+    totalConversions,
+    conversionPercent: computeReferralConversionPercent(
+      totalAttributed,
+      totalClicks,
+    ),
+  };
+}
+
+export type OpsReferralLeaderRow = {
+  driverId: string;
+  driverName: string;
+  referralCode: string | null;
+  attributions: number;
+  clicks: number;
+};
+
+export async function listOpsReferralLeaders(
+  limit = 30,
+): Promise<OpsReferralLeaderRow[]> {
+  const supabase = getSupabase();
+  const { data: attrs, error } = await supabase
+    .from("referral_attributions")
+    .select("referrer_driver_id, referral_code");
+
+  if (error) {
+    console.error("[referrals] leaders:", error);
+    throw error;
+  }
+
+  const byDriver = new Map<
+    string,
+    { code: string | null; attributions: number }
+  >();
+  for (const row of attrs ?? []) {
+    const id = String(row.referrer_driver_id);
+    const cur = byDriver.get(id) ?? { code: null, attributions: 0 };
+    cur.attributions += 1;
+    if (!cur.code && row.referral_code) {
+      cur.code = normalizeReferralCode(String(row.referral_code));
+    }
+    byDriver.set(id, cur);
+  }
+
+  const driverIds = [...byDriver.keys()];
+  if (driverIds.length === 0) return [];
+
+  const { data: drivers } = await supabase
+    .from("drivers")
+    .select("id, full_name, preferred_name, name, referral_code")
+    .in("id", driverIds);
+
+  const nameById = new Map<string, string>();
+  const codeById = new Map<string, string | null>();
+  for (const d of drivers ?? []) {
+    const label =
+      d.preferred_name?.trim() ||
+      d.full_name?.trim() ||
+      d.name?.trim() ||
+      "Conductor";
+    nameById.set(d.id, label);
+    codeById.set(
+      d.id,
+      d.referral_code
+        ? normalizeReferralCode(String(d.referral_code))
+        : byDriver.get(d.id)?.code ?? null,
+    );
+  }
+
+  const rows: OpsReferralLeaderRow[] = [];
+  for (const [driverId, stats] of byDriver) {
+    const code = codeById.get(driverId) ?? stats.code;
+    let clicks = 0;
+    if (code) {
+      const { count } = await supabase
+        .from("referral_events")
+        .select("id", { count: "exact", head: true })
+        .eq("referral_code", code)
+        .eq("event_type", "link_opened");
+      clicks = count ?? 0;
+    }
+    rows.push({
+      driverId,
+      driverName: nameById.get(driverId) ?? "Conductor",
+      referralCode: code,
+      attributions: stats.attributions,
+      clicks,
+    });
+  }
+
+  rows.sort((a, b) => b.attributions - a.attributions);
+  return rows.slice(0, limit);
 }
 
 export async function listReferralAttributionsForDriver(

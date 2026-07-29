@@ -1277,6 +1277,18 @@ export async function handleDriverFinalizarViaje(
     await markDriverAvailable(updated.assignedDriverId);
   }
 
+  // REF-004: primera conversión (viaje completado) del pasajero referido.
+  if (updated.passengerId) {
+    try {
+      const { recordReferralConversionIfFirstCompletedTrip } = await import(
+        "@/lib/referrals"
+      );
+      await recordReferralConversionIfFirstCompletedTrip(updated.passengerId);
+    } catch (error) {
+      console.error("[referrals] conversion hook:", error);
+    }
+  }
+
   await upsertSession(updated.passengerPhone, {
     state: "IDLE",
   });
