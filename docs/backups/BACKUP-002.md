@@ -17,9 +17,10 @@
 
 | Campo | Valor |
 |-------|--------|
-| **Tag Git recomendado** | `backup/BACKUP-002` |
-| **Rama de respaldo recomendada** | `backup/BACKUP-002` |
-| **Commit canónico** | Ver sección [Punto de restauración](#5-punto-de-restauración) (se completa al crear el commit/tag) |
+| **Tag Git** | `backup/BACKUP-002` |
+| **Rama de respaldo** | `backup/BACKUP-002` |
+| **Commit canónico** | `c819ded345f1aed6669f74089d661a112f010479` |
+| **Commit corto** | `c819ded` |
 | **BACKUP-001 (referencia)** | Documentación en `docs/backup/` · commit documentado `d8a65d7513906117aef52e89d87edd8e344a69ad` (24 jul 2026) · migraciones hasta **029** |
 | **Migraciones en BACKUP-002** | `001` … `040` (inclusive) |
 
@@ -280,11 +281,18 @@ Ver `git log d8a65d7..BACKUP-002 --oneline` en el commit canónico. Incluye entr
 ```bash
 git fetch origin
 git checkout backup/BACKUP-002
-# o:
-git checkout <COMMIT_CANONICO_BACKUP_002>
+# equivalente:
+git checkout c819ded345f1aed6669f74089d661a112f010479
 npm install
 npx tsc --noEmit
 npm run build
+```
+
+Verificación del commit:
+
+```bash
+git log -1 --oneline
+# esperado: c819ded docs(infra): create BACKUP-002 restore point…
 ```
 
 Para recrear `main` local desde este punto (destructivo — solo con acuerdo del equipo):

@@ -5,7 +5,7 @@
 | Código | Fecha | Commit / tag | Migraciones | Documento |
 |--------|-------|--------------|-------------|-----------|
 | **BACKUP-001** | 24 jul 2026 | `d8a65d7513906117aef52e89d87edd8e344a69ad` (doc) | 001–029 | [`docs/backup/`](../backup/README.md) |
-| **BACKUP-002** | 29 jul 2026 | Tag `backup/BACKUP-002` | 001–040 | [`BACKUP-002.md`](./BACKUP-002.md) |
+| **BACKUP-002** | 29 jul 2026 | `c819ded` · tag/rama `backup/BACKUP-002` | 001–040 | [`BACKUP-002.md`](./BACKUP-002.md) |
 
 ## Uso rápido
 
