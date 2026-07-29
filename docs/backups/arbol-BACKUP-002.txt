@@ -1,0 +1,245 @@
+﻿
+[1m[33mC:\Users\Admin\Desktop\whatxia-mobility-mvp
+Ôö£ÔöÇÔöÇ AGENTS.md
+Ôö£ÔöÇÔöÇ CLAUDE.md
+Ôö£ÔöÇÔöÇ docs
+|  Ôö£ÔöÇÔöÇ backup
+|  |  Ôö£ÔöÇÔöÇ 01-repositorio.md
+|  |  Ôö£ÔöÇÔöÇ 02-vercel.md
+|  |  Ôö£ÔöÇÔöÇ 03-supabase.md
+|  |  Ôö£ÔöÇÔöÇ 04-whatsapp-meta.md
+|  |  Ôö£ÔöÇÔöÇ 05-conocimiento-funcional.md
+|  |  Ôö£ÔöÇÔöÇ 06-estado-mvp.md
+|  |  Ôö£ÔöÇÔöÇ 07-manual-recuperacion.md
+|  |  Ôö£ÔöÇÔöÇ arbol-proyecto.txt
+|  |  Ôö£ÔöÇÔöÇ README.md
+|  |  ÔööÔöÇÔöÇ WhatXia-Basic-Biblia-Tecnica-MVP-v1.0.pdf
+|  Ôö£ÔöÇÔöÇ backups
+|  |  Ôö£ÔöÇÔöÇ arbol-BACKUP-002.txt
+|  |  ÔööÔöÇÔöÇ BACKUP-002.md
+|  Ôö£ÔöÇÔöÇ INFORME-ESTADO-WHATXIA-MOBILITY.md
+|  ÔööÔöÇÔöÇ sprints
+|     ÔööÔöÇÔöÇ Sprint-01-Prioridad-Critica.md
+Ôö£ÔöÇÔöÇ eslint.config.mjs
+Ôö£ÔöÇÔöÇ next-env.d.ts
+Ôö£ÔöÇÔöÇ next.config.ts
+Ôö£ÔöÇÔöÇ package-lock.json
+Ôö£ÔöÇÔöÇ package.json
+Ôö£ÔöÇÔöÇ public
+|  Ôö£ÔöÇÔöÇ file.svg
+|  Ôö£ÔöÇÔöÇ globe.svg
+|  Ôö£ÔöÇÔöÇ next.svg
+|  Ôö£ÔöÇÔöÇ vercel.svg
+|  ÔööÔöÇÔöÇ window.svg
+Ôö£ÔöÇÔöÇ README.md
+Ôö£ÔöÇÔöÇ scripts
+|  Ôö£ÔöÇÔöÇ diagnose-dispatch-schema.mts
+|  Ôö£ÔöÇÔöÇ generate-co-holidays-sql.ts
+|  Ôö£ÔöÇÔöÇ generate-technical-bible.mjs
+|  Ôö£ÔöÇÔöÇ places-ibague-diag.ts
+|  ÔööÔöÇÔöÇ wa-offer-location-probe.ts
+Ôö£ÔöÇÔöÇ src
+|  Ôö£ÔöÇÔöÇ app
+|  |  Ôö£ÔöÇÔöÇ api
+|  |  |  Ôö£ÔöÇÔöÇ cron
+|  |  |  ÔööÔöÇÔöÇ webhook
+|  |  Ôö£ÔöÇÔöÇ auth
+|  |  |  Ôö£ÔöÇÔöÇ auth.module.css
+|  |  |  Ôö£ÔöÇÔöÇ confirm
+|  |  |  Ôö£ÔöÇÔöÇ error
+|  |  |  ÔööÔöÇÔöÇ reset-password
+|  |  Ôö£ÔöÇÔöÇ favicon.ico
+|  |  Ôö£ÔöÇÔöÇ forgot-password
+|  |  |  Ôö£ÔöÇÔöÇ forgot-password-form.tsx
+|  |  |  ÔööÔöÇÔöÇ page.tsx
+|  |  Ôö£ÔöÇÔöÇ globals.css
+|  |  Ôö£ÔöÇÔöÇ layout.tsx
+|  |  Ôö£ÔöÇÔöÇ login
+|  |  |  Ôö£ÔöÇÔöÇ login-form.tsx
+|  |  |  ÔööÔöÇÔöÇ page.tsx
+|  |  Ôö£ÔöÇÔöÇ ops
+|  |  |  Ôö£ÔöÇÔöÇ layout.tsx
+|  |  |  Ôö£ÔöÇÔöÇ ops.module.css
+|  |  |  Ôö£ÔöÇÔöÇ page.tsx
+|  |  |  ÔööÔöÇÔöÇ users
+|  |  Ôö£ÔöÇÔöÇ page.module.css
+|  |  Ôö£ÔöÇÔöÇ page.tsx
+|  |  ÔööÔöÇÔöÇ r
+|  |     ÔööÔöÇÔöÇ [code]
+|  Ôö£ÔöÇÔöÇ lib
+|  |  Ôö£ÔöÇÔöÇ auth
+|  |  |  Ôö£ÔöÇÔöÇ messages.ts
+|  |  |  Ôö£ÔöÇÔöÇ password-policy.certify.ts
+|  |  |  ÔööÔöÇÔöÇ password-policy.ts
+|  |  Ôö£ÔöÇÔöÇ booking
+|  |  |  Ôö£ÔöÇÔöÇ flow.ts
+|  |  |  ÔööÔöÇÔöÇ intent.ts
+|  |  Ôö£ÔöÇÔöÇ booking-flow.certify.ts
+|  |  Ôö£ÔöÇÔöÇ cancellations.certify.ts
+|  |  Ôö£ÔöÇÔöÇ cancellations.ts
+|  |  Ôö£ÔöÇÔöÇ city
+|  |  |  ÔööÔöÇÔöÇ context.ts
+|  |  Ôö£ÔöÇÔöÇ city.certify.ts
+|  |  Ôö£ÔöÇÔöÇ dispatch.ts
+|  |  Ôö£ÔöÇÔöÇ document-jobs.ts
+|  |  Ôö£ÔöÇÔöÇ driver-auth-session.ts
+|  |  Ôö£ÔöÇÔöÇ driver-auth.ts
+|  |  Ôö£ÔöÇÔöÇ driver-documents.certify.ts
+|  |  Ôö£ÔöÇÔöÇ driver-documents.ts
+|  |  Ôö£ÔöÇÔöÇ driver-expired-docs-update.ts
+|  |  Ôö£ÔöÇÔöÇ driver-intent.certify.ts
+|  |  Ôö£ÔöÇÔöÇ driver-menu.ts
+|  |  Ôö£ÔöÇÔöÇ driver-password.ts
+|  |  Ôö£ÔöÇÔöÇ driver-performance.ts
+|  |  Ôö£ÔöÇÔöÇ driver-phone-change.ts
+|  |  Ôö£ÔöÇÔöÇ driver-profile-audit.certify.ts
+|  |  Ôö£ÔöÇÔöÇ driver-profile-audit.ts
+|  |  Ôö£ÔöÇÔöÇ driver-profile-fields.ts
+|  |  Ôö£ÔöÇÔöÇ driver-registration.ts
+|  |  Ôö£ÔöÇÔöÇ driver-update.ts
+|  |  Ôö£ÔöÇÔöÇ eta-auto.certify.ts
+|  |  Ôö£ÔöÇÔöÇ eta-auto.ts
+|  |  Ôö£ÔöÇÔöÇ expired-docs-prompt.ts
+|  |  Ôö£ÔöÇÔöÇ geo
+|  |  |  Ôö£ÔöÇÔöÇ client.ts
+|  |  |  Ôö£ÔöÇÔöÇ confidence.ts
+|  |  |  Ôö£ÔöÇÔöÇ config.ts
+|  |  |  Ôö£ÔöÇÔöÇ geocoding.ts
+|  |  |  Ôö£ÔöÇÔöÇ maps-url.ts
+|  |  |  Ôö£ÔöÇÔöÇ places.ts
+|  |  |  Ôö£ÔöÇÔöÇ routes.ts
+|  |  |  ÔööÔöÇÔöÇ types.ts
+|  |  Ôö£ÔöÇÔöÇ intent.certify.ts
+|  |  Ôö£ÔöÇÔöÇ passenger-access.ts
+|  |  Ôö£ÔöÇÔöÇ passenger-status.certify.ts
+|  |  Ôö£ÔöÇÔöÇ passenger-status.ts
+|  |  Ôö£ÔöÇÔöÇ places-rank.certify.ts
+|  |  Ôö£ÔöÇÔöÇ preferred-name.ts
+|  |  Ôö£ÔöÇÔöÇ pricing
+|  |  |  Ôö£ÔöÇÔöÇ config.ts
+|  |  |  Ôö£ÔöÇÔöÇ engine.ts
+|  |  |  Ôö£ÔöÇÔöÇ rules.ts
+|  |  |  Ôö£ÔöÇÔöÇ surcharges.ts
+|  |  |  ÔööÔöÇÔöÇ types.ts
+|  |  Ôö£ÔöÇÔöÇ pricing.certify.ts
+|  |  Ôö£ÔöÇÔöÇ rating.ts
+|  |  Ôö£ÔöÇÔöÇ referrals
+|  |  |  Ôö£ÔöÇÔöÇ bot.ts
+|  |  |  Ôö£ÔöÇÔöÇ codes.ts
+|  |  |  ÔööÔöÇÔöÇ index.ts
+|  |  Ôö£ÔöÇÔöÇ referrals.certify.ts
+|  |  Ôö£ÔöÇÔöÇ registration-source.ts
+|  |  Ôö£ÔöÇÔöÇ reputation
+|  |  |  Ôö£ÔöÇÔöÇ average.ts
+|  |  |  Ôö£ÔöÇÔöÇ driver-rate-passenger.ts
+|  |  |  Ôö£ÔöÇÔöÇ format.ts
+|  |  |  Ôö£ÔöÇÔöÇ index.ts
+|  |  |  ÔööÔöÇÔöÇ store.ts
+|  |  Ôö£ÔöÇÔöÇ route-favorites
+|  |  |  Ôö£ÔöÇÔöÇ flow.ts
+|  |  |  Ôö£ÔöÇÔöÇ index.ts
+|  |  |  ÔööÔöÇÔöÇ store.ts
+|  |  Ôö£ÔöÇÔöÇ routes-map.certify.ts
+|  |  Ôö£ÔöÇÔöÇ search.certify.ts
+|  |  Ôö£ÔöÇÔöÇ search.ts
+|  |  Ôö£ÔöÇÔöÇ sessions.ts
+|  |  Ôö£ÔöÇÔöÇ supabase
+|  |  |  Ôö£ÔöÇÔöÇ browser.ts
+|  |  |  Ôö£ÔöÇÔöÇ client.ts
+|  |  |  Ôö£ÔöÇÔöÇ drivers.ts
+|  |  |  Ôö£ÔöÇÔöÇ passengers.ts
+|  |  |  ÔööÔöÇÔöÇ server.ts
+|  |  Ôö£ÔöÇÔöÇ tariff
+|  |  |  Ôö£ÔöÇÔöÇ adapters.ts
+|  |  |  Ôö£ÔöÇÔöÇ calculator.ts
+|  |  |  Ôö£ÔöÇÔöÇ city-config
+|  |  |  Ôö£ÔöÇÔöÇ config-loader.ts
+|  |  |  Ôö£ÔöÇÔöÇ engine.ts
+|  |  |  Ôö£ÔöÇÔöÇ holidays.ts
+|  |  |  Ôö£ÔöÇÔöÇ index.ts
+|  |  |  Ôö£ÔöÇÔöÇ present-estimate.ts
+|  |  |  Ôö£ÔöÇÔöÇ provider.ts
+|  |  |  Ôö£ÔöÇÔöÇ types.ts
+|  |  |  ÔööÔöÇÔöÇ waiting.ts
+|  |  Ôö£ÔöÇÔöÇ tariff.certify.ts
+|  |  Ôö£ÔöÇÔöÇ taximeter-test
+|  |  |  Ôö£ÔöÇÔöÇ flow.ts
+|  |  |  Ôö£ÔöÇÔöÇ index.ts
+|  |  |  Ôö£ÔöÇÔöÇ store.ts
+|  |  |  ÔööÔöÇÔöÇ types.ts
+|  |  Ôö£ÔöÇÔöÇ taximeter-test.certify.ts
+|  |  Ôö£ÔöÇÔöÇ trip-exclusions.ts
+|  |  Ôö£ÔöÇÔöÇ trips.ts
+|  |  Ôö£ÔöÇÔöÇ tunnels.certify.ts
+|  |  Ôö£ÔöÇÔöÇ tunnels.ts
+|  |  Ôö£ÔöÇÔöÇ voice
+|  |  |  Ôö£ÔöÇÔöÇ openai-whisper.ts
+|  |  |  ÔööÔöÇÔöÇ provider.ts
+|  |  Ôö£ÔöÇÔöÇ waiting-flow.certify.ts
+|  |  Ôö£ÔöÇÔöÇ waiting-flow.ts
+|  |  Ôö£ÔöÇÔöÇ whatsapp
+|  |  |  Ôö£ÔöÇÔöÇ client.ts
+|  |  |  Ôö£ÔöÇÔöÇ handler.ts
+|  |  |  Ôö£ÔöÇÔöÇ media.ts
+|  |  |  Ôö£ÔöÇÔöÇ normalize-incoming.ts
+|  |  |  Ôö£ÔöÇÔöÇ parse.ts
+|  |  |  Ôö£ÔöÇÔöÇ types.ts
+|  |  |  ÔööÔöÇÔöÇ verify.ts
+|  |  Ôö£ÔöÇÔöÇ whatsapp-media.certify.ts
+|  |  ÔööÔöÇÔöÇ whatsapp-voice.certify.ts
+|  Ôö£ÔöÇÔöÇ middleware.ts
+|  ÔööÔöÇÔöÇ types
+|     ÔööÔöÇÔöÇ index.ts
+Ôö£ÔöÇÔöÇ supabase
+|  Ôö£ÔöÇÔöÇ APPLY_SPRINT_18.sql
+|  ÔööÔöÇÔöÇ migrations
+|     Ôö£ÔöÇÔöÇ 001_create_drivers.sql
+|     Ôö£ÔöÇÔöÇ 002_create_trips.sql
+|     Ôö£ÔöÇÔöÇ 003_create_passengers.sql
+|     Ôö£ÔöÇÔöÇ 004_driver_full_profile.sql
+|     Ôö£ÔöÇÔöÇ 005_conversation_sessions.sql
+|     Ôö£ÔöÇÔöÇ 006_document_management.sql
+|     Ôö£ÔöÇÔöÇ 007_conversation_tunnels.sql
+|     Ôö£ÔöÇÔöÇ 008_tunnel_closing_status.sql
+|     Ôö£ÔöÇÔöÇ 009_trip_cancelled_status.sql
+|     Ôö£ÔöÇÔöÇ 010_cancellations_and_policies.sql
+|     Ôö£ÔöÇÔöÇ 011_search_and_reassignment.sql
+|     Ôö£ÔöÇÔöÇ 012_trip_driver_exclusions.sql
+|     Ôö£ÔöÇÔöÇ 013_session_booking_draft.sql
+|     Ôö£ÔöÇÔöÇ 014_trip_geo_and_fare.sql
+|     Ôö£ÔöÇÔöÇ 015_fare_rules.sql
+|     Ôö£ÔöÇÔöÇ 016_fare_increment_80m.sql
+|     Ôö£ÔöÇÔöÇ 017_city_context.sql
+|     Ôö£ÔöÇÔöÇ 018_waiting_flow.sql
+|     Ôö£ÔöÇÔöÇ 019_tariff_final_fare.sql
+|     Ôö£ÔöÇÔöÇ 020_fare_rules_tariff_engine.sql
+|     Ôö£ÔöÇÔöÇ 021_sync_ibague_fare_rules_from_seed.sql
+|     Ôö£ÔöÇÔöÇ 022_official_ibague_tariffs.sql
+|     Ôö£ÔöÇÔöÇ 023_ibague_night_window_19_to_6.sql
+|     Ôö£ÔöÇÔöÇ 024_holidays_colombia.sql
+|     Ôö£ÔöÇÔöÇ 025_taximeter_test.sql
+|     Ôö£ÔöÇÔöÇ 026_taximeter_test_enrichment.sql
+|     Ôö£ÔöÇÔöÇ 027_taximeter_test_meter_optional.sql
+|     Ôö£ÔöÇÔöÇ 028_ibague_tariff_v2_increment_90.sql
+|     Ôö£ÔöÇÔöÇ 029_driver_email_operation_card.sql
+|     Ôö£ÔöÇÔöÇ 030_drivers_document_id_unique.sql
+|     Ôö£ÔöÇÔöÇ 031_drivers_password_hash.sql
+|     Ôö£ÔöÇÔöÇ 032_driver_auth_sessions.sql
+|     Ôö£ÔöÇÔöÇ 033_route_favorites.sql
+|     Ôö£ÔöÇÔöÇ 034_passenger_ratings.sql
+|     Ôö£ÔöÇÔöÇ 035_passenger_preferred_name.sql
+|     Ôö£ÔöÇÔöÇ 036_identity_full_name.sql
+|     Ôö£ÔöÇÔöÇ 037_driver_profile_audit_phone_change.sql
+|     Ôö£ÔöÇÔöÇ 038_passenger_status.sql
+|     Ôö£ÔöÇÔöÇ 039_passenger_registration_meta.sql
+|     ÔööÔöÇÔöÇ 040_driver_referrals.sql
+Ôö£ÔöÇÔöÇ tsconfig.json
+Ôö£ÔöÇÔöÇ tsconfig.tsbuildinfo
+ÔööÔöÇÔöÇ vercel.json
+
+directory: 1018 file: 7289
+
+ignored: directory (15)
+[39m[22m
+
+[2K[1G

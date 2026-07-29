@@ -6,6 +6,10 @@
 **Producto:** WhatXia Mobility MVP (`whatxia-mobility-mvp` v0.1.0)  
 **Alcance:** Ibagué (Colombia) · Canal WhatsApp Cloud API  
 
+> **Restore point posterior:** el estado estable actual del producto está congelado en  
+> **[BACKUP-002](../backups/BACKUP-002.md)** (29 jul 2026, migraciones **001–040**, tag `backup/BACKUP-002`).  
+> Esta carpeta (`docs/backup/`) permanece como **BACKUP-001** histórico.
+
 > Sprint de **auditoría y documentación únicamente**.  
 > No se modificó código de aplicación, no se ejecutaron migraciones ni se cambiaron configuraciones de infraestructura como parte de este sprint (salvo la creación de esta carpeta `docs/backup/`).
 

@@ -128,6 +128,7 @@ import { findPassengerByPhone } from "@/lib/supabase/passengers";
 import {
   continuePreferredNameFlow,
   ensureIdentityOrPrompt,
+  isWaitingIdentity,
 } from "@/lib/preferred-name";
 import {
   assertPassengerCanRequestService,
@@ -380,11 +381,33 @@ export async function handleIncomingMessage(
     console.error("[referrals] capture inbound:", error);
   }
 
-  // REF-003.1: conductor registrado → menú conductor (nunca onboarding / Pionero).
-  // Debe ir antes de identidad de pasajero y del gate PRE_LAUNCH.
-  if (isDriverIntent(message.text)) {
-    const existingDriver = await findDriverByPhone(message.phone);
-    if (existingDriver) {
+  // HOTFIX: conductor registrado → nunca onboarding/Pionero ni creación de pasajero.
+  // Cubre 🚖, "Iniciar sesión" y cualquier mensaje antes de los gates de pasajero.
+  const registeredDriver = await findDriverByPhone(message.phone);
+  if (registeredDriver) {
+    const identitySession = await getSession(message.phone);
+    if (isWaitingIdentity(identitySession)) {
+      await clearSession(message.phone);
+      console.log(
+        "[hotfix:driver-route] limpiar sesión identidad pasajero (conductor registrado)",
+        { phone: message.phone },
+      );
+    }
+
+    if (isDriverAuthButton(message.button)) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: "driver_auth_button",
+        flowSelected: "handleDriverAuthButton_early",
+        reason:
+          "HOTFIX: Iniciar sesión / auth con conductor registrado; bypass Pionero",
+        extra: { driverId: registeredDriver.id, button: message.button },
+      });
+      await handleDriverAuthButton(message.phone, message.button);
+      return;
+    }
+
+    if (isDriverIntent(message.text)) {
       logRouteDiag({
         received: message.text,
         intentDetected: matchesDriverTaxiEmoji(message.text)
@@ -392,75 +415,72 @@ export async function handleIncomingMessage(
           : "driver_phrase",
         flowSelected: "routeDriverModuleEntry_early",
         reason:
-          "REF-003.1: conductor registrado; bypass onboarding pasajero/Pionero",
-        extra: { driverId: existingDriver.id },
+          "HOTFIX: conductor registrado; bypass onboarding pasajero/Pionero",
+        extra: { driverId: registeredDriver.id },
       });
       await routeDriverModuleEntry(message.phone);
       return;
     }
-  }
 
-  // USER-001: identidad en curso (full_name / preferred / origen) — debe ir
-  // antes del gate de nuevo usuario para no romper el onboarding pionero.
-  if (await continuePreferredNameFlow(message)) {
-    logRouteDiag({
-      received: message.text,
-      intentDetected: matchesDriverTaxiEmoji(message.text)
-        ? "driver_emoji_but_swallowed"
-        : "passenger_identity_session",
-      flowSelected: "continuePreferredNameFlow",
-      reason:
-        "Sesión identidad pasajero activa; no continúa a solicitud de servicios",
-    });
-    return;
-  }
+    // No ejecutar gates de pasajero (identidad / PRE_LAUNCH / Pionero) más abajo.
+  } else {
+    // USER-001: identidad en curso — solo usuarios que no son conductores registrados.
+    if (await continuePreferredNameFlow(message)) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: matchesDriverTaxiEmoji(message.text)
+          ? "driver_emoji_but_swallowed"
+          : "passenger_identity_session",
+        flowSelected: "continuePreferredNameFlow",
+        reason:
+          "Sesión identidad pasajero activa; no continúa a solicitud de servicios",
+      });
+      return;
+    }
 
-  // USER-001: !passenger && PRE_LAUNCH_MODE → onboarding pionero y return inmediato.
-  // No debe caer al funnel de Solicitar servicio / mobility intent.
-  if (await handlePreLaunchNewUserIfNeeded(message.phone, message.name)) {
-    logRouteDiag({
-      received: message.text,
-      intentDetected: "pre_launch_new_user",
-      flowSelected: "handlePreLaunchNewUserIfNeeded",
-      reason:
-        "!passenger && PRE_LAUNCH_MODE → onboarding pionero; return inmediato",
-      extra: {
-        preLaunch: isPreLaunchMode(),
-        preLaunchEnv: process.env.PRE_LAUNCH_MODE ?? "(unset)",
-      },
-    });
-    return;
-  }
+    // USER-001: !passenger && PRE_LAUNCH_MODE → onboarding pionero.
+    if (await handlePreLaunchNewUserIfNeeded(message.phone, message.name)) {
+      logRouteDiag({
+        received: message.text,
+        intentDetected: "pre_launch_new_user",
+        flowSelected: "handlePreLaunchNewUserIfNeeded",
+        reason:
+          "!passenger && PRE_LAUNCH_MODE → onboarding pionero; return inmediato",
+        extra: {
+          preLaunch: isPreLaunchMode(),
+          preLaunchEnv: process.env.PRE_LAUNCH_MODE ?? "(unset)",
+        },
+      });
+      return;
+    }
 
-  // USER-001: pasajero existente sin acceso — bloquea saludo/menú y Solicitar.
-  // Conductores registrados no se cortan aquí (siguen al módulo conductor).
-  {
-    const existingPassenger = await findPassengerByPhone(message.phone);
-    const existingDriver = await findDriverByPhone(message.phone);
-    if (
-      existingPassenger &&
-      !canPassengerRequestService(existingPassenger.status) &&
-      !existingDriver
-    ) {
-      const blockNow =
-        message.button === BUTTON_IDS.SOLICITAR_SERVICIO ||
-        (isGreeting(message.text) && !message.button);
+    // USER-001: pasajero existente sin acceso — bloquea saludo/menú y Solicitar.
+    {
+      const existingPassenger = await findPassengerByPhone(message.phone);
+      if (
+        existingPassenger &&
+        !canPassengerRequestService(existingPassenger.status)
+      ) {
+        const blockNow =
+          message.button === BUTTON_IDS.SOLICITAR_SERVICIO ||
+          (isGreeting(message.text) && !message.button);
 
-      if (blockNow) {
-        console.log("[user-001:prelaunch] rama PIONEER_EXISTENTE bloqueado", {
-          phone: message.phone,
-          status: existingPassenger.status,
-          button: message.button,
-          text: message.text,
-        });
-        await sendTextMessage(
-          message.phone,
-          accessDeniedMessage(
-            existingPassenger.status,
-            existingPassenger.preferred_name,
-          ),
-        );
-        return;
+        if (blockNow) {
+          console.log("[user-001:prelaunch] rama PIONEER_EXISTENTE bloqueado", {
+            phone: message.phone,
+            status: existingPassenger.status,
+            button: message.button,
+            text: message.text,
+          });
+          await sendTextMessage(
+            message.phone,
+            accessDeniedMessage(
+              existingPassenger.status,
+              existingPassenger.preferred_name,
+            ),
+          );
+          return;
+        }
       }
     }
   }
@@ -1018,7 +1038,7 @@ export async function handleIncomingMessage(
   }
 
   if (isDriverIntent(message.text)) {
-    // Conductor registrado: 🚖 → sesión o contraseña (sin cédula / sin identidad de pasajero).
+    // Conductor registrado: ya se manejó arriba; aquí solo inscripción nueva.
     const existingDriver = await findDriverByPhone(message.phone);
     if (existingDriver) {
       logRouteDiag({
@@ -1034,30 +1054,16 @@ export async function handleIncomingMessage(
       await routeDriverModuleEntry(message.phone);
       return;
     }
-    // Nuevo conductor: identidad de pasajero solo si aún no está registrado como driver.
+    // HOTFIX: inscripción conductor sin crear/forzar registro de pasajero.
     logRouteDiag({
       received: message.text,
       intentDetected: matchesDriverTaxiEmoji(message.text)
         ? "driver_taxi_emoji"
         : "driver_phrase",
-      flowSelected: "ensureIdentityOrPrompt_then_routeDriverModuleEntry",
+      flowSelected: "routeDriverModuleEntry_new_driver",
       reason:
-        "isDriverIntent=true pero NO hay driver: ANTES de inscripción se pide identidad de pasajero (aquí puede parecer flujo pasajero)",
+        "isDriverIntent=true sin driver → inscripción conductor (sin onboarding pasajero)",
     });
-    const passenger = await ensureIdentityOrPrompt(
-      message.phone,
-      message.name,
-    );
-    if (!passenger) {
-      logRouteDiag({
-        received: message.text,
-        intentDetected: "driver_intent_blocked_by_passenger_identity",
-        flowSelected: "ensureIdentityOrPrompt",
-        reason:
-          "Intención conductor detectada, pero ensureIdentityOrPrompt bloqueó y pidió full_name/preferred_name de pasajero",
-      });
-      return;
-    }
     await routeDriverModuleEntry(message.phone);
     return;
   }

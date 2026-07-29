@@ -13,6 +13,7 @@ import {
   findPassengerByPhone,
   type PassengerRow,
 } from "@/lib/supabase/passengers";
+import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { ensureIdentityOrPrompt } from "@/lib/preferred-name";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
@@ -43,6 +44,17 @@ export async function handlePreLaunchNewUserIfNeeded(
   phone: string,
   whatsappName: string,
 ): Promise<boolean> {
+  // HOTFIX: nunca crear Pionero / onboarding pasajero si ya es conductor.
+  const existingDriver = await findDriverByPhone(phone);
+  if (existingDriver) {
+    console.log("[user-001:prelaunch] rama SKIP", {
+      reason: "conductor_registrado",
+      phone,
+      driverId: existingDriver.id,
+    });
+    return false;
+  }
+
   const preLaunch = isPreLaunchMode();
   const existing = await findPassengerByPhone(phone);
 
