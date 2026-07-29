@@ -366,7 +366,10 @@ export async function applyPendingReferralForPassenger(
 }
 
 /**
- * Captura código desde mensaje WhatsApp (stash first-write-wins + auditoría).
+ * Captura código desde mensaje WhatsApp (REF-005: entrada directa wa.me).
+ * - Valida código / conductor activo.
+ * - Pending first-write-wins (no sobrescribe atribución).
+ * - Audita link_opened (o invalid_code).
  */
 export async function captureReferralCodeFromInbound(
   phone: string,
@@ -377,19 +380,36 @@ export async function captureReferralCodeFromInbound(
   if (!code) return null;
 
   const driver = await findDriverByReferralCode(code);
+
+  if (!driver || !isActiveReferrerDriver(driver)) {
+    await recordReferralEvent({
+      eventType: "invalid_code",
+      referralCode: code,
+      referrerDriverId: driver?.id ?? null,
+      meta: {
+        phone: normalizePhone(phone),
+        source: "whatsapp_inbound",
+        reason: !driver ? "not_found" : "driver_disabled",
+      },
+    }).catch((err) => {
+      console.error("[referrals] invalid_code inbound:", err);
+    });
+    return code;
+  }
+
   const stash = await stashPendingReferralCode(phone, code);
 
   await recordReferralEvent({
-    eventType: "link_shared",
+    eventType: "link_opened",
     referralCode: code,
-    referrerDriverId: driver?.id ?? null,
+    referrerDriverId: driver.id,
     meta: {
       phone: normalizePhone(phone),
       source: "whatsapp_inbound",
       stash: stash.reason,
     },
   }).catch((err) => {
-    console.error("[referrals] evento link_shared:", err);
+    console.error("[referrals] link_opened inbound:", err);
   });
 
   return code;

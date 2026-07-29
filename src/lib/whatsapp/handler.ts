@@ -363,8 +363,7 @@ export async function handleIncomingMessage(
     console.error("[search] processDueSearchTimeouts:", error);
   }
 
-  // REF-003: capturar código de referido del enlace sin alterar el onboarding.
-  // Si el mensaje es solo el token (p. ej. "REF DRV-XXXXX"), tratarlo como saludo.
+  // REF-005: REF DRV-XXXXX (wa.me) → stash + link_opened, luego saludo normal.
   try {
     const captured = await captureReferralCodeFromInbound(
       message.phone,

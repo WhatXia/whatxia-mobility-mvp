@@ -87,8 +87,8 @@ async function auditInvalid(
 }
 
 /**
- * Landing pública del enlace de referido (REF-004).
- * Valida código, audita clic/inválido y redirige a WhatsApp.
+ * Landing web legada `/r/[code]` (REF-005: solo compatibilidad).
+ * Los nuevos referidos usan wa.me directo; esta ruta redirige al chat oficial.
  */
 export default async function ReferralLandingPage({ params }: PageProps) {
   const { code: raw } = await params;

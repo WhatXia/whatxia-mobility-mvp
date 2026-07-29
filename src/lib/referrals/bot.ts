@@ -1,5 +1,5 @@
 /**
- * Handlers WhatsApp del programa de referidos (REF-003 / REF-004).
+ * Handlers WhatsApp del programa de referidos (REF-005: 100% wa.me).
  */
 
 import { findDriverByPhone } from "@/lib/supabase/drivers";
@@ -7,7 +7,6 @@ import {
   getDriverReferralLink,
   getReferralStatsForDriver,
 } from "@/lib/referrals";
-import { buildReferralWhatsAppPrefill } from "@/lib/referrals/codes";
 import {
   sendButtonsMessage,
   sendCtaUrlMessage,
@@ -25,6 +24,7 @@ export function buildReferralShareMessage(input: {
     "👥 Programa de Referidos",
     "",
     "Comparte este enlace con familiares y amigos.",
+    "Al abrirlo, llegan directo al chat oficial de WhatXia.",
     "",
     "Toda persona que se registre mediante este enlace quedará asociada a tu cuenta.",
     "",
@@ -94,7 +94,7 @@ export async function handleDriverReferrals(phone: string): Promise<void> {
   ]);
 }
 
-/** Reenvía código + link para que el usuario lo copie (long-press). */
+/** Reenvía el wa.me para que el usuario lo copie (long-press). */
 export async function handleDriverReferralCopy(phone: string): Promise<void> {
   const payload = await loadDriverReferralPayload(phone);
   if (!payload) {
@@ -114,7 +114,9 @@ export async function handleDriverReferralCopy(phone: string): Promise<void> {
   ]);
 }
 
-/** Abre WhatsApp con el texto listo para compartir el enlace. */
+/**
+ * Comparte el enlace wa.me del conductor (abre selector de chat de WhatsApp).
+ */
 export async function handleDriverReferralShare(phone: string): Promise<void> {
   const payload = await loadDriverReferralPayload(phone);
   if (!payload) {
@@ -122,19 +124,14 @@ export async function handleDriverReferralShare(phone: string): Promise<void> {
     return;
   }
 
-  const shareText = encodeURIComponent(
-    [
-      "Únete a WhatXia con mi enlace de referido:",
-      payload.link,
-      "",
-      buildReferralWhatsAppPrefill(payload.code),
-    ].join("\n"),
+  const shareBody = encodeURIComponent(
+    `Únete a WhatXia con mi enlace:\n${payload.link}`,
   );
-  const shareUrl = `https://wa.me/?text=${shareText}`;
+  const shareUrl = `https://wa.me/?text=${shareBody}`;
 
   await sendCtaUrlMessage(
     phone,
-    "📤 Comparte tu enlace de referidos con familiares y amigos.",
+    "📤 Comparte tu enlace. Quien lo abra llegará al chat oficial de WhatXia con tu código.",
     { displayText: "Compartir enlace", url: shareUrl },
   );
   await sendButtonsMessage(phone, "¿Algo más?", [

@@ -1,5 +1,5 @@
 /**
- * Certificación REF-003 / REF-004 (sin I/O de red/DB).
+ * Certificación REF-003 / REF-004 / REF-005 (sin I/O de red/DB).
  * Ejecutar: npm run test:referrals
  */
 
@@ -8,15 +8,18 @@ import {
   buildReferralShareMessage,
 } from "./referrals/bot";
 import {
+  buildLegacyWebReferralLink,
   buildReferralLink,
   buildReferralWhatsAppPrefill,
   buildWhatsAppDeepLink,
   extractReferralCodeFromText,
   generateReferralCode,
+  getWhatsAppBusinessPhoneE164,
   isReferralOnlyMessage,
   isValidReferralCodeFormat,
   normalizeReferralCode,
   REFERRAL_CODE_PATTERN,
+  WHATXIA_OFFICIAL_WHATSAPP_E164,
 } from "./referrals/codes";
 import {
   computeReferralConversionPercent,
@@ -56,34 +59,55 @@ assert(isReferralOnlyMessage("REF DRV-AB23C"), "solo REF + código");
 assert(isReferralOnlyMessage("ref drv-ab23c"), "solo REF casefold");
 assert(!isReferralOnlyMessage("Hola REF DRV-AB23C"), "texto extra → no only");
 
+const prevPhone = process.env.WHATSAPP_BUSINESS_PHONE;
+const prevPublic = process.env.NEXT_PUBLIC_WHATSAPP_PHONE;
 const prevBase = process.env.REFERRAL_PUBLIC_BASE_URL;
 const prevSite = process.env.NEXT_PUBLIC_SITE_URL;
-const prevPhone = process.env.WHATSAPP_BUSINESS_PHONE;
-process.env.REFERRAL_PUBLIC_BASE_URL = "https://whatxia.com";
-delete process.env.NEXT_PUBLIC_SITE_URL;
-process.env.WHATSAPP_BUSINESS_PHONE = "+57 300 123 4567";
+delete process.env.WHATSAPP_BUSINESS_PHONE;
+delete process.env.NEXT_PUBLIC_WHATSAPP_PHONE;
 
 assert(
-  buildReferralLink("drv-ab23c") === "https://whatxia.com/r/DRV-AB23C",
-  "buildReferralLink",
+  WHATXIA_OFFICIAL_WHATSAPP_E164 === "573193455555",
+  "número oficial WhatXia",
+);
+assert(
+  getWhatsAppBusinessPhoneE164() === "573193455555",
+  "default teléfono oficial",
+);
+
+const expectedLink =
+  "https://wa.me/573193455555?text=" + encodeURIComponent("REF DRV-AB23C");
+assert(buildReferralLink("drv-ab23c") === expectedLink, "buildReferralLink wa.me");
+assert(
+  buildWhatsAppDeepLink("DRV-AB23C") === expectedLink,
+  "buildWhatsAppDeepLink = canónico",
 );
 assert(
   buildReferralWhatsAppPrefill("drv-ab23c") === "REF DRV-AB23C",
   "wa prefill",
 );
+
+process.env.WHATSAPP_BUSINESS_PHONE = "+57 300 123 4567";
 assert(
-  buildWhatsAppDeepLink("DRV-AB23C").startsWith(
-    "https://wa.me/573001234567?text=",
-  ),
-  "wa deep link con teléfono",
+  buildReferralLink("DRV-AB23C").startsWith("https://wa.me/573001234567?text="),
+  "override env teléfono",
 );
 
+process.env.REFERRAL_PUBLIC_BASE_URL = "https://whatxia.com";
+assert(
+  buildLegacyWebReferralLink("DRV-AB23C") ===
+    "https://whatxia.com/r/DRV-AB23C",
+  "landing legada /r solo compat",
+);
+
+if (prevPhone === undefined) delete process.env.WHATSAPP_BUSINESS_PHONE;
+else process.env.WHATSAPP_BUSINESS_PHONE = prevPhone;
+if (prevPublic === undefined) delete process.env.NEXT_PUBLIC_WHATSAPP_PHONE;
+else process.env.NEXT_PUBLIC_WHATSAPP_PHONE = prevPublic;
 if (prevBase === undefined) delete process.env.REFERRAL_PUBLIC_BASE_URL;
 else process.env.REFERRAL_PUBLIC_BASE_URL = prevBase;
 if (prevSite === undefined) delete process.env.NEXT_PUBLIC_SITE_URL;
 else process.env.NEXT_PUBLIC_SITE_URL = prevSite;
-if (prevPhone === undefined) delete process.env.WHATSAPP_BUSINESS_PHONE;
-else process.env.WHATSAPP_BUSINESS_PHONE = prevPhone;
 
 assert(
   isActiveReferrerDriver({ status: "active", documents_blocked: false }),
@@ -105,24 +129,23 @@ assert(computeReferralConversionPercent(1, 4) === 25, "conv 1/4 → 25%");
 assert(computeReferralConversionPercent(1, 3) === 33.3, "conv 1/3 → 33.3%");
 
 const share = buildReferralShareMessage({
-  code: "DRV-AB23C",
-  link: "https://whatxia.com/r/DRV-AB23C",
+  code: "DRV-A8F2K",
+  link: "https://wa.me/573193455555?text=REF%20DRV-A8F2K",
   totalReferrals: 3,
 });
 assert(share.includes("Programa de Referidos"), "copy título");
-assert(share.includes("https://whatxia.com/r/DRV-AB23C"), "copy enlace");
+assert(share.includes("wa.me/573193455555"), "copy enlace wa.me");
 assert(share.includes("🔗 Tu enlace:"), "copy label enlace");
-assert(share.includes("🏷️ Tu código: DRV-AB23C"), "copy código");
+assert(share.includes("🏷️ Tu código: DRV-A8F2K"), "copy código");
 assert(share.includes("Referidos registrados: 3"), "copy stats");
 
 const copyMsg = buildReferralCopyMessage(
-  "DRV-AB23C",
-  "https://whatxia.com/r/DRV-AB23C",
+  "DRV-A8F2K",
+  "https://wa.me/573193455555?text=REF%20DRV-A8F2K",
 );
 assert(copyMsg.includes("Copia tu enlace"), "copy CTA texto");
-assert(copyMsg.includes("https://whatxia.com/r/DRV-AB23C"), "copy CTA link");
+assert(copyMsg.includes("wa.me/573193455555"), "copy CTA link wa.me");
 
-// Escenarios REF-004 (reglas puras documentadas en certify)
 assert(
   !isActiveReferrerDriver({ status: "inactive", documents_blocked: false }),
   "escenario: código deshabilitado (driver inactive)",
