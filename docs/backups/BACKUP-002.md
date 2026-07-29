@@ -280,9 +280,10 @@ Ver `git log d8a65d7..BACKUP-002 --oneline` en el commit canónico. Incluye entr
 
 ```bash
 git fetch origin --tags
-git checkout backup/BACKUP-002
+# Preferir el tag anotado (evita ambigüedad con la rama local homónima):
+git checkout --detach refs/tags/backup/BACKUP-002
 # equivalente:
-git checkout e3ae87ecc08fe373aad145c8bd1c14a1af919cb6
+git checkout --detach e3ae87ecc08fe373aad145c8bd1c14a1af919cb6
 npm install
 npx tsc --noEmit
 npm run build
@@ -293,13 +294,17 @@ Verificación del commit:
 ```bash
 git log -1 --oneline
 # esperado: e3ae87e docs(infra): record BACKUP-002 canonical commit SHA…
+git rev-parse HEAD
+# esperado: e3ae87ecc08fe373aad145c8bd1c14a1af919cb6
 ```
+
+> Si existe rama local `backup/BACKUP-002` en `c819ded`, no usarla para restaurar; usar el **tag** o el SHA `e3ae87e`.
 
 Para recrear `main` local desde este punto (destructivo — solo con acuerdo del equipo):
 
 ```bash
 git checkout main
-git reset --hard backup/BACKUP-002
+git reset --hard e3ae87ecc08fe373aad145c8bd1c14a1af919cb6
 ```
 
 ### B. Restaurar esquema Supabase alineado
