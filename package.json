@@ -8,7 +8,8 @@
     "start": "next start -p 3002",
     "lint": "eslint",
     "test:referrals": "npx tsx src/lib/referrals.certify.ts",
-    "test:pioneers": "npx tsx src/lib/launch-programs/decision.certify.ts"
+    "test:pioneers": "npx tsx src/lib/launch-programs/decision.certify.ts",
+    "test:sistema": "npx tsx src/lib/bot-operational-status/decision.certify.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",

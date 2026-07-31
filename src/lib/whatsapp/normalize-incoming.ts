@@ -77,6 +77,17 @@ async function resolveAudioToText(
     return text;
   } catch (error) {
     console.error("[whatsapp:normalize] fallo al transcribir:", error);
+    try {
+      const { handleMaintenanceIfNeeded } = await import(
+        "@/lib/bot-operational-status/config"
+      );
+      // SYS-001: en mantenimiento no enviar errores de audio; solo el mensaje ops.
+      if (await handleMaintenanceIfNeeded(parsed.phone)) {
+        return null;
+      }
+    } catch (maintErr) {
+      console.error("[whatsapp:normalize] check mantenimiento:", maintErr);
+    }
     await sendTextMessage(
       parsed.phone,
       await cms("SYS_AUDIO_FAIL"),

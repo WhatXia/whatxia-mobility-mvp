@@ -140,6 +140,7 @@ import {
   isPreLaunchMode,
 } from "@/lib/passenger-status";
 import { drainLaunchOutboundQueue } from "@/lib/launch-programs/config";
+import { handleMaintenanceIfNeeded } from "@/lib/bot-operational-status/config";
 import {
   captureReferralCodeFromInbound,
 } from "@/lib/referrals";
@@ -368,6 +369,20 @@ export async function handleIncomingMessage(
   void drainLaunchOutboundQueue(10).catch((error) => {
     console.error("[launch-programs] drain outbound:", error);
   });
+
+  // SYS-001: mantenimiento — no flujos conversacionales (usuarios/conductores).
+  // Webhooks, crons y procesos automáticos de arriba no se bloquean.
+  if (await handleMaintenanceIfNeeded(message.phone)) {
+    logRouteDiag({
+      received: message.text,
+      intentDetected: "system_maintenance",
+      flowSelected: "handleMaintenanceIfNeeded",
+      reason:
+        "SYS-001 MAINTENANCE → solo mensaje configurado; sin onboarding/servicios/login",
+      extra: { phone: message.phone },
+    });
+    return;
+  }
 
   // REF-005: REF DRV-XXXXX (wa.me) → stash + link_opened, luego saludo normal.
   try {

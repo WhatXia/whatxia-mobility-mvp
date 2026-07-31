@@ -3675,6 +3675,16 @@ export const BOT_CMS_CATALOG = [
     "category": "SYSTEM"
   },
   {
+    "code": "SYS_BOT_MAINTENANCE",
+    "name": "Bot operational maintenance (SYS-001)",
+    "module": "SYSTEM",
+    "body": "👋 Hola. En este momento estamos realizando una actualización programada. En unos minutos volveremos a estar disponibles. Gracias por tu comprensión.",
+    "content_type": "text",
+    "source_file": "bot-operational-status/config.ts",
+    "source_symbol": "resolveMaintenanceMessage",
+    "category": "SYSTEM"
+  },
+  {
     "code": "P_FALLBACK_HELP",
     "name": "Fallback help",
     "module": "PASSENGER",

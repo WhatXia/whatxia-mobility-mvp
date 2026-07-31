@@ -248,3 +248,119 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+.panel {
+  max-width: 42rem;
+}
+
+.breadcrumb {
+  font-size: 0.8rem;
+  color: #3d5248;
+  margin-bottom: 0.35rem;
+}
+
+.panelTitle {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.panelLead {
+  color: #3d5248;
+  font-size: 0.95rem;
+  margin: 0.5rem 0 1rem;
+  line-height: 1.45;
+}
+
+.formCard {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #d5e0da;
+  border-radius: 0.85rem;
+  padding: 1.1rem 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.legend {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #3d5248;
+  margin-bottom: 0.5rem;
+}
+
+.toggleRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.toggleBtn {
+  border: 1px solid #c5d3cc;
+  background: #fff;
+  border-radius: 0.55rem;
+  padding: 0.55rem 0.9rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  color: #14201b;
+}
+
+.toggleBtnActive {
+  background: #e7f6ee;
+  border-color: #1f6b4f;
+  color: #145c3a;
+}
+
+.toggleBtnMaint {
+  background: #fff4d6;
+  border-color: #c9a227;
+  color: #7a5a00;
+}
+
+.fieldLabel {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #244236;
+}
+
+.textarea {
+  width: 100%;
+  border: 1px solid #c5d3cc;
+  border-radius: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  font-size: 0.95rem;
+  font-family: inherit;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 7rem;
+}
+
+.fieldHint {
+  font-size: 0.8rem;
+  color: #3d5248;
+  margin: 0;
+}
+
+.fieldHint code {
+  font-size: 0.78rem;
+  background: #eef4f1;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.3rem;
+}
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.35rem;
+}
