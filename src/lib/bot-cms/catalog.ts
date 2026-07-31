@@ -3685,6 +3685,27 @@ export const BOT_CMS_CATALOG = [
     "category": "SYSTEM"
   },
   {
+    "code": "CITY_LAUNCH_MESSAGE",
+    "name": "Official city launch (PIONEERS-004)",
+    "module": "PIONEERS",
+    "body": "🚀 ¡{{nombre}}, WhatXia ya está activo en {{ciudad}}!\n\nYa puedes solicitar tu primer servicio. Bienvenido al lanzamiento.",
+    "content_type": "interactive",
+    "buttons": [
+      {
+        "id": "solicitar_servicio",
+        "title": "🚖 Solicitar servicio",
+        "sort_order": 0
+      }
+    ],
+    "variables": [
+      "nombre",
+      "ciudad"
+    ],
+    "source_file": "launch-programs/city-launch.ts",
+    "source_symbol": "runCityLaunchAfterActivation",
+    "category": "PIONEERS"
+  },
+  {
     "code": "P_FALLBACK_HELP",
     "name": "Fallback help",
     "module": "PASSENGER",

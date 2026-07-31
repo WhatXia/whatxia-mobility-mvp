@@ -139,7 +139,10 @@ import {
   canPassengerRequestService,
   isPreLaunchMode,
 } from "@/lib/passenger-status";
-import { drainLaunchOutboundQueue } from "@/lib/launch-programs/config";
+import {
+  drainLaunchOutboundQueue,
+  processDueLaunchProgramClosures,
+} from "@/lib/launch-programs/config";
 import { handleMaintenanceIfNeeded } from "@/lib/bot-operational-status/config";
 import {
   captureReferralCodeFromInbound,
@@ -365,8 +368,15 @@ export async function handleIncomingMessage(
     console.error("[search] processDueSearchTimeouts:", error);
   }
 
+  // BUG-PIONEERS-003: cierre por ends_at (misma lógica que Desactivar).
+  try {
+    await processDueLaunchProgramClosures();
+  } catch (error) {
+    console.error("[launch-programs] processDueLaunchProgramClosures:", error);
+  }
+
   // CFG-001: drenar cola de mensajes de activación masiva (best-effort).
-  void drainLaunchOutboundQueue(10).catch((error) => {
+  void drainLaunchOutboundQueue(25).catch((error) => {
     console.error("[launch-programs] drain outbound:", error);
   });
 

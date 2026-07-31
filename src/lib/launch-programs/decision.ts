@@ -23,7 +23,8 @@ export function computeAcceptsNewPioneers(input: PioneerAcceptInput): boolean {
   const now = input.nowMs ?? Date.now();
   const withinStart =
     !input.startsAt || now >= new Date(input.startsAt).getTime();
-  const withinEnd = !input.endsAt || now <= new Date(input.endsAt).getTime();
+  // now >= ends_at → ventana cerrada (BUG-PIONEERS-003).
+  const withinEnd = !input.endsAt || now < new Date(input.endsAt).getTime();
   const underQuota =
     input.maxQuota == null ||
     input.registeredPioneers < Number(input.maxQuota);

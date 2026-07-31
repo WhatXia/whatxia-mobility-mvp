@@ -13,6 +13,12 @@ import {
   isPassengerStatus,
   type PassengerStatus,
 } from "@/lib/passenger-status";
+import { getSupabase } from "@/lib/supabase/client";
+import {
+  closeLaunchProgram,
+  PIONEERS_USERS_CODE,
+  type CloseLaunchProgramResult,
+} from "@/lib/launch-programs/config";
 
 async function requireOpsUser() {
   const supabase = await createServerSupabaseClient();
@@ -94,4 +100,46 @@ export async function setPassengerStatusAction(
   );
   revalidatePath("/ops/users");
   return updated;
+}
+
+/**
+ * Desactivar Programa Pioneros (misma función que el auto-fin por ends_at).
+ */
+export async function deactivatePioneersProgramAction(): Promise<
+  | { ok: true; result: CloseLaunchProgramResult }
+  | { ok: false; error: string }
+> {
+  const user = await requireOpsUser();
+  const supabase = getSupabase();
+  const { data: program, error: readError } = await supabase
+    .from("launch_programs")
+    .select("id, is_active")
+    .eq("code", PIONEERS_USERS_CODE)
+    .maybeSingle();
+
+  if (readError || !program?.id) {
+    return { ok: false, error: "Programa PIONEERS_USERS no encontrado." };
+  }
+
+  try {
+    // Misma función que el auto-fin por ends_at (BUG-PIONEERS-003).
+    const result = await closeLaunchProgram(String(program.id), {
+      source: "manual",
+      actorEmail: user.email ?? null,
+      actorId: user.id,
+      drainQueue: true,
+    });
+    revalidatePath("/ops/users");
+    revalidatePath("/ops/marketing/programas/pioneros");
+    return { ok: true, result };
+  } catch (err) {
+    console.error("[ops/users] deactivatePioneersProgram:", err);
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "No se pudo desactivar el programa.",
+    };
+  }
 }

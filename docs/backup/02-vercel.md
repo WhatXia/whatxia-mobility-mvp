@@ -28,7 +28,8 @@
 {
   "crons": [
     { "path": "/api/cron/documents", "schedule": "0 13 * * *" },
-    { "path": "/api/cron/tunnels", "schedule": "5 13 * * *" }
+    { "path": "/api/cron/tunnels", "schedule": "5 13 * * *" },
+    { "path": "/api/cron/launch-programs", "schedule": "* * * * *" }
   ]
 }
 ```
@@ -37,8 +38,11 @@
 |------|----------------|-----------|
 | `/api/cron/documents` | `0 13 * * *` | Recordatorios / bloqueo docs conductores |
 | `/api/cron/tunnels` | `5 13 * * *` | Cierre de túneles conversacionales vencidos |
+| `/api/cron/launch-programs` | `* * * * *` | BUG-PIONEERS-003: cierra programas vencidos + drena WhatsApp |
 
 También existe `/api/cron/search` (timeouts de búsqueda). **No** está registrado en `vercel.json`; el timeout también se dispara al recibir webhooks vía `processDueSearchTimeouts()`.
+
+> Requiere plan Vercel que permita cron cada minuto. Si el plan no lo permite, el cierre también corre lazy en cada webhook WhatsApp (`processDueLaunchProgramClosures`).
 
 Los crons validan `CRON_SECRET` (header/query según implementación de cada route).
 

@@ -30,6 +30,7 @@ export default async function OpsLayout({
         <nav className={styles.nav}>
           <Link href="/ops/users">Usuarios</Link>
           <Link href="/ops/referrals">Referidos</Link>
+          <Link href="/ops/marketing/programas/pioneros">Pioneros</Link>
           <Link href="/ops/sistema">Sistema</Link>
           <Link href="/login">Cuenta</Link>
         </nav>

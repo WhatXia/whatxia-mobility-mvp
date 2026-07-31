@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   activatePassenger,
   blockPassenger,
+  deactivatePioneersProgramAction,
   invitePassengerToBeta,
   invitePassengersToBetaBulk,
 } from "@/app/ops/users/actions";
@@ -29,6 +30,8 @@ type Props = {
   filter: ListPassengersFilter;
   initialQuery: string;
   preLaunch: boolean;
+  /** is_active en DB (puede diferir de acceptsNewPioneers si ya venció ends_at). */
+  programActive: boolean;
 };
 
 function badgeClass(status: PassengerStatus, stylesMap: typeof styles): string {
@@ -69,6 +72,7 @@ export function UsersDashboard({
   filter,
   initialQuery,
   preLaunch,
+  programActive,
 }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
@@ -134,6 +138,24 @@ export function UsersDashboard({
     { id: "BLOCKED", label: "Bloqueados" },
   ];
 
+  function deactivateProgram() {
+    setMessage(null);
+    startTransition(async () => {
+      const result = await deactivatePioneersProgramAction();
+      if (!result.ok) {
+        setMessage(result.error);
+        return;
+      }
+      const r = result.result;
+      setMessage(
+        r.alreadyLaunched
+          ? "El lanzamiento de ciudad ya se había ejecutado (sin reenvío)."
+          : `Programa cerrado + lanzamiento ciudad. Activados: ${r.activatedCount}. WhatsApp: ${r.messagesSent} ok / ${r.messagesFailed} fallidos.`,
+      );
+      router.refresh();
+    });
+  }
+
   return (
     <>
       <div className={styles.flag}>
@@ -142,6 +164,19 @@ export function UsersDashboard({
         {preLaunch
           ? " — usuarios nuevos → PIONEER (launch_programs.is_active)"
           : " — usuarios nuevos → ACTIVE (programa desactivado; BOT-001)"}
+        {programActive ? (
+          <>
+            {" · "}
+            <button
+              type="button"
+              className={styles.actionBtn}
+              disabled={pending}
+              onClick={deactivateProgram}
+            >
+              {pending ? "Desactivando…" : "Desactivar programa"}
+            </button>
+          </>
+        ) : null}
       </div>
 
       <div className={styles.statsGrid}>

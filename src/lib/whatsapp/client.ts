@@ -83,27 +83,57 @@ export async function sendCtaUrlMessage(
   });
 }
 
+export async function sendImageMessage(
+  to: string,
+  image: { link?: string; id?: string; caption?: string },
+) {
+  const payload: Record<string, unknown> = {};
+  if (image.id) payload.id = image.id;
+  else if (image.link) payload.link = image.link;
+  else throw new Error("sendImageMessage requiere link o id");
+  if (image.caption?.trim()) payload.caption = image.caption.trim();
+
+  return sendMessage({
+    to,
+    type: "image",
+    image: payload,
+  });
+}
+
 export async function sendButtonsMessage(
   to: string,
   bodyText: string,
   buttons: ReplyButton[],
+  options?: {
+    headerImage?: { link?: string; id?: string };
+  },
 ) {
+  const interactive: Record<string, unknown> = {
+    type: "button",
+    body: { text: bodyText },
+    action: {
+      buttons: buttons.map((button) => ({
+        type: "reply",
+        reply: {
+          id: button.id,
+          title: button.title.slice(0, 20),
+        },
+      })),
+    },
+  };
+
+  const img = options?.headerImage;
+  if (img?.id || img?.link) {
+    interactive.header = {
+      type: "image",
+      image: img.id ? { id: img.id } : { link: img.link },
+    };
+  }
+
   return sendMessage({
     to,
     type: "interactive",
-    interactive: {
-      type: "button",
-      body: { text: bodyText },
-      action: {
-        buttons: buttons.map((button) => ({
-          type: "reply",
-          reply: {
-            id: button.id,
-            title: button.title,
-          },
-        })),
-      },
-    },
+    interactive,
   });
 }
 

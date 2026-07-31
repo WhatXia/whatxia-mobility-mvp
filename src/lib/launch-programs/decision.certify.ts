@@ -75,6 +75,19 @@ assert(
   "ends_at pasado → no acepta",
 );
 
+// BUG-PIONEERS-003: en el instante ends_at ya no acepta (now >= ends_at)
+assert(
+  !computeAcceptsNewPioneers({
+    isActive: true,
+    startsAt: null,
+    endsAt: "2026-07-31T12:00:00.000Z",
+    maxQuota: null,
+    registeredPioneers: 0,
+    nowMs: now,
+  }),
+  "now === ends_at → no acepta",
+);
+
 // starts_at futuro → no acepta
 assert(
   !computeAcceptsNewPioneers({
