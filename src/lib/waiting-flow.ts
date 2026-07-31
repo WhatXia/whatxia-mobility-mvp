@@ -1,3 +1,4 @@
+import { catalogBody, cms } from "@/lib/bot-cms/copy";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import {
   cancelTrip,
@@ -32,24 +33,7 @@ import { closeTunnelForTrip } from "@/lib/tunnels";
 export const SEARCH_CONTINUE_PREFIX = "search_continue";
 export const SEARCH_CANCEL_PREFIX = "search_cancel";
 
-export const NO_DRIVER_MESSAGE = [
-  "Lo sentimos.",
-  "En este momento no encontramos un vehículo disponible en tu zona.",
-  "Inténtalo nuevamente en unos minutos. Gracias por elegir WhatXia.",
-].join("\n");
-
-const PROMPT_WAVE_1 = [
-  "Aún no hemos encontrado un conductor disponible para tu solicitud.",
-  "",
-  "¿Deseas que sigamos buscando?",
-].join("\n");
-
-const PROMPT_WAVE_2 = [
-  "Seguimos buscando un conductor para ti.",
-  "En este momento la disponibilidad es limitada.",
-  "",
-  "¿Deseas que continuemos buscando?",
-].join("\n");
+export const NO_DRIVER_MESSAGE = catalogBody("NO_DRIVERS_AVAILABLE");
 
 export function searchContinueButtonId(tripId: string) {
   return `${SEARCH_CONTINUE_PREFIX}:${tripId}`;
@@ -137,12 +121,12 @@ export function shouldAutoCancelSearch(input: {
   );
 }
 
-function promptBodyForReminderCount(reminderCount: number): string {
-  return reminderCount >= 1 ? PROMPT_WAVE_2 : PROMPT_WAVE_1;
-}
-
 async function sendContinueSearchPrompt(trip: Trip): Promise<void> {
-  const body = promptBodyForReminderCount(trip.searchReminderCount);
+  const code =
+    trip.searchReminderCount >= 1
+      ? "P_SEARCH_PROMPT_WAVE_2"
+      : "P_SEARCH_PROMPT_WAVE_1";
+  const body = await cms(code);
 
   await sendButtonsMessage(trip.passengerPhone, body, [
     {
@@ -158,7 +142,7 @@ async function sendContinueSearchPrompt(trip: Trip): Promise<void> {
 
 export async function closeSearchWithoutDriver(
   tripId: string,
-  message: string = NO_DRIVER_MESSAGE,
+  message?: string,
 ): Promise<Trip | null> {
   const cancelled = await cancelTrip(tripId, "cancelled_no_driver");
   if (!cancelled) {
@@ -168,9 +152,10 @@ export async function closeSearchWithoutDriver(
   await closeTunnelForTrip(cancelled.id);
   await clearSession(cancelled.passengerPhone);
 
+  const body = message ?? (await cms("NO_DRIVERS_AVAILABLE"));
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
   await sendPassengerActionMenu(cancelled.passengerPhone, "", {
-    body: message,
+    body,
   });
 
   console.log("[waiting-flow:closed]", {
@@ -195,7 +180,7 @@ export async function processDueWaitingFlow(): Promise<{
 
   for (const trip of duePrompt) {
     if (trip.searchReminderCount >= MAX_SEARCH_REMINDER_COUNT) {
-      const closed = await closeSearchWithoutDriver(trip.id, NO_DRIVER_MESSAGE);
+      const closed = await closeSearchWithoutDriver(trip.id);
       if (closed) {
         autoCancelled += 1;
       }
@@ -220,7 +205,7 @@ export async function processDueWaitingFlow(): Promise<{
   const dueCancel = await listTripsDueContinueTimeout();
 
   for (const trip of dueCancel) {
-    const closed = await closeSearchWithoutDriver(trip.id, NO_DRIVER_MESSAGE);
+    const closed = await closeSearchWithoutDriver(trip.id);
     if (closed) {
       autoCancelled += 1;
     }
@@ -244,14 +229,14 @@ export async function handleSearchContinue(
   const trip = await getTrip(tripId);
 
   if (!trip || !samePhone(trip.passengerPhone, passengerPhone)) {
-    await sendTextMessage(passengerPhone, "No encontramos esa solicitud.");
+    await sendTextMessage(passengerPhone, await cms("P_SEARCH_NOT_FOUND"));
     return;
   }
 
   if (trip.status !== "SEARCHING") {
     await sendTextMessage(
       passengerPhone,
-      "Esta solicitud ya no está en búsqueda.",
+      await cms("P_SEARCH_NOT_ACTIVE"),
     );
     return;
   }
@@ -259,7 +244,7 @@ export async function handleSearchContinue(
   // Mismo viaje: incrementar recordatorio + reiniciar temporizador 2 min.
   const cycled = await continueWaitingSearchCycle(trip.id);
   if (!cycled) {
-    await sendTextMessage(passengerPhone, "No se pudo reiniciar la búsqueda.");
+    await sendTextMessage(passengerPhone, await cms("P_SEARCH_RESTART_FAIL"));
     return;
   }
 
@@ -270,7 +255,7 @@ export async function handleSearchContinue(
 
   await sendTextMessage(
     passengerPhone,
-    "Perfecto. Seguimos buscando un conductor. Un momento, por favor.",
+    await cms("P_SEARCH_CONTINUE_OK"),
   );
 
   // Republicar oferta del mismo trip (no crea viaje nuevo).
@@ -290,14 +275,14 @@ export async function handleSearchCancel(
   const trip = await getTrip(tripId);
 
   if (!trip || !samePhone(trip.passengerPhone, passengerPhone)) {
-    await sendTextMessage(passengerPhone, "No encontramos esa solicitud.");
+    await sendTextMessage(passengerPhone, await cms("P_SEARCH_NOT_FOUND"));
     return;
   }
 
   if (trip.status !== "SEARCHING") {
     await sendTextMessage(
       passengerPhone,
-      "Esta solicitud ya no se puede cancelar.",
+      await cms("P_SEARCH_CANCEL_NOT_ALLOWED"),
     );
     return;
   }
@@ -312,7 +297,7 @@ export async function handleSearchCancel(
 
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
   await sendPassengerActionMenu(passengerPhone, "", {
-    body: "Solicitud cancelada.",
+    body: await cms("P_SEARCH_USER_CANCELLED"),
   });
 
   console.log("[waiting-flow:user-cancel]", { tripId: cancelled.id });

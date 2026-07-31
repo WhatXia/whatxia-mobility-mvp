@@ -4,6 +4,7 @@
  */
 
 import type { IncomingMessage } from "@/types";
+import { cms } from "@/lib/bot-cms/copy";
 import { getTranscriptionProvider } from "@/lib/voice/provider";
 import {
   downloadWhatsAppMedia,
@@ -78,7 +79,7 @@ async function resolveAudioToText(
     console.error("[whatsapp:normalize] fallo al transcribir:", error);
     await sendTextMessage(
       parsed.phone,
-      "No pude escuchar el audio. ¿Puedes escribirlo o enviar otra nota de voz?",
+      await cms("SYS_AUDIO_FAIL"),
     ).catch((sendError) => {
       console.error(
         "[whatsapp:normalize] no se pudo avisar fallo de audio:",

@@ -139,6 +139,7 @@ import {
   canPassengerRequestService,
   isPreLaunchMode,
 } from "@/lib/passenger-status";
+import { drainLaunchOutboundQueue } from "@/lib/launch-programs/config";
 import {
   captureReferralCodeFromInbound,
 } from "@/lib/referrals";
@@ -319,8 +320,8 @@ async function startPassengerRequest(
 ): Promise<void> {
   console.log("[user-001:prelaunch] startPassengerRequest enter", {
     phone,
-    preLaunch: isPreLaunchMode(),
-    preLaunchEnv: process.env.PRE_LAUNCH_MODE ?? "(unset)",
+    preLaunch: await isPreLaunchMode(),
+    source: "launch_programs.PIONEERS_USERS",
   });
 
   // BUG-001: identidad conocida (conductor) tiene prioridad sobre ensureIdentity/Pionero.
@@ -362,6 +363,11 @@ export async function handleIncomingMessage(
   } catch (error) {
     console.error("[search] processDueSearchTimeouts:", error);
   }
+
+  // CFG-001: drenar cola de mensajes de activación masiva (best-effort).
+  void drainLaunchOutboundQueue(10).catch((error) => {
+    console.error("[launch-programs] drain outbound:", error);
+  });
 
   // REF-005: REF DRV-XXXXX (wa.me) → stash + link_opened, luego saludo normal.
   try {
@@ -433,17 +439,17 @@ export async function handleIncomingMessage(
       return;
     }
 
-    // USER-001: !passenger && PRE_LAUNCH_MODE → onboarding pionero.
+    // USER-001 / CFG-001: !passenger && programa Pioneros activo → onboarding.
     if (await handlePreLaunchNewUserIfNeeded(message.phone, message.name)) {
       logRouteDiag({
         received: message.text,
         intentDetected: "pre_launch_new_user",
         flowSelected: "handlePreLaunchNewUserIfNeeded",
         reason:
-          "!passenger && PRE_LAUNCH_MODE → onboarding pionero; return inmediato",
+          "!passenger && programa Pioneros activo → onboarding; return inmediato",
         extra: {
-          preLaunch: isPreLaunchMode(),
-          preLaunchEnv: process.env.PRE_LAUNCH_MODE ?? "(unset)",
+          preLaunch: await isPreLaunchMode(),
+          source: "launch_programs.PIONEERS_USERS",
         },
       });
       return;
@@ -469,7 +475,7 @@ export async function handleIncomingMessage(
           });
           await sendTextMessage(
             message.phone,
-            accessDeniedMessage(
+            await accessDeniedMessage(
               existingPassenger.status,
               existingPassenger.preferred_name,
             ),

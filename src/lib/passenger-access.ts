@@ -50,7 +50,7 @@ export async function resolvePassengerForServiceRequest(
     if (passenger.status === "BLOCKED") {
       await sendTextMessage(
         phone,
-        accessDeniedMessage(passenger.status, passenger.preferred_name),
+        await accessDeniedMessage(passenger.status, passenger.preferred_name),
       );
       console.log("[passenger-access] conductor/pasajero BLOCKED", {
         phone: passenger.phone,
@@ -90,7 +90,7 @@ export async function assertPassengerCanRequestService(
     if (passenger.status === "BLOCKED") {
       await sendTextMessage(
         phone,
-        accessDeniedMessage(passenger.status, passenger.preferred_name),
+        await accessDeniedMessage(passenger.status, passenger.preferred_name),
       );
       return null;
     }
@@ -104,7 +104,7 @@ export async function assertPassengerCanRequestService(
 
   await sendTextMessage(
     phone,
-    accessDeniedMessage(passenger.status, passenger.preferred_name),
+    await accessDeniedMessage(passenger.status, passenger.preferred_name),
   );
   console.log("[passenger-access] solicitud bloqueada", {
     phone: passenger.phone,
@@ -134,22 +134,24 @@ export async function handlePreLaunchNewUserIfNeeded(
     return false;
   }
 
-  const preLaunch = isPreLaunchMode();
+  const preLaunch = await isPreLaunchMode();
   const existing = await findPassengerByPhone(phone);
 
-  console.log("[user-001:prelaunch] evaluación", {
+  console.log("[bot-001:pioneers] evaluación", {
     phone,
-    preLaunch,
-    preLaunchEnv: process.env.PRE_LAUNCH_MODE ?? "(unset)",
+    programAccepting: preLaunch,
+    source: "launch_programs.PIONEERS_USERS",
     hasPassenger: Boolean(existing),
     passengerStatus: existing?.status ?? null,
+    // PRE_LAUNCH_MODE ya no decide (BOT-001); solo diagnóstico.
+    deprecatedEnvPreLaunch: process.env.PRE_LAUNCH_MODE ?? "(unset)",
   });
 
   if (existing || !preLaunch) {
-    console.log("[user-001:prelaunch] rama SKIP", {
+    console.log("[bot-001:pioneers] rama SKIP", {
       reason: existing
         ? "passenger_ya_existe"
-        : "PRE_LAUNCH_MODE_inactivo",
+        : "programa_pioneros_inactivo",
     });
     return false;
   }
@@ -170,7 +172,7 @@ export async function handlePreLaunchNewUserIfNeeded(
   if (!canPassengerRequestService(passenger.status)) {
     await sendTextMessage(
       phone,
-      accessDeniedMessage(passenger.status, passenger.preferred_name),
+      await accessDeniedMessage(passenger.status, passenger.preferred_name),
     );
     console.log("[user-001:prelaunch] pionero/bloqueado → mensaje acceso; fin", {
       status: passenger.status,

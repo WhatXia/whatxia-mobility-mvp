@@ -16,6 +16,7 @@ import {
   type Trip,
 } from "@/lib/trips";
 import { clearSession, upsertSession } from "@/lib/sessions";
+import { cms } from "@/lib/bot-cms/copy";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 export type CancelCausal =
@@ -161,7 +162,7 @@ export async function sendDriverCancelCausalMenu(
 ): Promise<void> {
   await sendButtonsMessage(
     driverPhone,
-    "¿Por qué deseas cancelar este servicio?",
+    await cms("P_CANCEL_CAUSAL_MENU"),
     [
       {
         id: cancelCausalButtonId("problema_mecanico", tripId),
@@ -270,17 +271,11 @@ async function applyDriverPolicy(
   }
 
   if (policy.sendWarning) {
-    await sendTextMessage(
-      driver.phone,
-      "Esta es tu segunda cancelación registrada. Recuerda aceptar únicamente los servicios que realmente puedas atender.",
-    );
+    await sendTextMessage(driver.phone, await cms("D_CANCEL_WARNING_2"));
   }
 
   if (policy.suspend) {
-    await sendTextMessage(
-      driver.phone,
-      "Has acumulado 3 cancelaciones. Tu cuenta queda suspendida 8 horas y no recibirás nuevas ofertas hasta entonces.",
-    );
+    await sendTextMessage(driver.phone, await cms("D_CANCEL_SUSPEND_3"));
   }
 
   return {
@@ -331,21 +326,18 @@ export async function cancelTripAsPassenger(
   const trip = await getTrip(tripId);
 
   if (!trip || !samePhone(trip.passengerPhone, passengerPhone)) {
-    await sendTextMessage(
-      passengerPhone,
-      "No encontramos un servicio activo para cancelar.",
-    );
+    await sendTextMessage(passengerPhone, await cms("P_CANCEL_NO_ACTIVE"));
     return null;
   }
 
   if (trip.status === "CANCELLED" || trip.status === "COMPLETED") {
-    await sendTextMessage(passengerPhone, "Este servicio ya no se puede cancelar.");
+    await sendTextMessage(passengerPhone, await cms("P_CANCEL_NOT_ALLOWED"));
     return null;
   }
 
   const cancelled = await cancelTrip(trip.id);
   if (!cancelled) {
-    await sendTextMessage(passengerPhone, "No se pudo cancelar el servicio.");
+    await sendTextMessage(passengerPhone, await cms("P_CANCEL_FAIL"));
     return null;
   }
 
@@ -365,7 +357,7 @@ export async function cancelTripAsPassenger(
 
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
   await sendPassengerActionMenu(passengerPhone, passenger?.name ?? "", {
-    body: "Servicio cancelado. El canal de comunicación se cerró.",
+    body: await cms("P_CANCELLED_CHANNEL_CLOSED"),
   });
 
   if (cancelled.assignedDriverPhone) {
@@ -375,12 +367,12 @@ export async function cancelTripAsPassenger(
     if (assignedDriver) {
       const { sendDriverMainMenu } = await import("@/lib/driver-menu");
       await sendDriverMainMenu(assignedDriver, cancelled.assignedDriverPhone, {
-        body: "⚠️ El pasajero canceló el servicio. Ya puedes recibir nuevas ofertas.",
+        body: await cms("D_PASSENGER_CANCELLED"),
       });
     } else {
       await sendTextMessage(
         cancelled.assignedDriverPhone,
-        "⚠️ El pasajero canceló el servicio. Ya puedes recibir nuevas ofertas.",
+        await cms("D_PASSENGER_CANCELLED"),
       );
     }
   }
@@ -407,23 +399,17 @@ export async function cancelTripAsDriver(
     !driver ||
     !samePhone(trip.assignedDriverPhone, driverPhone)
   ) {
-    await sendTextMessage(
-      driverPhone,
-      "No encontramos un servicio activo para cancelar.",
-    );
+    await sendTextMessage(driverPhone, await cms("P_CANCEL_NO_ACTIVE"));
     return null;
   }
 
   if (trip.status === "CANCELLED" || trip.status === "COMPLETED") {
-    await sendTextMessage(driverPhone, "Este servicio ya no se puede cancelar.");
+    await sendTextMessage(driverPhone, await cms("P_CANCEL_NOT_ALLOWED"));
     return null;
   }
 
   if (trip.status === "SEARCHING") {
-    await sendTextMessage(
-      driverPhone,
-      "Este servicio ya está en búsqueda de otro conductor.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_CANCEL_ALREADY_SEARCHING"));
     return null;
   }
 
@@ -456,10 +442,7 @@ export async function cancelTripAsDriver(
   const researching = await returnTripToSearching(trip.id);
 
   if (!researching) {
-    await sendTextMessage(
-      driverPhone,
-      "No se pudo reasignar el servicio. Contacta soporte.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_REASSIGN_FAIL"));
     return null;
   }
 
@@ -481,12 +464,12 @@ export async function cancelTripAsDriver(
 
   await sendTextMessage(
     passengerPhone,
-    "Tu conductor canceló el servicio. Estamos buscando otro conductor para ti. Un momento, por favor.",
+    await cms("P_DRIVER_CANCELLED_RESEARCH"),
   );
 
   const { sendDriverMainMenu } = await import("@/lib/driver-menu");
   await sendDriverMainMenu(driver, driverPhone, {
-    body: `Servicio cancelado (${causalLabel}). Ya puedes recibir otros servicios.`,
+    body: await cms("D_CANCELLED_CAUSAL", { causal_label: causalLabel }),
   });
 
   const { republishTripToDrivers } = await import("@/lib/dispatch");
@@ -533,24 +516,21 @@ export async function handlePassengerYaVoy(
   const trip = await getTrip(tripId);
 
   if (!trip || !samePhone(trip.passengerPhone, passengerPhone)) {
-    await sendTextMessage(passengerPhone, "No encontramos ese servicio.");
+    await sendTextMessage(passengerPhone, await cms("P_YA_VOY_TRIP_MISSING"));
     return;
   }
 
   if (trip.status !== "DRIVER_ARRIVED") {
-    await sendTextMessage(
-      passengerPhone,
-      "Esta opción solo aplica cuando el conductor ya llegó.",
-    );
+    await sendTextMessage(passengerPhone, await cms("P_YA_VOY_WRONG_STATE"));
     return;
   }
 
-  await sendTextMessage(passengerPhone, "Listo, le avisamos a tu conductor.");
+  await sendTextMessage(passengerPhone, await cms("P_YA_VOY_OK"));
 
   if (trip.assignedDriverPhone) {
     await sendTextMessage(
       trip.assignedDriverPhone,
-      "🚶 El pasajero indicó que ya va hacia el punto de recogida.",
+      await cms("D_PASSENGER_YA_VOY"),
     );
   }
 }

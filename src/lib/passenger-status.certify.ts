@@ -1,13 +1,12 @@
 /**
- * Certificación USER-001 (sin I/O).
+ * Certificación USER-001 estados (sin I/O).
+ * El programa Pioneros (CFG-001) se valida en runtime contra launch_programs.
  * Ejecutar: npx tsx src/lib/passenger-status.certify.ts
  */
 
 import {
   canPassengerRequestService,
-  defaultStatusForNewPassenger,
   isPassengerStatus,
-  isPreLaunchMode,
 } from "./passenger-status";
 
 function assert(condition: boolean, label: string) {
@@ -26,17 +25,7 @@ assert(canPassengerRequestService("BETA"), "BETA puede pedir");
 assert(!canPassengerRequestService("PIONEER"), "PIONEER no puede pedir");
 assert(!canPassengerRequestService("BLOCKED"), "BLOCKED no puede pedir");
 
-const prev = process.env.PRE_LAUNCH_MODE;
-process.env.PRE_LAUNCH_MODE = "true";
-assert(isPreLaunchMode() === true, "flag true");
-assert(defaultStatusForNewPassenger() === "PIONEER", "nuevo → PIONEER");
-process.env.PRE_LAUNCH_MODE = "false";
-assert(isPreLaunchMode() === false, "flag false");
-assert(defaultStatusForNewPassenger() === "ACTIVE", "nuevo → ACTIVE");
-if (prev === undefined) {
-  delete process.env.PRE_LAUNCH_MODE;
-} else {
-  process.env.PRE_LAUNCH_MODE = prev;
-}
-
-console.log("passenger-status.certify: OK");
+console.log("passenger-status.certify: OK (estados)");
+console.log(
+  "Nota CFG-001: isPreLaunchMode/defaultStatusForNewPassenger leen launch_programs en DB.",
+);

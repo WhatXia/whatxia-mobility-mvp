@@ -13,6 +13,7 @@ import { formatDateForDisplay } from "@/lib/driver-profile-fields";
 import { syncDriverDocumentStatus } from "@/lib/document-jobs";
 import { sendExpiredDocumentsPrompt } from "@/lib/expired-docs-prompt";
 import { startDriverUpdate } from "@/lib/driver-update";
+import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 /**
@@ -75,10 +76,10 @@ export async function sendDriverMainMenu(
     : { id: DRIVER_MENU_IDS.TOGGLE_AVAILABILITY, title: "🟢 Disponible" };
 
   const statusLabel = driver.documents_blocked
-    ? "⛔ Bloqueado por documentos vencidos"
+    ? catalogBody("D_MAIN_STATUS_DOCS_BLOCKED")
     : driver.is_available
-      ? "🟢 Disponible para recibir servicios"
-      : "🔴 No disponible para recibir servicios";
+      ? catalogBody("D_MAIN_STATUS_AVAILABLE")
+      : catalogBody("D_MAIN_STATUS_UNAVAILABLE");
 
   let greetName = getDriverDisplayName(driver);
   if (options?.welcome) {
@@ -95,7 +96,7 @@ export async function sendDriverMainMenu(
   const body = trimmedBody
     ? trimmedBody
     : options?.welcome
-      ? `¡Hola, ${greetName}! 👋\n\n¿Qué deseas hacer?`
+      ? cmsSync("D_MAIN_WELCOME", { nombre: greetName })
       : statusLabel;
 
   await sendButtonsMessage(toPhone ?? driver.phone, body, [
@@ -123,7 +124,7 @@ export async function sendDriverMainMenu(
  * solo se oculta el acceso desde esta navegación.
  */
 export async function sendDriverAccountMenu(phone: string): Promise<void> {
-  await sendButtonsMessage(phone, "👤 Mi cuenta\n\n¿Qué deseas consultar?", [
+  await sendButtonsMessage(phone, await cms("D_ACCOUNT_MENU"), [
     { id: DRIVER_MENU_IDS.MI_PERFIL, title: "📋 Mi perfil" },
     { id: DRIVER_MENU_IDS.REFERIDOS, title: "👥 Referidos" },
     { id: DRIVER_MENU_IDS.VOLVER_PRINCIPAL, title: "⬅️ Volver" },
@@ -132,7 +133,7 @@ export async function sendDriverAccountMenu(phone: string): Promise<void> {
 
 /** Nivel: Mi perfil */
 export async function sendDriverProfileMenu(phone: string): Promise<void> {
-  await sendButtonsMessage(phone, "📋 Mi perfil\n\n¿Qué deseas ver?", [
+  await sendButtonsMessage(phone, await cms("D_PROFILE_MENU"), [
     { id: DRIVER_MENU_IDS.MIS_DATOS, title: "👤 Mis datos" },
     { id: DRIVER_MENU_IDS.RENDIMIENTO, title: "📊 Mi rendimiento" },
     { id: DRIVER_MENU_IDS.VOLVER_CUENTA, title: "⬅️ Volver" },
@@ -144,7 +145,7 @@ export async function sendDriverProfileMenu(phone: string): Promise<void> {
  * Conservado para reactivación futura; no expuesto en Mi cuenta por ahora.
  */
 export async function sendDriverSupportMenu(phone: string): Promise<void> {
-  await sendButtonsMessage(phone, "🆘 Soporte\n\n¿Cómo podemos ayudarte?", [
+  await sendButtonsMessage(phone, await cms("D_SUPPORT_MENU"), [
     { id: DRIVER_MENU_IDS.REPORTAR, title: "⚠️ Reportar novedad" },
     { id: DRIVER_MENU_IDS.CONTACTAR_ADMIN, title: "📞 Contactar admin" },
     { id: DRIVER_MENU_IDS.VOLVER_CUENTA, title: "⬅️ Volver" },
@@ -160,7 +161,7 @@ export async function handleToggleAvailability(phone: string): Promise<void> {
   const driver = await findDriverByPhone(phone);
 
   if (!driver) {
-    await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    await sendTextMessage(phone, await cms("D_NOT_REGISTERED"));
     return;
   }
 
@@ -179,7 +180,7 @@ export async function handleToggleAvailability(phone: string): Promise<void> {
     const until = new Date(driver.suspended_until).toLocaleString("es-CO");
     await sendTextMessage(
       phone,
-      `Estás suspendido hasta ${until}. No puedes activarte manualmente antes.`,
+      await cms("D_SUSPENDED_UNTIL", { until }),
     );
     return;
   }
@@ -193,13 +194,13 @@ export async function handleToggleAvailability(phone: string): Promise<void> {
   const updated = await setDriverAvailability(driver.id, nextAvailable);
 
   if (!updated) {
-    await sendTextMessage(phone, "No se pudo actualizar tu disponibilidad.");
+    await sendTextMessage(phone, await cms("D_AVAILABILITY_UPDATE_FAIL"));
     return;
   }
 
   const confirm = nextAvailable
-    ? "✅ Ahora estás disponible para recibir servicios."
-    : "✅ Ahora no estás disponible para recibir servicios.";
+    ? await cms("D_AVAILABILITY_ON")
+    : await cms("D_AVAILABILITY_OFF");
 
   await sendDriverMainMenu(updated, phone, { body: confirm });
 }
@@ -208,7 +209,7 @@ export async function handleDriverAccountMenu(phone: string): Promise<void> {
   const driver = await findDriverByPhone(phone);
 
   if (!driver) {
-    await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    await sendTextMessage(phone, await cms("D_NOT_REGISTERED"));
     return;
   }
 
@@ -224,7 +225,7 @@ export async function handleDriverNavBackToMain(phone: string): Promise<void> {
   const driver = await findDriverByPhone(phone);
 
   if (!driver) {
-    await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    await sendTextMessage(phone, await cms("D_NOT_REGISTERED"));
     return;
   }
 
@@ -250,7 +251,7 @@ export async function handleDriverProfile(phone: string): Promise<void> {
   const driver = await findDriverByPhone(phone);
 
   if (!driver) {
-    await sendTextMessage(phone, "No encontramos tu registro de conductor.");
+    await sendTextMessage(phone, await cms("D_NOT_REGISTERED"));
     return;
   }
 
@@ -260,33 +261,25 @@ export async function handleDriverProfile(phone: string): Promise<void> {
 
   await sendButtonsMessage(
     phone,
-    [
-      "👤 Mis datos",
-      "",
-      "— Personales —",
-      `Nombre completo: ${valueOrDash(driver.full_name || driver.name)} (solo lectura)`,
-      `Cédula: ${valueOrDash(driver.document_id)} (solo lectura)`,
-      `Correo: ${valueOrDash(driver.email)}`,
-      `Dirección: ${valueOrDash(driver.address)}`,
-      `Ciudad: ${valueOrDash(driver.city)}`,
-      `WhatsApp: ${valueOrDash(driver.phone)}`,
-      "",
-      "— Vehículo —",
-      `Placa: ${valueOrDash(driver.plate)}`,
-      `Marca: ${valueOrDash(driver.vehicle_brand)}`,
-      `Línea: ${valueOrDash(driver.vehicle_model)}`,
-      `Color: ${valueOrDash(driver.vehicle_color)}`,
-      "",
-      "— Documentos —",
-      `SOAT: ${formatDateForDisplay(driver.soat_expires_at)}`,
-      `Técnico-mecánica: ${formatDateForDisplay(driver.techno_expires_at)}`,
-      `Tarjeta operación: ${formatDateForDisplay(driver.operation_expires_at)}`,
-      `Licencia tránsito: ${formatDateForDisplay(driver.license_expires_at)}`,
-      "",
-      `Disponibilidad: ${availability}`,
-      `Cuenta: ${accountStatus}`,
-      `Bloqueo docs: ${blocked}`,
-    ].join("\n"),
+    cmsSync("D_PROFILE_DATA", {
+      full_name: valueOrDash(driver.full_name || driver.name),
+      document_id: valueOrDash(driver.document_id),
+      email: valueOrDash(driver.email),
+      address: valueOrDash(driver.address),
+      city: valueOrDash(driver.city),
+      phone: valueOrDash(driver.phone),
+      plate: valueOrDash(driver.plate),
+      brand: valueOrDash(driver.vehicle_brand),
+      model: valueOrDash(driver.vehicle_model),
+      color: valueOrDash(driver.vehicle_color),
+      soat: formatDateForDisplay(driver.soat_expires_at),
+      techno: formatDateForDisplay(driver.techno_expires_at),
+      operation: formatDateForDisplay(driver.operation_expires_at),
+      license: formatDateForDisplay(driver.license_expires_at),
+      availability,
+      account_status: accountStatus,
+      blocked,
+    }),
     [
       {
         id: DRIVER_MENU_IDS.ACTUALIZAR_DATOS,
@@ -305,18 +298,12 @@ export async function handleUpdateDriverData(phone: string): Promise<void> {
 }
 
 export async function handleDriverReport(phone: string): Promise<void> {
-  await sendTextMessage(
-    phone,
-    "⚠️ Reportar una novedad\n\nPronto podrás reportar incidencias desde aquí.",
-  );
+  await sendTextMessage(phone, await cms("D_REPORT_PLACEHOLDER"));
   await sendDriverSupportMenu(phone);
 }
 
 export async function handleDriverContactAdmin(phone: string): Promise<void> {
-  await sendTextMessage(
-    phone,
-    "📞 Contactar administrador\n\nPronto podrás comunicarte con el equipo de WhatXia desde aquí.\n\nPor ahora, escribe a soporte por los canales oficiales de WhatXia Mobility.",
-  );
+  await sendTextMessage(phone, await cms("D_CONTACT_ADMIN_PLACEHOLDER"));
   await sendDriverSupportMenu(phone);
 }
 

@@ -1,3 +1,4 @@
+import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import {
   findDriverByPhone,
   getDriverFullName,
@@ -60,6 +61,7 @@ import {
   finalizeFare,
   formatEstimatedFareRangeLine,
 } from "@/lib/tariff";
+import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
 import { getActiveCity } from "@/lib/city/context";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
 
@@ -196,8 +198,10 @@ export function parseDriverButton(
 /** Rating en el mensaje unificado de asignación (sin cambiar formatters de reputación). */
 function formatDriverStarsForAssignment(average: number | null): string {
   if (average == null) {
+    // TODO(bot-cms): "⭐ Calificación: Conductor nuevo." — no catalog code
     return "⭐ Calificación: Conductor nuevo.";
   }
+  // TODO(bot-cms): rated line uses runtime score — pass as {{rating_line}} var only
   return `⭐ Calificación: ${average.toFixed(1)}`;
 }
 
@@ -239,58 +243,41 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
 
   const updated = await setTripEta(trip.id, range.maxMinutes);
   if (!updated) {
-    await sendTextMessage(
-      driverPhone,
-      "No se pudo registrar el tiempo de llegada.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_ETA_REGISTER_FAIL"));
     return;
   }
 
-  const etaLabel = `${range.minMinutes}–${range.maxMinutes} minutos`;
   const plateLabel = plate.trim() || "Sin placa";
 
-  // Pasajero: UN solo mensaje (confirmación + conductor + placa + rating + ETA).
-  // No enviar ningún otro mensaje de ETA al pasajero después de este.
-  await sendButtonsMessage(
-    updated.passengerPhone,
-    [
-      "🚖 Confirmación del vehículo",
-      "",
-      `👤 Conductor: ${driverName}`,
-      "",
-      `🚖 Placa: ${plateLabel}`,
-      "",
-      `⏱️ Llega en: ${etaLabel}`,
-      "",
-      formatDriverStarsForAssignment(driverAverage),
-    ].join("\n"),
-    [
-      {
-        id: cancelServicioButtonId(updated.id),
-        title: "❌ Cancelar servicio",
-      },
-    ],
-  );
+  const passengerBody = await cms("P_VEHICLE_CONFIRMED", {
+    driver_name: driverName,
+    plate: plateLabel,
+    eta_min: String(range.minMinutes),
+    eta_max: String(range.maxMinutes),
+    rating_line: formatDriverStarsForAssignment(driverAverage),
+    tripId: updated.id,
+  });
 
-  // Conductor: UN solo mensaje (UX-004/004.1: breve + líneas en blanco).
-  await sendButtonsMessage(
-    driverPhone,
-    [
-      "✅ Servicio asignado",
-      "",
-      `👤 Pasajero: ${passengerFullName}`,
-      "",
-      "📍 Dirígete al punto de recogida.",
-    ].join("\n"),
-    [
-      { id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" },
-      { id: llegueButtonId(updated.id), title: "✅ Llegué" },
-      {
-        id: cancelServicioButtonId(updated.id),
-        title: "❌ Cancelar servicio",
-      },
-    ],
-  );
+  await sendButtonsMessage(updated.passengerPhone, passengerBody, [
+    {
+      id: cancelServicioButtonId(updated.id),
+      title: "❌ Cancelar servicio",
+    },
+  ]);
+
+  const driverBody = await cms("D_SERVICE_ASSIGNED", {
+    passenger_full_name: passengerFullName,
+    tripId: updated.id,
+  });
+
+  await sendButtonsMessage(driverPhone, driverBody, [
+    { id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" },
+    { id: llegueButtonId(updated.id), title: "✅ Llegué" },
+    {
+      id: cancelServicioButtonId(updated.id),
+      title: "❌ Cancelar servicio",
+    },
+  ]);
 
   console.log("[dispatch] asignación unificada + ETA automático:", {
     tripId: updated.id,
@@ -302,14 +289,9 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
 }
 
 async function sendArrivedButton(driverPhone: string, tripId: string) {
-  // Compat: flujo legacy (p. ej. botón ETA antiguo).
   await sendButtonsMessage(
     driverPhone,
-    [
-      "🚖 Dirígete al punto de recogida.",
-      '🧭 Usa "Ver ubicación" para llegar al pasajero.',
-      'Al llegar, presiona "Llegué".',
-    ].join("\n"),
+    await cms("D_ARRIVED_LEGACY_PROMPT", { tripId }),
     [
       { id: verUbicacionButtonId(tripId), title: "📍 Ver ubicación" },
       { id: llegueButtonId(tripId), title: "📍 Llegué" },
@@ -319,14 +301,9 @@ async function sendArrivedButton(driverPhone: string, tripId: string) {
 }
 
 async function sendStartTripButton(driverPhone: string, tripId: string) {
-  // UX-004: recordatorio de cobro solo aquí (antes de iniciar).
   await sendButtonsMessage(
     driverPhone,
-    [
-      "💰 Recuerda cobrar el valor que indique el taxímetro más $800 por solicitud del servicio.",
-      "",
-      "👤 Cuando el pasajero aborde el vehículo, inicia el viaje.",
-    ].join("\n"),
+    await cms("D_START_TRIP_PROMPT", { tripId }),
     [{ id: iniciarButtonId(tripId), title: "▶️ Iniciar viaje" }],
   );
 }
@@ -339,7 +316,10 @@ async function sendInProgressTripScreen(
   const label = trip.dropoffLabel?.trim() || "Destino";
   await sendButtonsMessage(
     driverPhone,
-    ["🏁 Destino", "", label].join("\n"),
+    await cms("D_IN_PROGRESS_SCREEN", {
+      dropoff_label: label,
+      tripId: trip.id,
+    }),
     [
       { id: navegarButtonId(trip.id), title: "🧭 Navegar al destino" },
       { id: finalizarButtonId(trip.id), title: "Terminar viaje" },
@@ -407,7 +387,7 @@ export async function offerTripToDrivers(
     console.warn("[dispatch] no hay conductores disponibles");
     const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
     await sendPassengerActionMenu(passengerPhone, "", {
-      body: "Por ahora no hay conductores disponibles. Intenta de nuevo en un momento.",
+      body: await cms("P_NO_DRIVERS_AT_PUBLISH"),
     });
     return;
   }
@@ -648,22 +628,20 @@ async function publishTripOffer(
     throw error;
   }
 
-  // UX-004 / 004.1: oferta breve + líneas en blanco entre bloques.
-  const body = [
-    "🚖 Nuevo servicio",
-    "",
-    `📍 Origen: ${pickupLabel}`,
-    "",
-    trip.dropoffLabel ? `🏁 Destino: ${trip.dropoffLabel}` : null,
-    trip.dropoffLabel ? "" : null,
-    trip.quotedFare != null
-      ? formatEstimatedFareRangeLine(trip.quotedFare)
-      : null,
-    trip.quotedFare != null ? "" : null,
-    formatPassengerReputationForOffer(passengerRep),
-  ]
-    .filter((line) => line !== null)
-    .join("\n");
+  const body = await cms("D_TRIP_OFFER", {
+    pickup: pickupLabel,
+    dropoff: trip.dropoffLabel ?? "—",
+    min:
+      trip.quotedFare != null
+        ? formatCopSymbol(trip.quotedFare)
+        : "—",
+    max:
+      trip.quotedFare != null
+        ? formatCopSymbol(trip.quotedFare + ESTIMATED_FARE_RANGE_MARGIN_COP)
+        : "—",
+    passenger_line: formatPassengerReputationForOffer(passengerRep),
+    tripId: trip.id,
+  });
 
   const buttons = [
     { id: acceptButtonId(trip.id), title: "✅ Aceptar" },
@@ -745,28 +723,19 @@ export async function handleDriverAccept(
   const trip = await getTrip(tripId);
 
   if (!trip || trip.status !== "SEARCHING") {
-    await sendTextMessage(
-      driverPhone,
-      "Este servicio ya fue tomado por otro conductor.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_TRIP_ALREADY_TAKEN"));
     return;
   }
 
   const driver = await findDriverByPhone(driverPhone);
 
   if (!driver) {
-    await sendTextMessage(
-      driverPhone,
-      "No encontramos tu registro de conductor.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NOT_REGISTERED"));
     return;
   }
 
   if (!driver.is_available) {
-    await sendTextMessage(
-      driverPhone,
-      "No estás disponible para aceptar servicios en este momento.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NOT_AVAILABLE"));
     return;
   }
 
@@ -779,10 +748,7 @@ export async function handleDriverAccept(
   );
 
   if (!assigned) {
-    await sendTextMessage(
-      driverPhone,
-      "Este servicio ya fue tomado por otro conductor.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_TRIP_ALREADY_TAKEN"));
     return;
   }
 
@@ -882,10 +848,10 @@ export async function handleDriverReject(
   if (driver) {
     const { sendDriverMainMenu } = await import("@/lib/driver-menu");
     await sendDriverMainMenu(driver, driverPhone, {
-      body: "Has rechazado el servicio.",
+      body: await cms("D_REJECTED"),
     });
   } else {
-    await sendTextMessage(driverPhone, "Has rechazado el servicio.");
+    await sendTextMessage(driverPhone, await cms("D_REJECTED"));
   }
 }
 
@@ -898,28 +864,19 @@ export async function handleDriverEta(
 
   if (!trip) {
     console.error("[dispatch] ETA sin viaje activo", { tripId, driverPhone, source });
-    await sendTextMessage(
-      driverPhone,
-      "No encontramos un servicio activo asignado a ti.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NO_ACTIVE_SERVICE"));
     return;
   }
 
   if (trip.status !== "ASSIGNED") {
-    await sendTextMessage(
-      driverPhone,
-      "El tiempo de llegada ya fue informado para este servicio.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_ETA_ALREADY_SET"));
     return;
   }
 
   const updated = await setTripEta(trip.id, minutes);
 
   if (!updated) {
-    await sendTextMessage(
-      driverPhone,
-      "No se pudo registrar el tiempo de llegada.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_ETA_REGISTER_FAIL"));
     return;
   }
 
@@ -927,7 +884,11 @@ export async function handleDriverEta(
 
   await sendButtonsMessage(
     updated.passengerPhone,
-    `Tu conductor ${driverName} llegará aproximadamente en ${minutes} minutos.`,
+    await cms("P_ETA_MANUAL", {
+      driver_name: driverName,
+      minutes: String(minutes),
+      tripId: updated.id,
+    }),
     [
       {
         id: cancelServicioButtonId(updated.id),
@@ -963,18 +924,12 @@ export async function handleDriverVerUbicacion(
       driverPhone,
       source,
     });
-    await sendTextMessage(
-      driverPhone,
-      "No encontramos un servicio activo asignado a ti.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NO_ACTIVE_SERVICE"));
     return;
   }
 
   if (trip.status !== "ETA_INFORMED" && trip.status !== "DRIVER_ARRIVED") {
-    await sendTextMessage(
-      driverPhone,
-      "La ubicación de recogida está disponible cuando ya vas hacia el pasajero.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_PICKUP_NAV_UNAVAILABLE"));
     return;
   }
 
@@ -991,14 +946,14 @@ export async function handleDriverVerUbicacion(
   });
 
   if (!url) {
-    await sendTextMessage(
-      driverPhone,
-      "No hay coordenadas de recogida para navegar.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NO_PICKUP_COORDS"));
     return;
   }
 
-  await sendCtaUrlMessage(driverPhone, `📍 Recoger en: ${label}`, {
+  await sendCtaUrlMessage(
+    driverPhone,
+    await cms("D_PICKUP_MAPS_CTA", { label }),
+    {
     displayText: "Abrir Google Maps",
     url,
   });
@@ -1018,10 +973,7 @@ export async function handleDriverLlegue(
 
   if (!trip) {
     console.error("[dispatch] Llegué sin viaje activo", { tripId, driverPhone, source });
-    await sendTextMessage(
-      driverPhone,
-      "No encontramos un servicio activo asignado a ti.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NO_ACTIVE_SERVICE"));
     return;
   }
 
@@ -1029,8 +981,8 @@ export async function handleDriverLlegue(
     await sendTextMessage(
       driverPhone,
       trip.status === "DRIVER_ARRIVED" || trip.status === "IN_PROGRESS"
-        ? "La llegada ya fue informada para este servicio."
-        : "Primero informa tu tiempo de llegada.",
+        ? await cms("D_ARRIVAL_ALREADY")
+        : await cms("D_ARRIVAL_NEED_ETA"),
     );
     return;
   }
@@ -1038,7 +990,7 @@ export async function handleDriverLlegue(
   const updated = await markDriverArrived(trip.id);
 
   if (!updated) {
-    await sendTextMessage(driverPhone, "No se pudo registrar la llegada.");
+    await sendTextMessage(driverPhone, await cms("D_ARRIVAL_REGISTER_FAIL"));
     return;
   }
 
@@ -1049,20 +1001,18 @@ export async function handleDriverLlegue(
     ? await findDriverByPhone(updated.assignedDriverPhone)
     : null;
   const plate = assignedDriver?.plate?.trim() || "Sin placa";
-  const arrivalHeadline = preferred
-    ? `🎉 ¡${preferred}, tu WhatXia ya llegó!`
-    : "🎉 ¡Tu WhatXia ya llegó!";
+  const arrivalBody = preferred
+    ? await cms("P_DRIVER_ARRIVED", {
+        preferred,
+        plate,
+        tripId: updated.id,
+      })
+    : await cms("P_DRIVER_ARRIVED_ANON", {
+        plate,
+        tripId: updated.id,
+      });
 
-  await sendButtonsMessage(
-    updated.passengerPhone,
-    [
-      arrivalHeadline,
-      "",
-      `Tu vehículo de placa ${plate} ya está esperándote.`,
-      "",
-      "WhatXia, moviendo vidas.",
-    ].join("\n"),
-    [
+  await sendButtonsMessage(updated.passengerPhone, arrivalBody, [
       { id: yaVoyButtonId(updated.id), title: "✅ Ya voy" },
       {
         id: cancelServicioButtonId(updated.id),
@@ -1089,10 +1039,7 @@ export async function handleDriverIniciarViaje(
 
   if (!trip) {
     console.error("[dispatch] Iniciar sin viaje activo", { tripId, driverPhone, source });
-    await sendTextMessage(
-      driverPhone,
-      "No encontramos un servicio activo asignado a ti.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NO_ACTIVE_SERVICE"));
     return;
   }
 
@@ -1100,8 +1047,8 @@ export async function handleDriverIniciarViaje(
     await sendTextMessage(
       driverPhone,
       trip.status === "IN_PROGRESS" || trip.status === "COMPLETED"
-        ? "El viaje ya fue iniciado."
-        : "Primero confirma que llegaste al punto de recogida.",
+        ? await cms("D_TRIP_ALREADY_STARTED")
+        : await cms("D_NEED_ARRIVAL"),
     );
     return;
   }
@@ -1109,7 +1056,7 @@ export async function handleDriverIniciarViaje(
   const updated = await startTrip(trip.id);
 
   if (!updated) {
-    await sendTextMessage(driverPhone, "No se pudo iniciar el viaje.");
+    await sendTextMessage(driverPhone, await cms("D_START_FAIL"));
     return;
   }
 
@@ -1138,18 +1085,12 @@ export async function handleDriverNavegarDestino(
       driverPhone,
       source,
     });
-    await sendTextMessage(
-      driverPhone,
-      "No encontramos un servicio activo asignado a ti.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NO_ACTIVE_SERVICE"));
     return;
   }
 
   if (trip.status !== "IN_PROGRESS") {
-    await sendTextMessage(
-      driverPhone,
-      "La navegación está disponible cuando el viaje está en curso.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NAV_ONLY_IN_PROGRESS"));
     return;
   }
 
@@ -1162,14 +1103,14 @@ export async function handleDriverNavegarDestino(
   });
 
   if (!url) {
-    await sendTextMessage(
-      driverPhone,
-      "No hay coordenadas de destino para navegar.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NO_DROPOFF_COORDS"));
     return;
   }
 
-  await sendCtaUrlMessage(driverPhone, `🎯 Destino: ${label}`, {
+  await sendCtaUrlMessage(
+    driverPhone,
+    await cms("D_DROPOFF_MAPS_CTA", { label }),
+    {
     displayText: "Abrir Google Maps",
     url,
   });
@@ -1193,10 +1134,7 @@ export async function handleDriverFinalizarViaje(
       driverPhone,
       source,
     });
-    await sendTextMessage(
-      driverPhone,
-      "No encontramos un servicio activo asignado a ti.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_NO_ACTIVE_SERVICE"));
     return;
   }
 
@@ -1210,8 +1148,8 @@ export async function handleDriverFinalizarViaje(
     await sendTextMessage(
       driverPhone,
       trip.status === "COMPLETED"
-        ? "Este viaje ya fue finalizado."
-        : "Primero inicia el viaje.",
+        ? await cms("D_ALREADY_FINISHED")
+        : await cms("D_NEED_START"),
     );
     return;
   }
@@ -1255,10 +1193,7 @@ export async function handleDriverFinalizarViaje(
     });
   } catch (error) {
     console.error("[dispatch] Tariff Engine finalizeFare error:", error);
-    await sendTextMessage(
-      driverPhone,
-      "No se pudo calcular la tarifa final. Intenta de nuevo en un momento.",
-    );
+    await sendTextMessage(driverPhone, await cms("D_FINAL_FARE_ERROR"));
     return;
   }
 
@@ -1269,7 +1204,7 @@ export async function handleDriverFinalizarViaje(
   });
 
   if (!updated) {
-    await sendTextMessage(driverPhone, "No se pudo finalizar el viaje.");
+    await sendTextMessage(driverPhone, await cms("D_FINISH_FAIL"));
     return;
   }
 
@@ -1296,13 +1231,7 @@ export async function handleDriverFinalizarViaje(
   await Promise.allSettled([
     sendTextMessage(
       updated.passengerPhone,
-      [
-        "✅ ¡Llegaste a tu destino!",
-        "",
-        "Recuerda que el valor a cancelar es el que indique el taxímetro, de acuerdo con la tarifa oficial vigente, más $800 por solicitud del servicio.",
-        "",
-        "Gracias por viajar con WhatXia. 🚖",
-      ].join("\n"),
+      await cms("P_TRIP_COMPLETED"),
     ),
   ]);
 

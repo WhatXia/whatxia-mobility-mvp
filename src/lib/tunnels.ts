@@ -1,5 +1,6 @@
 import { getSupabase } from "@/lib/supabase/client";
 import { getTrip, normalizePhone, samePhone } from "@/lib/trips";
+import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
 export type TunnelStatus = "active" | "closing" | "closed";
@@ -29,8 +30,7 @@ export type TunnelMessage = {
   created_at: string;
 };
 
-export const TUNNEL_CLOSED_MESSAGE =
-  "Este canal de comunicación ya no está disponible.";
+export const TUNNEL_CLOSED_MESSAGE = catalogBody("SYS_TUNNEL_CLOSED");
 
 const CLOSE_AFTER_MS = 5 * 60 * 1000;
 
@@ -668,7 +668,9 @@ export async function routeTunnelMessage(
     ? tunnel.driver_phone
     : tunnel.passenger_phone;
   const senderRole: TunnelSenderRole = isPassenger ? "passenger" : "driver";
-  const prefix = isPassenger ? "💬 Pasajero" : "💬 Conductor";
+  const relayBody = isPassenger
+    ? cmsSync("SYS_TUNNEL_RELAY_PASSENGER", { text: trimmed })
+    : cmsSync("SYS_TUNNEL_RELAY_DRIVER", { text: trimmed });
 
   const saved = await insertTunnelMessage({
     tunnelId: tunnel.id,
@@ -681,14 +683,14 @@ export async function routeTunnelMessage(
   });
 
   try {
-    await sendTextMessage(recipientPhone, `${prefix}:\n${trimmed}`);
+    await sendTextMessage(recipientPhone, relayBody);
     await updateMessageStatus(saved.id, "sent");
   } catch (error) {
     console.error("[tunnel] fallo al reenviar:", error);
     await updateMessageStatus(saved.id, "failed");
     await sendTextMessage(
       senderPhone,
-      "No pudimos entregar tu mensaje. Intenta de nuevo en un momento.",
+      await cms("SYS_TUNNEL_DELIVERY_FAIL"),
     );
   }
 

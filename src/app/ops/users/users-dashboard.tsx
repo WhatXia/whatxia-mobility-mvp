@@ -137,10 +137,11 @@ export function UsersDashboard({
   return (
     <>
       <div className={styles.flag}>
-        PRE_LAUNCH_MODE: <strong>{preLaunch ? "true" : "false"}</strong>
+        Programa Pioneros:{" "}
+        <strong>{preLaunch ? "activo" : "inactivo"}</strong>
         {preLaunch
-          ? " — usuarios nuevos → PIONEER"
-          : " — usuarios nuevos → ACTIVE"}
+          ? " — usuarios nuevos → PIONEER (launch_programs.is_active)"
+          : " — usuarios nuevos → ACTIVE (programa desactivado; BOT-001)"}
       </div>
 
       <div className={styles.statsGrid}>

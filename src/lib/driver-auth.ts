@@ -37,6 +37,7 @@ import {
   findPassengerByPhone,
   setPassengerPreferredName,
 } from "@/lib/supabase/passengers";
+import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import type { DriverDraft } from "@/lib/driver-profile-fields";
 
@@ -130,27 +131,17 @@ async function cancelPasswordReset(
 }
 
 function credentialsMessage(documentId: string, password: string): string {
-  return [
-    "✅ Contraseña configurada correctamente.",
-    "",
-    "Estos serán tus datos de acceso a WhatXia:",
-    "",
-    `Usuario: ${documentId}`,
-    `Contraseña: ${password}`,
-    "",
-    "Guárdalos en un lugar seguro. Por seguridad, no volveremos a mostrar tu contraseña.",
-  ].join("\n");
+  return cmsSync("D_CREDENTIALS_SHOWN", {
+    document_id: documentId,
+    password,
+  });
 }
 
 /** Sesión cerrada: solo Iniciar sesión + Solicitar servicio. */
 export async function sendDriverClosedSessionMenu(phone: string): Promise<void> {
   await sendButtonsMessage(
     phone,
-    [
-      "👋 WhatXia Mobility — Conductores",
-      "",
-      "Tu sesión está cerrada. ¿Qué deseas hacer?",
-    ].join("\n"),
+    await cms("D_CLOSED_SESSION_MENU"),
     [
       {
         id: DRIVER_AUTH_BUTTON_IDS.LOGIN,
@@ -180,11 +171,7 @@ export async function startDriverLogin(phone: string): Promise<void> {
 
   await sendButtonsMessage(
     phone,
-    [
-      "🔐 Iniciar sesión",
-      "",
-      "Escribe tu contraseña.",
-    ].join("\n"),
+    await cms("D_LOGIN_PASSWORD_PROMPT"),
     [
       {
         id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
@@ -242,7 +229,7 @@ export async function startDriverPasswordReset(phone: string): Promise<void> {
   if (!driver) {
     await sendTextMessage(
       phone,
-      "No encontramos tu registro de conductor. Envía 🚖 o 🚕 para registrarte.",
+      await cms("D_NOT_FOUND_REGISTER"),
     );
     return;
   }
@@ -266,7 +253,7 @@ export async function startDriverPasswordReset(phone: string): Promise<void> {
 
   await sendTextMessage(
     phone,
-    "Para verificar tu identidad necesito tu número de documento registrado en WhatXia.",
+    await cms("D_RESET_ASK_DOCUMENT"),
   );
 
   console.log("[driver-auth:reset] inicio", { phone });
@@ -287,7 +274,7 @@ export async function continueDriverPasswordReset(
   ) {
     await cancelPasswordReset(
       message.phone,
-      "⏱️ Se agotó el tiempo para restablecer la contraseña (10 minutos sin respuesta). Inténtalo de nuevo.",
+      await cms("D_RESET_TIMEOUT"),
     );
     return true;
   }
@@ -313,7 +300,7 @@ export async function continueDriverPasswordReset(
       });
       await sendTextMessage(
         message.phone,
-        "Para verificar tu identidad necesito tu número de documento registrado en WhatXia.",
+        await cms("D_RESET_ASK_DOCUMENT"),
       );
       return true;
     }
@@ -332,7 +319,7 @@ export async function continueDriverPasswordReset(
       if (attempts >= RESET_MAX_DOCUMENT_ATTEMPTS) {
         await cancelPasswordReset(
           message.phone,
-          "Has superado el máximo de intentos de verificación. Por seguridad, el restablecimiento fue cancelado. Comunícate con un administrador si necesitas ayuda.",
+          await cms("D_RESET_DOC_MAX"),
         );
         console.log("[driver-auth:reset] documento bloqueado por intentos", {
           phone: message.phone,
@@ -347,7 +334,7 @@ export async function continueDriverPasswordReset(
       });
       await sendTextMessage(
         message.phone,
-        "El documento no coincide con el registrado en tu cuenta. Inténtalo nuevamente o comunícate con un administrador.",
+        await cms("D_RESET_DOC_MISMATCH"),
       );
       return true;
     }
@@ -358,7 +345,7 @@ export async function continueDriverPasswordReset(
         attempts: getResetAttempts(session.driverDraft),
       }),
     });
-    await sendTextMessage(message.phone, "Escribe tu nueva contraseña.");
+    await sendTextMessage(message.phone, await cms("D_RESET_NEW_PASSWORD"));
     console.log("[driver-auth:reset] documento OK", { phone: message.phone });
     return true;
   }
@@ -369,7 +356,7 @@ export async function continueDriverPasswordReset(
         state: "DRIVER_RESET_PASSWORD",
         driverDraft: touchActivity(),
       });
-      await sendTextMessage(message.phone, "Escribe tu nueva contraseña.");
+      await sendTextMessage(message.phone, await cms("D_RESET_NEW_PASSWORD"));
       return true;
     }
 
@@ -390,7 +377,7 @@ export async function continueDriverPasswordReset(
     });
     await sendTextMessage(
       message.phone,
-      "Confirma nuevamente tu contraseña.",
+      await cms("D_RESET_CONFIRM"),
     );
     return true;
   }
@@ -403,7 +390,7 @@ export async function continueDriverPasswordReset(
     });
     await sendTextMessage(
       message.phone,
-      "Confirma nuevamente tu contraseña.",
+      await cms("D_RESET_CONFIRM"),
     );
     return true;
   }
@@ -414,7 +401,7 @@ export async function continueDriverPasswordReset(
       state: "DRIVER_RESET_PASSWORD",
       driverDraft: withResetMeta(stripPendingPassword(touchActivity()), {}),
     });
-    await sendTextMessage(message.phone, "Escribe tu nueva contraseña.");
+    await sendTextMessage(message.phone, await cms("D_RESET_NEW_PASSWORD"));
     return true;
   }
 
@@ -426,7 +413,7 @@ export async function continueDriverPasswordReset(
     });
     await sendTextMessage(
       message.phone,
-      "Las contraseñas no coinciden. Confirma nuevamente tu contraseña.",
+      await cms("D_RESET_MISMATCH"),
     );
     return true;
   }
@@ -435,7 +422,7 @@ export async function continueDriverPasswordReset(
   if (!driver) {
     await cancelPasswordReset(
       message.phone,
-      "No encontramos tu registro de conductor. Envía 🚖 o 🚕 para continuar.",
+      await cms("D_NOT_FOUND_CONTINUE"),
     );
     return true;
   }
@@ -447,9 +434,7 @@ export async function continueDriverPasswordReset(
   await sendTextMessage(
     message.phone,
     [
-      "✅ Tu contraseña fue actualizada correctamente.",
-      "",
-      "Ya puedes iniciar sesión nuevamente.",
+      await cms("D_RESET_OK"),
     ].join("\n"),
   );
 
@@ -478,7 +463,7 @@ export async function handleDriverAuthButton(
     if (!driver) {
       await sendTextMessage(
         phone,
-        "No encontramos tu registro de conductor. Envía 🚖 o 🚕 para registrarte.",
+        await cms("D_NOT_FOUND_REGISTER"),
       );
       return true;
     }
@@ -516,9 +501,7 @@ export async function handleDriverLogout(phone: string): Promise<void> {
   await sendTextMessage(
     phone,
     [
-      "✅ Tu sesión ha finalizado correctamente.",
-      "",
-      "Gracias por tu apoyo el día de hoy. Te esperamos nuevamente en WhatXia Mobility.",
+      await cms("D_LOGOUT_OK"),
     ].join("\n"),
   );
 
@@ -536,7 +519,7 @@ export async function requireDriverAuthenticated(
   if (!driver) {
     await sendTextMessage(
       phone,
-      "Debes iniciar sesión para usar el menú de conductor.",
+      await cms("D_LOGIN_REQUIRED"),
     );
     await sendDriverClosedSessionMenu(phone);
     return null;
@@ -564,7 +547,7 @@ export async function continueDriverLogin(
   }
 
   if (!message.text) {
-    await sendButtonsMessage(message.phone, "Escribe tu contraseña.", [
+    await sendButtonsMessage(message.phone, await cms("D_LOGIN_PASSWORD_SHORT"), [
       {
         id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
         title: "Olvidé contraseña",
@@ -594,9 +577,9 @@ export async function continueDriverLogin(
     });
     await sendTextMessage(
       message.phone,
-      "❌ Contraseña incorrecta. Intenta de nuevo.",
+      await cms("D_LOGIN_WRONG_PASSWORD"),
     );
-    await sendButtonsMessage(message.phone, "Escribe tu contraseña.", [
+    await sendButtonsMessage(message.phone, await cms("D_LOGIN_PASSWORD_SHORT"), [
       {
         id: DRIVER_AUTH_BUTTON_IDS.FORGOT_PASSWORD,
         title: "Olvidé contraseña",
@@ -611,11 +594,7 @@ export async function continueDriverLogin(
   return true;
 }
 
-const DRIVER_PREFERRED_PROMPT = [
-  "👋 Antes de continuar...",
-  "",
-  "¿Cómo prefieres que te llamemos?",
-].join("\n");
+const DRIVER_PREFERRED_PROMPT = catalogBody("D_PREFERRED_NAME_PROMPT");
 
 export function isDriverPreferredNameState(
   session: UserSession | undefined,
@@ -695,7 +674,7 @@ export async function continueDriverPreferredName(
   if (!raw || raw === "🚖" || raw === "🚕") {
     await sendTextMessage(
       message.phone,
-      "¿Cómo prefieres que te llamemos? Escribe solo ese nombre (ej. Carlos).",
+      await cms("P_PREFERRED_NAME_BLOCKED"),
     );
     return true;
   }
@@ -708,7 +687,7 @@ export async function continueDriverPreferredName(
   await clearSession(message.phone);
   await sendTextMessage(
     message.phone,
-    "✅ Gracias. Tu nombre preferido ha sido registrado.",
+    await cms("D_PREFERRED_NAME_SAVED"),
   );
 
   const latest = updated ?? { ...driver, preferred_name: preferred };
@@ -759,16 +738,7 @@ export async function startExistingDriverPasswordSetup(
     bookingDraft: null,
   });
 
-  await sendTextMessage(
-    phone,
-    [
-      "🔐 Configuración de acceso",
-      "",
-      "Para continuar, debes crear una contraseña de acceso a WhatXia.",
-      "",
-      "Escribe tu contraseña (mínimo 8 caracteres).",
-    ].join("\n"),
-  );
+  await sendTextMessage(phone, await cms("D_PASSWORD_SETUP_EXISTING"));
 }
 
 /** Tras el último campo del registro → pedir contraseña antes de crear el driver. */
@@ -785,14 +755,7 @@ export async function beginRegistrationPasswordSetup(
     bookingDraft: null,
   });
 
-  await sendTextMessage(
-    phone,
-    [
-      "🔐 Último paso: crea tu contraseña de acceso",
-      "",
-      "Escribe una contraseña (mínimo 8 caracteres).",
-    ].join("\n"),
-  );
+  await sendTextMessage(phone, await cms("D_PASSWORD_SETUP_REG"));
 }
 
 async function finishNewDriverRegistration(
@@ -803,10 +766,7 @@ async function finishNewDriverRegistration(
   const input = draftToCreateInput(phone, draft);
   if (!input) {
     await clearSession(phone);
-    await sendTextMessage(
-      phone,
-      "Faltan datos del registro. Envía 🚖 o 🚕 para reiniciar.",
-    );
+    await sendTextMessage(phone, await cms("D_REG_MISSING_DATA"));
     return;
   }
 
@@ -827,16 +787,7 @@ async function finishNewDriverRegistration(
       return;
     }
 
-    await sendTextMessage(
-      phone,
-      [
-        "Ya recibimos tu información.",
-        "",
-        "Ahora nuestro equipo realizará la validación correspondiente para activar tu cuenta como conductor de WhatXia.",
-        "",
-        "Una vez sea aprobada, podrás iniciar sesión enviando 🚖 o 🚕.",
-      ].join("\n"),
-    );
+    await sendTextMessage(phone, await cms("D_REG_PENDING_VALIDATION"));
     await sendDriverClosedSessionMenu(phone);
   } catch (error) {
     const code =
@@ -845,10 +796,7 @@ async function finishNewDriverRegistration(
         : "";
     if (code === "23505") {
       await clearSession(phone);
-      await sendTextMessage(
-        phone,
-        "Este conductor ya se encuentra registrado en WhatXia. Si necesitas actualizar tus datos, comunícate con un administrador.",
-      );
+      await sendTextMessage(phone, await cms("D_REG_ALREADY_EXISTS"));
       return;
     }
     throw error;
@@ -865,7 +813,7 @@ async function finishExistingDriverPassword(
     await clearSession(phone);
     await sendTextMessage(
       phone,
-      "No encontramos tu registro. Envía 🚖 o 🚕 para continuar.",
+      await cms("D_NOT_FOUND_GENERIC"),
     );
     return;
   }
@@ -896,15 +844,9 @@ export async function continueDriverPasswordSetup(
 
   if (!message.text) {
     if (session.state === "DRIVER_PASSWORD_CONFIRM") {
-      await sendTextMessage(
-        message.phone,
-        "Confirma tu contraseña escribiéndola de nuevo.",
-      );
+      await sendTextMessage(message.phone, await cms("D_PASSWORD_CONFIRM"));
     } else {
-      await sendTextMessage(
-        message.phone,
-        "Escribe tu contraseña (mínimo 8 caracteres).",
-      );
+      await sendTextMessage(message.phone, await cms("D_PASSWORD_WRITE_MIN"));
     }
     return true;
   }
@@ -915,8 +857,8 @@ export async function continueDriverPasswordSetup(
     await sendTextMessage(
       message.phone,
       session.state === "DRIVER_PASSWORD_CONFIRM"
-        ? "Confirma tu contraseña escribiéndola de nuevo."
-        : "Escribe tu contraseña (mínimo 8 caracteres).",
+        ? await cms("D_PASSWORD_CONFIRM")
+        : await cms("D_PASSWORD_WRITE_MIN"),
     );
     return true;
   }
@@ -935,10 +877,7 @@ export async function continueDriverPasswordSetup(
       driverName: session.driverName,
     });
 
-    await sendTextMessage(
-      message.phone,
-      "Confirma tu contraseña escribiéndola de nuevo.",
-    );
+    await sendTextMessage(message.phone, await cms("D_PASSWORD_CONFIRM"));
     return true;
   }
 
@@ -951,10 +890,7 @@ export async function continueDriverPasswordSetup(
       driverFlowStep: session.driverFlowStep,
       driverName: session.driverName,
     });
-    await sendTextMessage(
-      message.phone,
-      "No pudimos validar la contraseña. Escribe una nueva (mínimo 8 caracteres).",
-    );
+    await sendTextMessage(message.phone, await cms("D_PASSWORD_VALIDATE_FAIL"));
     return true;
   }
 
@@ -965,10 +901,7 @@ export async function continueDriverPasswordSetup(
       driverFlowStep: session.driverFlowStep,
       driverName: session.driverName,
     });
-    await sendTextMessage(
-      message.phone,
-      "Las contraseñas no coinciden. Escribe una nueva contraseña (mínimo 8 caracteres).",
-    );
+    await sendTextMessage(message.phone, await cms("D_PASSWORD_MISMATCH_RESTART"));
     return true;
   }
 

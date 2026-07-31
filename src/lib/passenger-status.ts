@@ -1,7 +1,15 @@
 /**
- * Estados de acceso del pasajero + Feature Flag PRE_LAUNCH_MODE (USER-001).
- * El gating depende de status; el flag solo define el status inicial de usuarios nuevos.
+ * Estados de acceso del pasajero (USER-001) + Programa de Lanzamiento (CFG-001).
+ * El status inicial de usuarios nuevos lo define `launch_programs` en Supabase.
  */
+
+import {
+  accessDeniedMessage as accessDeniedMessageFromProgram,
+  defaultStatusForNewPassenger as defaultStatusFromProgram,
+  isPreLaunchMode as isPreLaunchModeFromProgram,
+  pioneerWelcomeMessage as pioneerWelcomeFromProgram,
+} from "@/lib/launch-programs/config";
+import { catalogBody } from "@/lib/bot-cms/copy";
 
 export const PASSENGER_STATUSES = [
   "PIONEER",
@@ -19,17 +27,6 @@ export function isPassengerStatus(value: unknown): value is PassengerStatus {
   );
 }
 
-/** Feature Flag: true → nuevos usuarios como PIONEER; false → ACTIVE. */
-export function isPreLaunchMode(): boolean {
-  const raw = process.env.PRE_LAUNCH_MODE?.trim().toLowerCase();
-  return raw === "true" || raw === "1" || raw === "yes";
-}
-
-/** Status inicial al crear un pasajero (reutilizable en futuros lanzamientos). */
-export function defaultStatusForNewPassenger(): PassengerStatus {
-  return isPreLaunchMode() ? "PIONEER" : "ACTIVE";
-}
-
 /** Quién puede solicitar servicios. */
 export function canPassengerRequestService(
   status: PassengerStatus | string | null | undefined,
@@ -37,36 +34,31 @@ export function canPassengerRequestService(
   return status === "ACTIVE" || status === "BETA";
 }
 
-/** Mensaje final de onboarding / re-saludo Pionero (USER-001.3). */
-export function pioneerWelcomeMessage(
+/** Vigencia del programa Pioneros (DB). Reemplaza PRE_LAUNCH_MODE. */
+export async function isPreLaunchMode(): Promise<boolean> {
+  return isPreLaunchModeFromProgram();
+}
+
+export async function defaultStatusForNewPassenger(): Promise<PassengerStatus> {
+  return defaultStatusFromProgram();
+}
+
+export async function pioneerWelcomeMessage(
   preferredName?: string | null,
-): string {
-  const name = preferredName?.trim() || "Pionero";
-  return [
-    `🎉 ¡${name}, ya eres un Pionero de WhatXia!`,
-    "",
-    "Tu registro quedó confirmado.",
-    "",
-    "Desde hoy haces parte de los primeros colombianos en descubrir una nueva forma de vivir la movilidad.",
-    "",
-    "Muy pronto recibirás noticias exclusivas y el acceso al lanzamiento oficial.",
-    "",
-    "🚀 Gracias por creer en WhatXia desde el principio. Lo mejor está por comenzar.",
-  ].join("\n");
+): Promise<string> {
+  return pioneerWelcomeFromProgram(preferredName);
 }
 
 /** @deprecated usar pioneerWelcomeMessage(preferredName) */
-export const PIONEER_WELCOME_MESSAGE = pioneerWelcomeMessage();
+// TODO(bot-cms): no catalog code for this exact deprecated string — use pioneerWelcomeMessage()
+export const PIONEER_WELCOME_MESSAGE = catalogBody("P_PIONEER_WELCOME_FALLBACK").replace(
+  "{{nombre}}",
+  "Pionero",
+);
 
-export function accessDeniedMessage(
+export async function accessDeniedMessage(
   status: PassengerStatus | string | null | undefined,
   preferredName?: string | null,
-): string {
-  if (status === "BLOCKED") {
-    return "Tu cuenta está bloqueada. Si crees que es un error, comunícate con WhatXia.";
-  }
-  if (status === "PIONEER") {
-    return pioneerWelcomeMessage(preferredName);
-  }
-  return "Aún no tienes acceso para solicitar servicios. Pronto te avisaremos.";
+): Promise<string> {
+  return accessDeniedMessageFromProgram(status, preferredName);
 }

@@ -38,7 +38,7 @@ export default async function OpsUsersPage({ searchParams }: PageProps) {
       counts={counts}
       filter={filter}
       initialQuery={query}
-      preLaunch={isPreLaunchMode()}
+      preLaunch={await isPreLaunchMode()}
     />
   );
 }

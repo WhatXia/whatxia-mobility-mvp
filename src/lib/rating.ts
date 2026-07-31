@@ -1,3 +1,4 @@
+import { catalogBody, cms } from "@/lib/bot-cms/copy";
 import { clearSession } from "@/lib/sessions";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import { closeTunnelForTrip } from "@/lib/tunnels";
@@ -9,10 +10,10 @@ import { offerSaveFavoriteAfterRating } from "@/lib/route-favorites/flow";
 const RATING_PREFIX = "rating";
 const POST_RATING_PREFIX = "post_rating";
 
-const RATING_REPLIES: Record<number, string> = {
-  5: "¡Muchas gracias por tu calificación! 😊",
-  4: "Gracias por ayudarnos a mejorar.",
-  2: "Lamentamos que tu experiencia no haya sido la esperada. Seguiremos mejorando.",
+const RATING_REPLY_CODES: Record<number, string> = {
+  5: "P_RATING_REPLY_5",
+  4: "P_RATING_REPLY_4",
+  2: "P_RATING_REPLY_2",
 };
 
 function ratingButtonId(rating: number, tripId: string) {
@@ -65,11 +66,15 @@ export function parsePostRatingButton(
 
 export async function sendRatingPrompt(passengerPhone: string, tripId: string) {
   // Títulos ≤ 20 caracteres (límite WhatsApp).
-  await sendButtonsMessage(passengerPhone, "¿Cómo calificarías tu viaje?", [
-    { id: ratingButtonId(5, tripId), title: "⭐⭐⭐⭐⭐ Excelente" },
-    { id: ratingButtonId(4, tripId), title: "⭐⭐⭐⭐ Buena" },
-    { id: ratingButtonId(2, tripId), title: "⭐⭐ Regular" },
-  ]);
+  await sendButtonsMessage(
+    passengerPhone,
+    await cms("P_RATING_PROMPT"),
+    [
+      { id: ratingButtonId(5, tripId), title: "⭐⭐⭐⭐⭐ Excelente" },
+      { id: ratingButtonId(4, tripId), title: "⭐⭐⭐⭐ Buena" },
+      { id: ratingButtonId(2, tripId), title: "⭐⭐ Regular" },
+    ],
+  );
 }
 
 export async function sendPostRatingMenu(
@@ -79,7 +84,7 @@ export async function sendPostRatingMenu(
   // Menú continuo: favoritos / Solicitar (UX-002: sin Cancelar).
   const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
   await sendPassengerActionMenu(passengerPhone, "", {
-    body: "¿Qué deseas hacer?",
+    body: await cms("P_POST_RATING_CTA"),
   });
 }
 
@@ -93,7 +98,7 @@ export async function handlePassengerRating(
   if (!trip || !samePhone(trip.passengerPhone, passengerPhone)) {
     await sendTextMessage(
       passengerPhone,
-      "No encontramos el viaje para calificar.",
+      await cms("P_RATING_TRIP_MISSING"),
     );
     return;
   }
@@ -101,7 +106,7 @@ export async function handlePassengerRating(
   if (trip.rating !== null) {
     const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
     await sendPassengerActionMenu(passengerPhone, "", {
-      body: "Ya registramos tu calificación. ¡Gracias!",
+      body: await cms("P_RATING_ALREADY"),
     });
     return;
   }
@@ -111,15 +116,14 @@ export async function handlePassengerRating(
   if (!updated) {
     await sendTextMessage(
       passengerPhone,
-      "No se pudo guardar tu calificación.",
+      await cms("P_RATING_SAVE_FAIL"),
     );
     return;
   }
 
-  const reply =
-    RATING_REPLIES[rating] ?? "¡Gracias por tu calificación!";
-
-  await sendTextMessage(passengerPhone, reply);
+  const code =
+    RATING_REPLY_CODES[rating] ?? "P_RATING_REPLY_DEFAULT";
+  await sendTextMessage(passengerPhone, await cms(code));
 
   // Favoritos inteligentes: ofrecer guardar recorrido (origen + destino).
   await offerSaveFavoriteAfterRating(passengerPhone, tripId);
@@ -146,7 +150,7 @@ export async function handlePostRatingChoice(
   if (!trip || !samePhone(trip.passengerPhone, passengerPhone)) {
     await sendTextMessage(
       passengerPhone,
-      "No encontramos el viaje asociado a esta opción.",
+      await cms("P_POST_RATING_TRIP_MISSING"),
     );
     return;
   }
@@ -157,7 +161,7 @@ export async function handlePostRatingChoice(
     await clearSession(passengerPhone);
     const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
     await sendPassengerActionMenu(passengerPhone, name, {
-      body: "Listo. El canal se cerró.",
+      body: await cms("P_POST_RATING_CHANNEL_CLOSED"),
     });
     console.log("[rating:post] salir", { tripId, passengerPhone });
     return;
@@ -169,3 +173,10 @@ export async function handlePostRatingChoice(
 
   console.log("[rating:post] nuevo servicio", { tripId, passengerPhone });
 }
+
+/** @deprecated usar RATING_REPLY_CODES + cms */
+export const RATING_REPLIES: Record<number, string> = {
+  5: catalogBody("P_RATING_REPLY_5"),
+  4: catalogBody("P_RATING_REPLY_4"),
+  2: catalogBody("P_RATING_REPLY_2"),
+};

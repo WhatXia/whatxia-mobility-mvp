@@ -20,6 +20,7 @@ import {
   beginRegistrationPasswordSetup,
   routeAuthenticatedDriverEntry,
 } from "@/lib/driver-auth";
+import { catalogBody, cms } from "@/lib/bot-cms/copy";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 
 export const DRIVER_REG_BUTTON_IDS = {
@@ -31,23 +32,7 @@ export const DRIVER_REG_BUTTON_IDS = {
   RESTART: "driver_reg_restart",
 } as const;
 
-const WELCOME_REGISTRATION = [
-  "👋 Bienvenido a WhatXia Mobility.",
-  "",
-  "Vamos a completar tu registro como conductor.",
-  "",
-  "Antes de comenzar, ten presente lo siguiente:",
-  "",
-  "• Si seleccionas ✅ Continuar, iniciaremos tu registro.",
-  "",
-  "• Si seleccionas ❌ Abandonar, no se iniciará el registro y no se guardará ningún dato.",
-  "",
-  "Durante el registro:",
-  "",
-  "• Si seleccionas ❌ Cancelar inscripción, se eliminará el progreso de tu registro y, cuando vuelvas a iniciar, deberás comenzar desde cero.",
-  "",
-  "• Si seleccionas 🚪 Salir, guardaremos tu progreso y podrás continuar más adelante desde el punto donde quedaste enviando 🚖 o 🚕.",
-].join("\n");
+const WELCOME_REGISTRATION = catalogBody("D_REG_WELCOME");
 
 const WELCOME_BUTTONS = [
   { id: DRIVER_REG_BUTTON_IDS.START, title: "✅ Continuar" },
@@ -106,7 +91,7 @@ async function offerResumeRegistration(phone: string): Promise<void> {
   });
   await sendButtonsMessage(
     phone,
-    "Tienes un registro de conductor pendiente. ¿Qué deseas hacer?",
+    await cms("D_REG_RESUME"),
     [
       { id: DRIVER_REG_BUTTON_IDS.CONTINUE, title: "▶️ Continuar" },
       { id: DRIVER_REG_BUTTON_IDS.RESTART, title: "🔄 Empezar de nuevo" },
@@ -183,29 +168,20 @@ export async function handleDriverRegistrationButton(
 
   if (button === DRIVER_REG_BUTTON_IDS.ABANDON) {
     await clearSession(phone);
-    await sendTextMessage(
-      phone,
-      "Has abandonado el registro. No se guardó ningún dato.\n\nCuando quieras registrarte, envía 🚖 o 🚕.",
-    );
+    await sendTextMessage(phone, await cms("D_REG_ABANDONED"));
     return true;
   }
 
   if (button === DRIVER_REG_BUTTON_IDS.CANCEL) {
     await clearSession(phone);
-    await sendTextMessage(
-      phone,
-      "❌ Inscripción cancelada. Se eliminó todo el progreso.\n\nCuando quieras registrarte de nuevo, envía 🚖 o 🚕.",
-    );
+    await sendTextMessage(phone, await cms("D_REG_CANCELLED"));
     return true;
   }
 
   if (button === DRIVER_REG_BUTTON_IDS.EXIT) {
     const session = await getSession(phone);
     if (!session || session.state !== "DRIVER_REGISTERING") {
-      await sendTextMessage(
-        phone,
-        "No hay una inscripción en curso. Envía 🚖 o 🚕 para comenzar.",
-      );
+      await sendTextMessage(phone, await cms("D_REG_NO_ACTIVE"));
       return true;
     }
 
@@ -215,10 +191,7 @@ export async function handleDriverRegistrationButton(
       driverFlowStep: session.driverFlowStep,
       driverName: session.driverName,
     });
-    await sendTextMessage(
-      phone,
-      "🚪 Progreso guardado. Puedes continuar más adelante enviando 🚖 o 🚕.",
-    );
+    await sendTextMessage(phone, await cms("D_REG_EXIT_SAVED"));
     return true;
   }
 
@@ -237,7 +210,7 @@ export async function handleDriverRegistrationButton(
       driverFlowStep: step,
       driverName: session.driverName,
     });
-    await sendTextMessage(phone, "Continuamos tu registro desde donde quedaste.");
+    await sendTextMessage(phone, await cms("D_REG_CONTINUE_OK"));
     await sendRegistrationStepPrompt(phone, step);
     return true;
   }
@@ -281,10 +254,7 @@ export async function continueDriverRegistration(
   const step = session.driverFlowStep;
   if (!isFieldKey(step)) {
     await clearSession(message.phone);
-    await sendTextMessage(
-      message.phone,
-      "El registro se interrumpió. Envía 🚖 o 🚕 para reiniciar.",
-    );
+    await sendTextMessage(message.phone, await cms("D_REG_INTERRUPTED"));
     return true;
   }
 
@@ -300,10 +270,7 @@ export async function continueDriverRegistration(
     const existing = await findDriverByDocumentId(String(parsed.value));
     if (existing) {
       await clearSession(message.phone);
-      await sendTextMessage(
-        message.phone,
-        "Este conductor ya se encuentra registrado en WhatXia. Si necesitas actualizar tus datos, comunícate con un administrador.",
-      );
+      await sendTextMessage(message.phone, await cms("D_REG_ALREADY_EXISTS"));
       return true;
     }
   }
@@ -318,10 +285,7 @@ export async function continueDriverRegistration(
   if (!next) {
     const input = draftToCreateInput(message.phone, draft);
     if (!input) {
-      await sendTextMessage(
-        message.phone,
-        "Faltan datos del registro. Envía 🚖 o 🚕 para reiniciar.",
-      );
+      await sendTextMessage(message.phone, await cms("D_REG_MISSING_DATA"));
       await clearSession(message.phone);
       return true;
     }

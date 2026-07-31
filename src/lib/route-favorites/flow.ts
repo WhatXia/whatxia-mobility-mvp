@@ -17,6 +17,7 @@ import {
 } from "@/lib/passenger-status";
 import { getTrip, samePhone } from "@/lib/trips";
 import { closeTunnelForTrip } from "@/lib/tunnels";
+import { cms, cmsSync } from "@/lib/bot-cms/copy";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import {
   countRouteFavorites,
@@ -136,7 +137,11 @@ export function buildFavoritesGreeting(
   buttons: Array<{ id: string; title: string }>;
 } {
   const name = passengerName.trim() || "amigo";
-  const body = `¡Hola, ${name}! 👋\n\n¿A dónde vamos hoy? 🚖`;
+  const body = cmsSync("P_HOME_GREETING", {
+    nombre: name,
+    fav_id: "",
+    fav_name: "",
+  });
   const slice = favorites.slice(0, MAX_ROUTE_FAVORITES);
   const buttons: Array<{ id: string; title: string }> = slice.map((fav) => ({
     id: `${FAVORITE_BUTTON_IDS.FAVORITE_PREFIX}${fav.id}`,
@@ -184,7 +189,7 @@ export async function sendPassengerActionMenu(
     });
     await sendTextMessage(
       phone,
-      accessDeniedMessage(passenger.status, passenger.preferred_name),
+      await accessDeniedMessage(passenger.status, passenger.preferred_name),
     );
     return;
   }
@@ -202,7 +207,11 @@ export async function sendPassengerActionMenu(
     favorites.length > 0
       ? buildFavoritesGreeting(name, favorites)
       : {
-          body: `¡Hola, ${name}! 👋\n\n¿A dónde vamos hoy? 🚖`,
+          body: cmsSync("P_HOME_GREETING", {
+            nombre: name,
+            fav_id: "",
+            fav_name: "",
+          }),
           buttons: fallbackButtons,
         };
 
@@ -245,10 +254,7 @@ export async function handleUseFavorite(
   const favorite = await getRouteFavoriteById(favoriteId);
 
   if (!favorite || favorite.passengerId !== passenger.id) {
-    await sendTextMessage(
-      phone,
-      "No encontramos ese recorrido favorito.",
-    );
+    await sendTextMessage(phone, await cms("P_FAV_NOT_FOUND"));
     await sendPassengerActionMenu(phone, name);
     return;
   }
@@ -280,7 +286,7 @@ export async function offerSaveFavoriteAfterRating(
       passengerPhone,
       passenger.name || trip.passengerPhone,
       {
-        body: "¡Gracias por elegir WhatXia! 🚖",
+        body: await cms("P_FAV_THANKS_MAX"),
       },
     );
     return;
@@ -295,7 +301,7 @@ export async function offerSaveFavoriteAfterRating(
 
   await sendButtonsMessage(
     passengerPhone,
-    "¿Deseas guardar este recorrido como favorito?",
+    await cms("P_FAV_OFFER"),
     [
       { id: offerYesId(tripId), title: "✅ Sí" },
       { id: offerNoId(tripId), title: "❌ No" },
@@ -311,7 +317,7 @@ async function askFavoriteName(phone: string, tripId: string): Promise<void> {
 
   await sendButtonsMessage(
     phone,
-    "¿Cómo quieres llamar este recorrido favorito?",
+    await cms("P_FAV_NAME_CHOICE"),
     [
       { id: nameHomeId(tripId), title: "🏠 Casa" },
       { id: nameOfficeId(tripId), title: "🏢 Oficina" },
@@ -330,7 +336,7 @@ async function finishFavoriteSave(
     await clearSession(phone);
     await sendTextMessage(
       phone,
-      "No encontramos el recorrido para guardar como favorito.",
+      await cms("P_FAV_TRIP_MISSING"),
     );
     await sendPassengerActionMenu(phone);
     return;
@@ -340,7 +346,7 @@ async function finishFavoriteSave(
     await clearSession(phone);
     await sendTextMessage(
       phone,
-      "No pudimos guardar este recorrido porque faltan datos de origen o destino.",
+      await cms("P_FAV_INCOMPLETE_ROUTE"),
     );
     await sendPassengerActionMenu(phone);
     return;
@@ -352,10 +358,7 @@ async function finishFavoriteSave(
   if (count >= MAX_ROUTE_FAVORITES) {
     await sendTextMessage(
       phone,
-      [
-        "Ya tienes tus dos recorridos favoritos configurados.",
-        "Si deseas cambiar alguno, primero deberás reemplazar uno existente.",
-      ].join("\n"),
+      await cms("P_FAV_MAX_REACHED"),
     );
     await sendPassengerActionMenu(phone, passenger.name || "");
     return;
@@ -373,7 +376,7 @@ async function finishFavoriteSave(
     await clearSession(phone);
     await sendTextMessage(
       phone,
-      "No se pudo guardar el recorrido favorito. Intenta más adelante.",
+      await cms("P_FAV_SAVE_FAILED"),
     );
     await sendPassengerActionMenu(phone, passenger.name || "");
     return;
@@ -381,15 +384,7 @@ async function finishFavoriteSave(
 
   // Activa botones de inmediato (confirmación + CTA, sin saludo ¡Hola!).
   await sendPassengerActionMenu(phone, passenger.name || "", {
-    body: [
-      "✅ ¡Listo!",
-      "",
-      `Tu recorrido favorito quedó guardado con el nombre "${saved.name}".`,
-      "",
-      "La próxima vez solo tendrás que pulsar ese botón para solicitar este recorrido.",
-      "",
-      "¡Gracias por elegir WhatXia! 🚖",
-    ].join("\n"),
+    body: await cms("P_FAV_SAVED", { fav_name: saved.name }),
   });
   console.log("[route-favorites] guardado", {
     favoriteId: saved.id,
@@ -407,14 +402,14 @@ export async function handleFavoriteOfferChoice(
   const trip = await getTrip(tripId);
   if (!trip || !samePhone(trip.passengerPhone, phone)) {
     await clearSession(phone);
-    await sendTextMessage(phone, "No encontramos el viaje asociado.");
+    await sendTextMessage(phone, await cms("P_FAV_TRIP_ASSOC_MISSING"));
     return;
   }
 
   if (action === "no") {
     await clearSession(phone);
     await sendPassengerActionMenu(phone, "", {
-      body: "¿Qué deseas hacer?",
+      body: await cms("P_POST_RATING_CTA"),
     });
     return;
   }
@@ -424,10 +419,7 @@ export async function handleFavoriteOfferChoice(
   if (count >= MAX_ROUTE_FAVORITES) {
     await sendTextMessage(
       phone,
-      [
-        "Ya tienes tus dos recorridos favoritos configurados.",
-        "Si deseas cambiar alguno, primero deberás reemplazar uno existente.",
-      ].join("\n"),
+      await cms("P_FAV_MAX_REACHED"),
     );
     await sendPassengerActionMenu(phone, passenger.name || "");
     return;
@@ -448,7 +440,7 @@ export async function handleFavoriteNameChoice(
     });
     await sendTextMessage(
       phone,
-      "Escribe el nombre que deseas darle a este recorrido.",
+      await cms("P_FAV_CUSTOM_NAME_PROMPT"),
     );
     return;
   }
@@ -496,7 +488,7 @@ export async function continueFavoriteFlow(
     if (!message.text?.trim()) {
       await sendTextMessage(
         message.phone,
-        "Escribe el nombre que deseas darle a este recorrido.",
+        await cms("P_FAV_CUSTOM_NAME_PROMPT"),
       );
       return true;
     }
@@ -507,7 +499,7 @@ export async function continueFavoriteFlow(
   if (session.state === "FAVORITE_OFFER") {
     await sendButtonsMessage(
       message.phone,
-      "¿Deseas guardar este recorrido como favorito?",
+      await cms("P_FAV_OFFER"),
       [
         { id: offerYesId(tripId), title: "✅ Sí" },
         { id: offerNoId(tripId), title: "❌ No" },

@@ -18,6 +18,7 @@ import {
   formatEstimatedFareRangePassenger,
   tariffQuoteToFareQuote,
 } from "@/lib/tariff";
+import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
 import { offerTripToDrivers } from "@/lib/dispatch";
 import { clearSession, upsertSession } from "@/lib/sessions";
 import {
@@ -25,6 +26,7 @@ import {
   isPointInCity,
   outOfCityServiceMessage,
 } from "@/lib/city/context";
+import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import {
   sendButtonsMessage,
   sendLocationMessage,
@@ -64,17 +66,9 @@ const BOOKING_STATES: UserState[] = [
   "WAITING_PICKUP",
 ];
 
-const DROPOFF_NOT_FOUND_BODY = [
-  "Ups, no logramos encontrar ese destino.",
-  "",
-  "Puedes intentar una de estas opciones:",
-  "",
-  "📍 Compartir la ubicación en el mapa.",
-  "✍️ Escribir nuevamente el destino.",
-].join("\n");
+const DROPOFF_NOT_FOUND_BODY = catalogBody("P_DROPOFF_NOT_FOUND");
 
-const DROPOFF_LOCATION_PROMPT =
-  "Comparte la ubicación del destino en el mapa 📍 para continuar con tu cotización.";
+const DROPOFF_LOCATION_PROMPT = catalogBody("P_DROPOFF_LOCATION_PROMPT");
 
 export function isBookingState(state: UserState | undefined): boolean {
   return Boolean(state && BOOKING_STATES.includes(state));
@@ -92,13 +86,11 @@ function pickupDisplayLabel(draft: BookingDraft): string {
   );
 }
 
-const PICKUP_LOCATION_PROMPT =
-  "📍 Comparte tu ubicación actual para encontrarte más rápido.";
+const PICKUP_LOCATION_PROMPT = catalogBody("P_PICKUP_LOCATION_PROMPT");
 
 const DEFAULT_PICKUP_LABEL = "Punto de recogida";
 
-const ASK_DESTINATION =
-  "🚖 Perfecto. Ahora cuéntame, ¿cuál es tu destino?";
+const ASK_DESTINATION = catalogBody("P_ASK_DESTINATION");
 
 function askDestinationAfterPickup(_label: string): string {
   return ASK_DESTINATION;
@@ -110,11 +102,9 @@ async function askForPickupLocation(
 ): Promise<void> {
   // Meta oficial: interactive location_request_message + action send_location
   const body = pickupLabel?.trim()
-    ? [
-        `Recoger en: ${pickupLabel.trim()}`,
-        "",
-        PICKUP_LOCATION_PROMPT,
-      ].join("\n")
+    ? cmsSync("P_PICKUP_LOCATION_WITH_LABEL", {
+        pickup_label: pickupLabel.trim(),
+      })
     : PICKUP_LOCATION_PROMPT;
   await sendLocationRequestMessage(phone, body);
 }
@@ -205,16 +195,11 @@ async function sendPlaceForConfirm(
 
   await sendButtonsMessage(
     phone,
-    [
-      `📍 ${placeLabel(place)}`,
-      place.address ? place.address : null,
-      "",
-      `Mapa: ${mapsLink}`,
-      "",
-      "¿Es este el lugar correcto?",
-    ]
-      .filter((line) => line !== null)
-      .join("\n"),
+    await cms("P_PLACE_CONFIRM", {
+      place_label: placeLabel(place),
+      address: place.address ? `\n${place.address}` : "",
+      maps_link: mapsLink,
+    }),
     [
       { id: BOOKING_BUTTON_IDS.CONFIRM_PLACE, title: "✅ Confirmar" },
       { id: BOOKING_BUTTON_IDS.REJECT_PLACE, title: "No es este" },
@@ -227,18 +212,18 @@ async function sendCandidateList(
   candidates: PlaceCandidate[],
 ): Promise<void> {
   const top = topCandidates(candidates, 3);
-  const lines = [
-    "Encontramos varias opciones. Elige una:",
-    "",
-    ...top.map(
+  const candidatesList = top
+    .map(
       (c, i) =>
         `${i + 1}. ${c.name}${c.address ? ` — ${c.address}` : ""}`,
-    ),
-  ];
+    )
+    .join("\n");
 
   await sendButtonsMessage(
     phone,
-    lines.join("\n").slice(0, 1024),
+    (
+      await cms("P_PLACE_CANDIDATES", { candidates_list: candidatesList })
+    ).slice(0, 1024),
     top.map((c, i) => ({
       id: `${BOOKING_BUTTON_IDS.CANDIDATE_PREFIX}${i}`,
       title: `${i + 1}. ${c.name}`.slice(0, 20),
@@ -391,7 +376,7 @@ export async function startBookingFromIntent(
   await persistDraft(phone, name, "WAITING_PICKUP_TEXT", {
     originCapture: "label_plus_whatsapp_location",
   });
-  await sendTextMessage(phone, "¿Dónde te recogemos?");
+  await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
 }
 
 /** @deprecated Usar startBookingFromIntent (origen primero). */
@@ -549,10 +534,7 @@ async function resolveTextToPlace(
       await offerDropoffNotFoundOptions(phone, name, draft);
       return;
     }
-    await sendTextMessage(
-      phone,
-      "No pudimos buscar el lugar ahora. Intenta de nuevo en un momento.",
-    );
+    await sendTextMessage(phone, await cms("P_PLACES_SEARCH_ERROR"));
     return;
   }
 
@@ -569,10 +551,7 @@ async function resolveTextToPlace(
           route: undefined,
           quote: undefined,
         });
-        await sendTextMessage(
-          phone,
-          "Puedes escribir otro destino dentro de la ciudad o compartir la ubicación en el mapa.",
-        );
+        await sendTextMessage(phone, await cms("P_DROPOFF_RETRY_HINT"));
       }
       return;
     }
@@ -582,7 +561,7 @@ async function resolveTextToPlace(
     }
     await sendTextMessage(
       phone,
-      `No encontramos ese lugar en ${city.name}. Escribe una dirección o punto de referencia más claro.`,
+      await cms("P_PLACE_NOT_IN_CITY", { city_name: city.name }),
     );
     return;
   }
@@ -653,10 +632,7 @@ async function buildAndSendQuote(
       phone,
       continues: false,
     });
-    await sendTextMessage(
-      phone,
-      "Falta origen o destino. Escribe Hola para reiniciar.",
-    );
+    await sendTextMessage(phone, await cms("P_QUOTE_MISSING_PLACES"));
     return;
   }
 
@@ -699,10 +675,7 @@ async function buildAndSendQuote(
         continues: false,
         error,
       });
-      await sendTextMessage(
-        phone,
-        "No pudimos calcular la ruta. Revisa origen/destino o intenta luego.",
-      );
+      await sendTextMessage(phone, await cms("P_QUOTE_ROUTE_ERROR"));
       return;
     }
   } else {
@@ -723,15 +696,12 @@ async function buildAndSendQuote(
 
   await persistDraft(phone, name, "WAITING_QUOTE_CONFIRM", nextDraft);
 
-  const body = [
-    `📍 ${pickupDisplayLabel(draft)}`,
-    "",
-    `🏁 ${placeLabel(draft.dropoff)}`,
-    "",
-    formatEstimatedFareRangePassenger(quote.amount),
-    "",
-    "¿Confirmas tu solicitud?",
-  ].join("\n");
+  const body = await cms("P_QUOTE_CONFIRM", {
+    pickup: pickupDisplayLabel(draft),
+    dropoff: placeLabel(draft.dropoff!),
+    min: formatCopSymbol(quote.amount),
+    max: formatCopSymbol(quote.amount + ESTIMATED_FARE_RANGE_MARGIN_COP),
+  });
 
   await sendButtonsMessage(phone, body, [
     { id: BOOKING_BUTTON_IDS.REQUEST_TRIP, title: "✅ Solicitar" },
@@ -772,7 +742,7 @@ export async function handleBookingMessage(
       await clearSession(phone);
       const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
       await sendPassengerActionMenu(phone, name, {
-        body: "Operación cancelada.",
+        body: await cms("P_BOOKING_CANCELLED"),
       });
       return true;
     }
@@ -793,10 +763,7 @@ export async function handleBookingMessage(
           phone,
           continues: false,
         });
-        await sendTextMessage(
-          phone,
-          "La cotización expiró. Escribe Hola para solicitar de nuevo.",
-        );
+        await sendTextMessage(phone, await cms("P_QUOTE_EXPIRED"));
         await clearSession(phone);
         return true;
       }
@@ -818,10 +785,7 @@ export async function handleBookingMessage(
         bookingDraft: draft,
       });
 
-      await sendTextMessage(
-        phone,
-        "🚖 Estamos encontrando el mejor conductor para ti. Esto tomará solo un momento.",
-      );
+      await sendTextMessage(phone, await cms("P_SEARCHING_DRIVER"));
 
       console.log("[publish:diag] STEP_0b_calling_offerTripToDrivers", {
         phone,
@@ -865,10 +829,7 @@ export async function handleBookingMessage(
       return true;
     }
 
-    await sendTextMessage(
-      phone,
-      "Usa los botones para Solicitar o Cancelar el servicio.",
-    );
+    await sendTextMessage(phone, await cms("P_QUOTE_USE_BUTTONS"));
     return true;
   }
 
@@ -885,7 +846,7 @@ export async function handleBookingMessage(
 
     const label = message.text.trim();
     if (!label) {
-      await sendTextMessage(phone, "¿Dónde te recogemos?");
+      await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
       return true;
     }
 
@@ -967,7 +928,7 @@ export async function handleBookingMessage(
           pendingDropoffText: undefined,
         };
         await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", cleared, label);
-        await sendTextMessage(phone, `Te recogeremos en ${label}.`);
+        await sendTextMessage(phone, await cms("P_PICKUP_CONFIRMED_LABEL", { label }));
         await resolveTextToPlace(phone, name, pendingDropoff, "dropoff", {
           ...session,
           state: "WAITING_DROPOFF_TEXT",
@@ -1013,7 +974,7 @@ export async function handleBookingMessage(
         route: undefined,
         quote: undefined,
       });
-      await sendTextMessage(phone, "Escribe nuevamente tu destino:");
+      await sendTextMessage(phone, await cms("P_RETRY_DROPOFF_TEXT"));
       return true;
     }
 
@@ -1087,7 +1048,7 @@ export async function handleBookingMessage(
       if (!chosen) {
         await sendTextMessage(
           phone,
-          "Opción inválida. Escribe el lugar de nuevo.",
+          await cms("P_CANDIDATE_INVALID"),
         );
         return true;
       }
@@ -1114,7 +1075,7 @@ export async function handleBookingMessage(
 
     await sendTextMessage(
       phone,
-      "Elige una opción de la lista o escribe otro destino.",
+      await cms("P_CHOOSE_OR_REWRITE"),
     );
     return true;
   }
@@ -1128,7 +1089,7 @@ export async function handleBookingMessage(
         pickupLabel: undefined,
         candidates: undefined,
       });
-      await sendTextMessage(phone, "¿Dónde te recogemos?");
+      await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
       return true;
     }
 

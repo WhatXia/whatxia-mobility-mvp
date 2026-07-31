@@ -26,17 +26,10 @@ import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/trips";
 import { clearSession, getSession, upsertSession } from "@/lib/sessions";
+import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import { sendTextMessage } from "@/lib/whatsapp/client";
 
-export const FULL_NAME_PROMPT = [
-  "👋 ¡Bienvenido a WhatXia!",
-  "",
-  "Estamos a pocos días de transformar la movilidad.",
-  "",
-  "Conviértete en un Pionero y sé de los primeros en vivir esta nueva experiencia.",
-  "",
-  "Para comenzar, cuéntame cuál es tu nombre y apellido. 😊",
-].join("\n");
+export const FULL_NAME_PROMPT = catalogBody("P_FULL_NAME_PROMPT");
 
 /** Primer token del nombre completo (para copy USER-001.3). */
 export function extractFirstName(fullName: string | null | undefined): string {
@@ -50,13 +43,9 @@ export function preferredNamePrompt(
 ): string {
   const firstName = extractFirstName(fullName);
   if (!firstName) {
-    return "¿Cómo te gusta que te llamemos?";
+    return cmsSync("P_PREFERRED_NAME_PROMPT_BARE");
   }
-  return [
-    `¡Mucho gusto, ${firstName}! 👋`,
-    "",
-    "¿Cómo te gusta que te llamemos?",
-  ].join("\n");
+  return cmsSync("P_PREFERRED_NAME_PROMPT", { first_name: firstName });
 }
 
 /** @deprecated usar preferredNamePrompt(fullName) */
@@ -109,7 +98,7 @@ export async function promptForFullName(phone: string): Promise<void> {
     driverUpdateCategory: null,
     driverUpdateField: null,
   });
-  await sendTextMessage(phone, FULL_NAME_PROMPT);
+  await sendTextMessage(phone, await cms("P_FULL_NAME_PROMPT"));
 }
 
 export async function promptForPreferredName(
@@ -142,7 +131,7 @@ async function finishIdentityOnboarding(
   if (!canPassengerRequestService(passenger.status)) {
     await sendTextMessage(
       phone,
-      accessDeniedMessage(passenger.status, display),
+      await accessDeniedMessage(passenger.status, display),
     );
   } else {
     const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
@@ -228,14 +217,14 @@ export async function continuePreferredNameFlow(
     if (!raw) {
       await sendTextMessage(
         message.phone,
-        "Escribe tu nombre y apellido (ej. Carlos Fernando Valencia).",
+        await cms("P_FULL_NAME_EMPTY"),
       );
       return true;
     }
     if (isBlockedName(raw)) {
       await sendTextMessage(
         message.phone,
-        "¿Cuál es tu nombre y apellido? Escríbelos tal como quieres que aparezcan.",
+        await cms("P_FULL_NAME_BLOCKED"),
       );
       return true;
     }
@@ -261,14 +250,14 @@ export async function continuePreferredNameFlow(
     if (!raw) {
       await sendTextMessage(
         message.phone,
-        "Escribe el nombre con el que prefieres que te llamemos (ej. Carlos).",
+        await cms("P_PREFERRED_NAME_EMPTY"),
       );
       return true;
     }
     if (isBlockedName(raw)) {
       await sendTextMessage(
         message.phone,
-        "¿Cómo prefieres que te llamemos? Escribe solo ese nombre (ej. Carlos).",
+        await cms("P_PREFERRED_NAME_BLOCKED"),
       );
       return true;
     }

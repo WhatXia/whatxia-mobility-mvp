@@ -128,7 +128,8 @@ export async function findPassengerById(
 /**
  * Crea o reutiliza pasajero.
  * `whatsappName` solo actualiza whatsapp_name (referencia).
- * Status inicial de nuevos: PIONEER o ACTIVE según PRE_LAUNCH_MODE.
+ * Status inicial de nuevos: PIONEER o ACTIVE según launch_programs.is_active
+ * (CFG-001 / BOT-001). Nunca usa PRE_LAUNCH_MODE del entorno.
  * REF-003: si hay código de referido pendiente, atribuye sin cambiar el onboarding.
  */
 export async function findOrCreatePassenger(
@@ -186,7 +187,7 @@ export async function findOrCreatePassenger(
 
   const supabase = getSupabase();
   const normalized = normalizePhone(phone);
-  const status = defaultStatusForNewPassenger();
+  const status = await defaultStatusForNewPassenger();
 
   const { data, error } = await supabase
     .from("passengers")

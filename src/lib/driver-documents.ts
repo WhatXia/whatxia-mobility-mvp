@@ -1,4 +1,5 @@
 import type { DriverRow } from "@/lib/supabase/drivers";
+import { catalogBody, cmsSync } from "@/lib/bot-cms/copy";
 
 export type DocumentType = "soat" | "techno" | "license";
 
@@ -124,11 +125,11 @@ export function getReminderTargets(
   return targets;
 }
 
-export const EXPIRED_DOCS_MESSAGE =
-  "Uno o más de tus documentos están vencidos. Tu información fue guardada correctamente, pero no podrás recibir servicios hasta actualizar los documentos.";
+export const EXPIRED_DOCS_MESSAGE = catalogBody("D_DOCS_EXPIRED");
 
-export const BLOCKED_AVAILABILITY_MESSAGE =
-  "No puedes quedar Disponible porque tienes documentos vencidos. Actualiza los documentos vencidos para continuar.";
+export const BLOCKED_AVAILABILITY_MESSAGE = catalogBody(
+  "D_DOCS_BLOCKED_AVAILABILITY",
+);
 
 export function buildReminderMessage(
   driverName: string,
@@ -141,19 +142,28 @@ export function buildReminderMessage(
   const display = `${d}/${m}/${y}`;
 
   if (daysBefore === 1) {
-    return `⏰ Hola ${driverName}, tu ${label} vence mañana (${display}). Actualízala a tiempo para seguir recibiendo servicios.`;
+    return cmsSync("D_DOCS_REMINDER_TOMORROW", {
+      driver_name: driverName,
+      label,
+      display,
+    });
   }
 
-  return `⏰ Hola ${driverName}, tu ${label} vence en ${daysBefore} días (${display}). Actualízala a tiempo para seguir recibiendo servicios.`;
+  return cmsSync("D_DOCS_REMINDER", {
+    driver_name: driverName,
+    label,
+    days: String(daysBefore),
+    display,
+  });
 }
 
 export function buildExpiredBlockMessage(
   expired: DocumentType[],
 ): string {
   const labels = expired.map((type) => DOCUMENT_LABELS[type]).join(", ");
-  return `⛔ Uno o más documentos vencieron (${labels}). Quedaste inactivo y no recibirás servicios hasta actualizarlos.`;
+  return cmsSync("D_DOCS_BLOCKED", { labels });
 }
 
 export function buildReactivatedMessage(): string {
-  return "✅ Tus documentos quedaron al día. El bloqueo documental fue removido. Cuando quieras recibir servicios, actívate como Disponible desde tu menú.";
+  return catalogBody("D_DOCS_REACTIVATED");
 }

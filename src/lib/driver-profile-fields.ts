@@ -1,3 +1,9 @@
+import { catalogBody, cmsSync } from "@/lib/bot-cms/copy";
+
+function driverFieldCode(key: DriverFieldKey): string {
+  return `D_FIELD_${key.toUpperCase()}`;
+}
+
 export type DriverFieldKey =
   | "name"
   | "document_id"
@@ -30,35 +36,35 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
   name: {
     key: "name",
     label: "Nombre completo",
-    prompt: "Escribe tu nombre completo.",
+    prompt: catalogBody(driverFieldCode("name")),
     category: "personal",
     type: "text",
   },
   document_id: {
     key: "document_id",
     label: "Número de cédula",
-    prompt: "Escribe tu número de cédula (solo números).",
+    prompt: catalogBody(driverFieldCode("document_id")),
     category: "personal",
     type: "text",
   },
   email: {
     key: "email",
     label: "Correo electrónico",
-    prompt: "Escribe tu correo electrónico.",
+    prompt: catalogBody(driverFieldCode("email")),
     category: "personal",
     type: "text",
   },
   address: {
     key: "address",
     label: "Dirección de residencia",
-    prompt: "Escribe tu dirección de residencia.",
+    prompt: catalogBody(driverFieldCode("address")),
     category: "personal",
     type: "text",
   },
   city: {
     key: "city",
     label: "Ciudad",
-    prompt: "Escribe tu ciudad.",
+    prompt: catalogBody(driverFieldCode("city")),
     category: "personal",
     type: "text",
   },
@@ -66,53 +72,42 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
   emergency_contact_name: {
     key: "emergency_contact_name",
     label: "Contacto de emergencia",
-    prompt: "Escribe el nombre de tu contacto de emergencia.",
+    prompt: catalogBody(driverFieldCode("emergency_contact_name")),
     category: "personal",
     type: "text",
   },
   emergency_contact_phone: {
     key: "emergency_contact_phone",
     label: "Tel. emergencia",
-    prompt: "Escribe el teléfono de tu contacto de emergencia (con indicativo).",
+    prompt: catalogBody(driverFieldCode("emergency_contact_phone")),
     category: "personal",
     type: "phone",
   },
   plate: {
     key: "plate",
     label: "Placa del vehículo",
-    prompt: "Escribe la placa del vehículo.",
+    prompt: catalogBody(driverFieldCode("plate")),
     category: "vehicle",
     type: "text",
   },
   vehicle_brand: {
     key: "vehicle_brand",
     label: "Marca del vehículo",
-    prompt: [
-      "Escribe la marca del vehículo.",
-      "",
-      "Ayuda:",
-      "Ejemplo: Chevrolet, Renault, Kia, Hyundai, Nissan, Toyota.",
-    ].join("\n"),
+    prompt: catalogBody(driverFieldCode("vehicle_brand")),
     category: "vehicle",
     type: "text",
   },
   vehicle_model: {
     key: "vehicle_model",
     label: "Línea o referencia",
-    prompt: [
-      "Escribe la línea o referencia del vehículo.",
-      "",
-      "Ayuda:",
-      "No escribas el año del modelo. Escribe la línea o referencia.",
-      "Ejemplos: Grand i10, Picanto, Versa, Logan, Sandero, Spark GT.",
-    ].join("\n"),
+    prompt: catalogBody(driverFieldCode("vehicle_model")),
     category: "vehicle",
     type: "text",
   },
   vehicle_color: {
     key: "vehicle_color",
     label: "Color del vehículo",
-    prompt: "Escribe el color del vehículo.",
+    prompt: catalogBody(driverFieldCode("vehicle_color")),
     category: "vehicle",
     type: "text",
   },
@@ -120,38 +115,35 @@ export const DRIVER_FIELDS: Record<DriverFieldKey, DriverFieldDef> = {
   vehicle_year: {
     key: "vehicle_year",
     label: "Año",
-    prompt: "Escribe el año del vehículo (ej: 2018).",
+    prompt: catalogBody(driverFieldCode("vehicle_year")),
     category: "vehicle",
     type: "year",
   },
   soat_expires_at: {
     key: "soat_expires_at",
     label: "Vence SOAT",
-    prompt: "Escribe la fecha de vencimiento del SOAT (DD/MM/AAAA).",
+    prompt: catalogBody(driverFieldCode("soat_expires_at")),
     category: "documents",
     type: "date",
   },
   techno_expires_at: {
     key: "techno_expires_at",
     label: "Vence técnico-mecánica",
-    prompt:
-      "Escribe la fecha de vencimiento de la revisión técnico-mecánica (DD/MM/AAAA).",
+    prompt: catalogBody(driverFieldCode("techno_expires_at")),
     category: "documents",
     type: "date",
   },
   operation_expires_at: {
     key: "operation_expires_at",
     label: "Vence tarjeta de operación",
-    prompt:
-      "Escribe la fecha de vencimiento de la tarjeta de operación (DD/MM/AAAA).",
+    prompt: catalogBody(driverFieldCode("operation_expires_at")),
     category: "documents",
     type: "date",
   },
   license_expires_at: {
     key: "license_expires_at",
     label: "Vence licencia de tránsito",
-    prompt:
-      "Escribe la fecha de vencimiento de la licencia de tránsito (DD/MM/AAAA).",
+    prompt: catalogBody(driverFieldCode("license_expires_at")),
     category: "documents",
     type: "date",
   },
@@ -266,7 +258,7 @@ export function validateDriverField(
   const trimmed = raw.trim();
 
   if (!trimmed) {
-    return { ok: false, error: "Este campo es obligatorio. Intenta de nuevo." };
+    return { ok: false, error: catalogBody("D_FIELD_ERROR_REQUIRED") };
   }
 
   if (field.type === "date") {
@@ -274,7 +266,7 @@ export function validateDriverField(
     if (!iso) {
       return {
         ok: false,
-        error: "Fecha inválida. Usa el formato DD/MM/AAAA.",
+        error: catalogBody("D_FIELD_ERROR_DATE"),
       };
     }
     return { ok: true, value: iso };
@@ -286,7 +278,9 @@ export function validateDriverField(
     if (!Number.isInteger(year) || year < 1980 || year > current + 1) {
       return {
         ok: false,
-        error: `Año inválido. Usa un año entre 1980 y ${current + 1}.`,
+        error: cmsSync("D_FIELD_ERROR_YEAR", {
+          max_year: String(current + 1),
+        }),
       };
     }
     return { ok: true, value: year };
@@ -297,7 +291,7 @@ export function validateDriverField(
     if (digits.length < 10) {
       return {
         ok: false,
-        error: "Teléfono inválido. Incluye indicativo y número.",
+        error: catalogBody("D_FIELD_ERROR_PHONE"),
       };
     }
     return { ok: true, value: digits };
@@ -308,7 +302,7 @@ export function validateDriverField(
     if (digits.length < 5) {
       return {
         ok: false,
-        error: "Número de cédula inválido.",
+        error: catalogBody("D_FIELD_ERROR_DOCUMENT"),
       };
     }
     return { ok: true, value: digits };
