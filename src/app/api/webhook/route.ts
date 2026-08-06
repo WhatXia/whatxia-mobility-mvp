@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleIncomingMessage } from "@/lib/whatsapp/handler";
 import { normalizeParsedMessage } from "@/lib/whatsapp/normalize-incoming";
 import { inboundEventToParsedMessage } from "@/lib/whatsapp/parse";
-import { parseIncomingWhatsAppEvent } from "@/lib/whatsapp/webhook-parser";
+import {
+  logBugWebhook005,
+  parseIncomingWhatsAppEvent,
+} from "@/lib/whatsapp/webhook-parser";
 import { verifyWhatsAppSignature } from "@/lib/whatsapp/verify";
 
 function resolveRequestId(request: NextRequest): string {
@@ -34,11 +37,13 @@ export async function POST(request: NextRequest) {
   const appSecret = process.env.WHATSAPP_APP_SECRET ?? "";
 
   if (!verifyWhatsAppSignature(rawBody, signature, appSecret)) {
-    console.error({
-      level: "error",
-      code: "BUG-WEBHOOK-005",
+    logBugWebhook005({
       reason: "invalid_signature",
       requestId,
+      messageFrom: null,
+      contacts0WaId: null,
+      statuses0RecipientId: null,
+      event: "other",
     });
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
@@ -48,14 +53,21 @@ export async function POST(request: NextRequest) {
     try {
       payload = JSON.parse(rawBody);
     } catch (parseError) {
-      console.error({
-        level: "error",
-        code: "BUG-WEBHOOK-005",
+      logBugWebhook005({
         reason: "json_parse_failed",
         requestId,
-        error:
-          parseError instanceof Error ? parseError.message : String(parseError),
-        rawBodyPreview: rawBody.slice(0, 2000),
+        messageFrom: null,
+        contacts0WaId: null,
+        statuses0RecipientId: null,
+        event: "other",
+        payload: rawBody.slice(0, 8000),
+        includePayload: true,
+        extra: {
+          error:
+            parseError instanceof Error
+              ? parseError.message
+              : String(parseError),
+        },
       });
       // Meta exige 200 para no reintentar indefinidamente; queda traza completa.
       return NextResponse.json({
@@ -68,14 +80,19 @@ export async function POST(request: NextRequest) {
     const parsed = parseIncomingWhatsAppEvent(payload, { requestId });
 
     if (parsed.errors.length > 0) {
-      console.error({
-        level: "error",
-        code: "BUG-WEBHOOK-005",
+      logBugWebhook005({
         reason: "inbound_parse_errors",
         requestId,
-        errorCount: parsed.errors.length,
-        errors: parsed.errors,
-        // Evidencia: ya se logueó payload completo por cada error de remitente.
+        messageFrom: null,
+        contacts0WaId: null,
+        statuses0RecipientId: null,
+        event: "other",
+        // Detalle por mensaje (incl. message.from / wa_id / recipient_id / payload)
+        // ya se emitió en parseIncomingWhatsAppEvent.
+        extra: {
+          errorCount: parsed.errors.length,
+          errors: parsed.errors,
+        },
       });
     }
 
@@ -97,13 +114,17 @@ export async function POST(request: NextRequest) {
       await handleIncomingMessage(normalized.message);
     }
   } catch (error) {
-    console.error({
-      level: "error",
-      code: "BUG-WEBHOOK-005",
+    logBugWebhook005({
       reason: "webhook_processing_exception",
       requestId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      messageFrom: null,
+      contacts0WaId: null,
+      statuses0RecipientId: null,
+      event: "other",
+      extra: {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      },
     });
   }
 

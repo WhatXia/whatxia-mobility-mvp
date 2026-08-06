@@ -187,6 +187,69 @@ function extractTextBody(
   return null;
 }
 
+function firstContactWaId(value: Record<string, unknown> | null): string | null {
+  if (!value || !Array.isArray(value.contacts) || value.contacts.length === 0) {
+    return null;
+  }
+  const row = asRecord(value.contacts[0]);
+  return row ? asString(row.wa_id) : null;
+}
+
+function firstStatusRecipientId(
+  value: Record<string, unknown> | null,
+): string | null {
+  if (!value || !Array.isArray(value.statuses) || value.statuses.length === 0) {
+    return null;
+  }
+  const row = asRecord(value.statuses[0]);
+  return row ? asString(row.recipient_id) : null;
+}
+
+/** DIAG-007: clasifica el change.value de Meta. */
+export function detectWebhookEventKind(
+  value: Record<string, unknown> | null,
+): "messages" | "statuses" | "other" {
+  if (!value) return "other";
+  if (Array.isArray(value.messages) && value.messages.length > 0) {
+    return "messages";
+  }
+  if (Array.isArray(value.statuses) && value.statuses.length > 0) {
+    return "statuses";
+  }
+  return "other";
+}
+
+/**
+ * DIAG-007 — Log estándar BUG-WEBHOOK-005 (solo diagnóstico; no altera flujo).
+ */
+export function logBugWebhook005(input: {
+  reason: string;
+  requestId: string | null;
+  messageFrom?: unknown;
+  contacts0WaId?: string | null;
+  statuses0RecipientId?: string | null;
+  event?: "messages" | "statuses" | "other";
+  /** Payload completo solo si no se resolvió el remitente (u otro fallo de parse). */
+  payload?: unknown;
+  includePayload?: boolean;
+  silent?: boolean;
+  extra?: Record<string, unknown>;
+}) {
+  if (input.silent) return;
+  console.error({
+    level: "error",
+    code: "BUG-WEBHOOK-005",
+    requestId: input.requestId,
+    reason: input.reason,
+    "message.from": input.messageFrom ?? null,
+    "contacts[0].wa_id": input.contacts0WaId ?? null,
+    "statuses[0].recipient_id": input.statuses0RecipientId ?? null,
+    event: input.event ?? "other",
+    ...(input.includePayload ? { payload: input.payload ?? null } : {}),
+    ...(input.extra ?? {}),
+  });
+}
+
 function logUnresolvedSender(input: {
   requestId: string | null;
   reason: string;
@@ -197,25 +260,25 @@ function logUnresolvedSender(input: {
   message: Record<string, unknown> | null;
   silent?: boolean;
 }) {
-  if (input.silent) return;
-  console.error({
-    level: "error",
-    code: "BUG-WEBHOOK-005",
+  logBugWebhook005({
     reason: input.reason,
     requestId: input.requestId,
-    messageType: input.messageType,
-    body: input.body,
-    attemptedSources: [
-      "messages.from",
-      "contacts.wa_id",
-      "statuses.recipient_id",
-    ],
-    contactsSample: Array.isArray(input.value.contacts)
-      ? input.value.contacts
-      : null,
     messageFrom: input.message ? input.message.from : null,
-    // Payload completo para diagnóstico < 1 min.
+    contacts0WaId: firstContactWaId(input.value),
+    statuses0RecipientId: firstStatusRecipientId(input.value),
+    event: detectWebhookEventKind(input.value),
     payload: input.payload,
+    includePayload: true,
+    silent: input.silent,
+    extra: {
+      messageType: input.messageType,
+      body: input.body,
+      attemptedSources: [
+        "messages.from",
+        "contacts.wa_id",
+        "statuses.recipient_id",
+      ],
+    },
   });
 }
 
@@ -236,15 +299,17 @@ export function parseIncomingWhatsAppEvent(
   if (!root) {
     const reason = "payload_not_object";
     errors.push({ reason, messageType: null, body: null, requestId });
-    if (!silent) {
-      console.error({
-        level: "error",
-        code: "BUG-WEBHOOK-005",
-        reason,
-        requestId,
-        payload,
-      });
-    }
+    logBugWebhook005({
+      reason,
+      requestId,
+      messageFrom: null,
+      contacts0WaId: null,
+      statuses0RecipientId: null,
+      event: "other",
+      payload,
+      includePayload: true,
+      silent,
+    });
     return { events, errors };
   }
 
