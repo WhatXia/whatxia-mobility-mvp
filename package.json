@@ -10,6 +10,7 @@
     "test:referrals": "npx tsx src/lib/referrals.certify.ts",
     "test:pioneers": "npx tsx src/lib/launch-programs/decision.certify.ts",
     "test:city-launch": "npx tsx src/lib/launch-programs/city-launch.certify.ts",
+    "test:webhook-parser": "npx tsx src/lib/whatsapp/webhook-parser.certify.ts",
     "test:sistema": "npx tsx src/lib/bot-operational-status/decision.certify.ts"
   },
   "dependencies": {
