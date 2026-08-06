@@ -220,7 +220,7 @@ export function detectWebhookEventKind(
 }
 
 /**
- * DIAG-007 — Log estándar BUG-WEBHOOK-005 (solo diagnóstico; no altera flujo).
+ * DIAG-007 / DIAG-008 — Log estándar BUG-WEBHOOK-005 (solo diagnóstico; no altera flujo).
  */
 export function logBugWebhook005(input: {
   reason: string;
@@ -236,6 +236,21 @@ export function logBugWebhook005(input: {
   extra?: Record<string, unknown>;
 }) {
   if (input.silent) return;
+
+  // DIAG-008: stringify evita [Object] truncado en logs de Vercel/Node.
+  let payloadForLog: string | null = null;
+  if (input.includePayload) {
+    if (typeof input.payload === "string") {
+      payloadForLog = input.payload;
+    } else {
+      try {
+        payloadForLog = JSON.stringify(input.payload ?? null, null, 2);
+      } catch {
+        payloadForLog = String(input.payload);
+      }
+    }
+  }
+
   console.error({
     level: "error",
     code: "BUG-WEBHOOK-005",
@@ -245,9 +260,19 @@ export function logBugWebhook005(input: {
     "contacts[0].wa_id": input.contacts0WaId ?? null,
     "statuses[0].recipient_id": input.statuses0RecipientId ?? null,
     event: input.event ?? "other",
-    ...(input.includePayload ? { payload: input.payload ?? null } : {}),
+    ...(payloadForLog != null ? { payload: payloadForLog } : {}),
     ...(input.extra ?? {}),
   });
+
+  // DIAG-008: línea dedicada con el JSON real cuando no hay remitente.
+  if (
+    input.reason === "sender_phone_unresolved" &&
+    payloadForLog != null
+  ) {
+    console.error(
+      `[BUG-WEBHOOK-005][DIAG-008] requestId=${input.requestId ?? "null"} payload=\n${payloadForLog}`,
+    );
+  }
 }
 
 function logUnresolvedSender(input: {
