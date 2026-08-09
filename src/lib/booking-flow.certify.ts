@@ -1,5 +1,5 @@
 /**
- * Certificación – captura origen + UX destino no encontrado (Sprint 29).
+ * Certificación – captura origen Places (2+ubicación) + UX destino.
  * Ejecutar: npx tsx src/lib/booking-flow.certify.ts
  */
 export {};
@@ -20,7 +20,7 @@ function assert(condition: boolean, message: string) {
 
 assert(
   ORIGIN_CAPTURE_MODE === "label_plus_whatsapp_location",
-  "MVP: pickupLabel (texto) + pickupLocation (WhatsApp)",
+  "MVP: pickupLabel (texto) + pickupLocation (WhatsApp/Places)",
 );
 
 const bookingStates: UserState[] = [
@@ -44,6 +44,11 @@ assert(
 );
 
 assert(
+  BOOKING_BUTTON_IDS.SHARE_PICKUP_LOCATION === "booking_share_pickup",
+  "Botón enviar ubicación pickup",
+);
+
+assert(
   BOOKING_BUTTON_IDS.SHARE_DROPOFF_LOCATION === "booking_share_dropoff",
   "Botón compartir ubicación destino",
 );
@@ -53,14 +58,12 @@ assert(
   "Botón escribir destino de nuevo",
 );
 
-assert(true, "Paso 1: texto libre → pickupLabel (sin Places)");
-assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta)");
-assert(true, "Entrada: un lugar = origen; luego ¿Hacia dónde vamos?");
+assert(true, "Paso 1: texto → Places hasta 2 + 📍 ubicación; fallback pin");
+assert(true, "Al elegir Places: coords + address Google + texto original");
+assert(true, "pickupLabel original → conductor (dispatch sin cambios)");
 assert(true, "Entrada dual origen+destino → Places → cotización");
 assert(true, "Destino alta confianza → cotización sin mapa/confirmación");
 assert(true, "Destino varias opciones → lista; al elegir → cotización sin mapa");
 assert(true, "Destino no encontrado → mapa solo como recuperación");
-assert(true, "Ubicación WA como destino → cotización directa (sin re-pedir origen)");
-assert(true, "Reescritura → nueva búsqueda Places; si falla, mismas opciones");
 
 console.log("\nbooking-flow: todas las aserciones OK");

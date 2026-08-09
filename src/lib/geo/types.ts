@@ -50,13 +50,17 @@ export type FareQuote = {
 };
 
 export type BookingDraft = {
-  /** Texto libre del pasajero: "¿Dónde te recogemos?" */
+  /**
+   * Texto original del pasajero (“¿Dónde te recogemos?”).
+   * Es la referencia corta que ve el conductor; no sustituir por nombre Places.
+   */
   pickupLabel?: string;
-  /** Coordenadas obligatorias de WhatsApp (origen para ruta). */
+  /** Coordenadas (pin WA o Places) para ruta/dispatch. */
   pickupLocation?: GeoPoint;
   /**
    * Origen compuesto para ruta/createTrip:
-   * name = pickupLabel, location = pickupLocation.
+   * name = pickupLabel (referencia), address = dirección Google si aplica,
+   * location = pickupLocation.
    */
   pickup?: ResolvedPlace;
   dropoff?: ResolvedPlace;
@@ -68,7 +72,7 @@ export type BookingDraft = {
   candidates?: PlaceCandidate[];
   candidateRole?: "pickup" | "dropoff";
   /**
-   * MVP: label_plus_whatsapp_location.
+   * MVP: label_plus_whatsapp_location (Places opcional en pickup + pin fallback).
    * Futuro: places_text para resolver origen solo por nombre.
    */
   originCapture?: "label_plus_whatsapp_location" | "places_text";

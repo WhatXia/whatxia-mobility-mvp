@@ -463,6 +463,31 @@ export const BOT_CMS_CATALOG = [
     "category": "MOBILITY"
   },
   {
+    "code": "P_PICKUP_PLACE_CANDIDATES",
+    "name": "Pickup Places candidates + share location",
+    "module": "MOBILITY",
+    "body": "📍 Encontré estas opciones:\n\n{{candidates_list}}",
+    "content_type": "interactive",
+    "buttons": [
+      {
+        "id": "booking_cand:{{i}}",
+        "title": "{{i}}. {{name}}",
+        "sort_order": 0
+      },
+      {
+        "id": "booking_share_pickup",
+        "title": "📍 Mi ubicación",
+        "sort_order": 2
+      }
+    ],
+    "variables": [
+      "candidates_list"
+    ],
+    "source_file": "booking/flow.ts",
+    "source_symbol": "sendPickupCandidateList",
+    "category": "MOBILITY"
+  },
+  {
     "code": "P_PLACES_SEARCH_ERROR",
     "name": "Places search error",
     "module": "MOBILITY",
