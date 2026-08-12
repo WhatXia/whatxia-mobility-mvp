@@ -67,9 +67,10 @@ import { mapsNavigationUrl } from "@/lib/geo/maps-url";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
-  dropoff: ResolvedPlace;
-  route: RouteEstimate;
-  quote: FareQuote;
+  /** Opcional mientras el camino de solicitud no exige destino. */
+  dropoff?: ResolvedPlace;
+  route?: RouteEstimate;
+  quote?: FareQuote;
 };
 export const DRIVER_BUTTON_IDS = {
   ACEPTAR: "aceptar_servicio",
@@ -336,7 +337,7 @@ export async function offerTripToDrivers(
     passengerPhone,
     pickupNeighborhood,
     hasGeo: Boolean(details),
-    quotedFare: details?.quote.amount ?? null,
+    quotedFare: details?.quote?.amount ?? null,
     note: "Mapa: requestTrip() → offerTripToDrivers; status trip será SEARCHING (no 'requested')",
     continues: true,
   });
@@ -413,14 +414,26 @@ export async function offerTripToDrivers(
         pickupLng: details.pickup.location.lng,
         pickupPlaceId: details.pickup.placeId,
         pickupLabel: details.pickup.name || details.pickup.address,
-        dropoffLat: details.dropoff.location.lat,
-        dropoffLng: details.dropoff.location.lng,
-        dropoffPlaceId: details.dropoff.placeId,
-        dropoffLabel: details.dropoff.name || details.dropoff.address,
-        distanceMeters: details.route.distanceMeters,
-        durationSeconds: details.route.durationSeconds,
-        quotedFare: details.quote.amount,
-        currency: details.quote.currency,
+        ...(details.dropoff
+          ? {
+              dropoffLat: details.dropoff.location.lat,
+              dropoffLng: details.dropoff.location.lng,
+              dropoffPlaceId: details.dropoff.placeId,
+              dropoffLabel: details.dropoff.name || details.dropoff.address,
+            }
+          : {}),
+        ...(details.route
+          ? {
+              distanceMeters: details.route.distanceMeters,
+              durationSeconds: details.route.durationSeconds,
+            }
+          : {}),
+        ...(details.quote
+          ? {
+              quotedFare: details.quote.amount,
+              currency: details.quote.currency,
+            }
+          : {}),
       }
     : undefined;
 
@@ -630,7 +643,7 @@ async function publishTripOffer(
 
   const body = await cms("D_TRIP_OFFER", {
     pickup: pickupLabel,
-    dropoff: trip.dropoffLabel ?? "—",
+    dropoff: trip.dropoffLabel?.trim() || "Por confirmar",
     min:
       trip.quotedFare != null
         ? formatCopSymbol(trip.quotedFare)

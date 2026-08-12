@@ -87,13 +87,13 @@ export type CreateTripGeoInput = {
   pickupLng: number;
   pickupPlaceId: string | null;
   pickupLabel: string;
-  dropoffLat: number;
-  dropoffLng: number;
-  dropoffPlaceId: string | null;
-  dropoffLabel: string;
-  distanceMeters: number;
-  durationSeconds: number;
-  quotedFare: number;
+  dropoffLat?: number | null;
+  dropoffLng?: number | null;
+  dropoffPlaceId?: string | null;
+  dropoffLabel?: string | null;
+  distanceMeters?: number | null;
+  durationSeconds?: number | null;
+  quotedFare?: number | null;
   currency?: string;
 };
 
@@ -214,14 +214,26 @@ export async function createTrip(
             pickup_lng: geo.pickupLng,
             pickup_place_id: geo.pickupPlaceId,
             pickup_label: geo.pickupLabel,
-            dropoff_lat: geo.dropoffLat,
-            dropoff_lng: geo.dropoffLng,
-            dropoff_place_id: geo.dropoffPlaceId,
-            dropoff_label: geo.dropoffLabel,
-            distance_meters: geo.distanceMeters,
-            duration_seconds: geo.durationSeconds,
-            quoted_fare: geo.quotedFare,
-            currency: geo.currency ?? "COP",
+            ...(geo.dropoffLat != null && geo.dropoffLng != null
+              ? {
+                  dropoff_lat: geo.dropoffLat,
+                  dropoff_lng: geo.dropoffLng,
+                  dropoff_place_id: geo.dropoffPlaceId ?? null,
+                  dropoff_label: geo.dropoffLabel ?? null,
+                }
+              : {}),
+            ...(geo.distanceMeters != null
+              ? {
+                  distance_meters: geo.distanceMeters,
+                  duration_seconds: geo.durationSeconds ?? null,
+                }
+              : {}),
+            ...(geo.quotedFare != null
+              ? {
+                  quoted_fare: geo.quotedFare,
+                  currency: geo.currency ?? "COP",
+                }
+              : {}),
           }
         : {}),
     })

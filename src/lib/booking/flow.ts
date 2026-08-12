@@ -15,11 +15,11 @@ import { estimateRoute } from "@/lib/geo/routes";
 import { GoogleMapsError } from "@/lib/geo/client";
 import {
   estimateFare,
-  formatEstimatedFareRangePassenger,
   tariffQuoteToFareQuote,
 } from "@/lib/tariff";
 import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
 import { offerTripToDrivers } from "@/lib/dispatch";
+import { computeAutomaticEtaRange } from "@/lib/eta-auto";
 import { clearSession, upsertSession } from "@/lib/sessions";
 import {
   getActiveCity,
@@ -41,6 +41,13 @@ import {
 export const ORIGIN_CAPTURE_MODE:
   | "label_plus_whatsapp_location"
   | "places_text" = "label_plus_whatsapp_location";
+
+/**
+ * Launch: desactiva temporalmente destino/Places/cotización en el camino de solicitud.
+ * true → flujo completo con destino (código conservado debajo).
+ * false → ubicación (+ nombre) → resumen → Solicitar/Cancelar.
+ */
+export const BOOKING_REQUIRE_DROPOFF = false;
 
 export const BOOKING_BUTTON_IDS = {
   CONFIRM_PLACE: "booking_confirm_place",
@@ -148,7 +155,7 @@ async function saveBookingPassengerName(
 }
 
 /**
- * Tras origen resuelto: pedir nombre si falta, luego destino/cotización.
+ * Tras origen resuelto: pedir nombre si falta, luego resumen (o destino si se reactiva).
  */
 async function maybeAskNameThenContinueAfterPickup(
   phone: string,
@@ -164,12 +171,65 @@ async function maybeAskNameThenContinueAfterPickup(
   await continueAfterPickupCaptured(phone, name, draft, session);
 }
 
+/**
+ * Resumen sin destino (launch): mismos botones Solicitar/Cancelar.
+ * ETA: reutiliza computeAutomaticEtaRange (banda 5–10 = rangos existentes).
+ */
+async function buildAndSendServiceSummary(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+): Promise<void> {
+  if (!draft.pickup?.location) {
+    await sendTextMessage(phone, await cms("P_QUOTE_MISSING_PLACES"));
+    return;
+  }
+
+  const pickup = pickupDisplayLabel(draft);
+  const fast = computeAutomaticEtaRange(0);
+  const slow = computeAutomaticEtaRange(61);
+  const displayName = name.trim() || "amigo";
+
+  await persistDraft(phone, name, "WAITING_QUOTE_CONFIRM", {
+    ...draft,
+    candidates: undefined,
+    candidateRole: undefined,
+    pendingDropoffText: undefined,
+  });
+
+  const body = [
+    `${displayName}, tu servicio:`,
+    "",
+    "📍 Punto de recogida:",
+    pickup,
+    "",
+    "⏱️ Tiempo aproximado de llegada:",
+    `${fast.minMinutes}–${slow.maxMinutes} minutos`,
+    "",
+    "💰 Recuerda:",
+    "El servicio tiene un costo adicional de $800 por solicitud.",
+    "",
+    "¿Solicitamos tu servicio?",
+  ].join("\n");
+
+  await sendButtonsMessage(phone, body, [
+    { id: BOOKING_BUTTON_IDS.REQUEST_TRIP, title: "✅ Solicitar" },
+    { id: BOOKING_BUTTON_IDS.CANCEL_QUOTE, title: "❌ Cancelar" },
+  ]);
+}
+
 async function continueAfterPickupCaptured(
   phone: string,
   name: string,
   draft: BookingDraft,
   session: UserSession,
 ): Promise<void> {
+  // Launch: sin destino → resumen → Solicitar/Cancelar.
+  if (!BOOKING_REQUIRE_DROPOFF) {
+    await buildAndSendServiceSummary(phone, name, draft);
+    return;
+  }
+
   const label =
     draft.pickupLabel?.trim() ||
     (draft.pickup ? placeLabel(draft.pickup) : "") ||
@@ -435,8 +495,8 @@ export type BookingIntentSlots = {
 
 /**
  * Entrada natural (Agent Zero):
- * - Un lugar → origen (label) + pedir share location → luego destino
- * - Origen + destino claros → Places ambos → cotización (sin pedir ubicación)
+ * - Un lugar → origen (label) + pedir share location → luego resumen (o destino si BOOKING_REQUIRE_DROPOFF)
+ * - Origen + destino claros → Places ambos → cotización (solo si BOOKING_REQUIRE_DROPOFF)
  * - Solo intención / Solicitar servicio → "¿Dónde te recogemos?" → luego ubicación
  */
 export async function startBookingFromIntent(
@@ -454,7 +514,8 @@ export async function startBookingFromIntent(
   const pickupText = slots.pickupText?.trim() || null;
   const destinationText = slots.destinationText?.trim() || null;
 
-  if (pickupText && destinationText) {
+  // Destino desactivado temporalmente en el camino de solicitud (código conservado).
+  if (BOOKING_REQUIRE_DROPOFF && pickupText && destinationText) {
     const quoted = await tryQuoteFromBothPlaces(
       phone,
       name,
@@ -475,6 +536,10 @@ export async function startBookingFromIntent(
   if (pickupText) {
     await startPickupLocationStep(phone, name, {
       pickupLabel: pickupText,
+      // Sin pendingDropoff mientras BOOKING_REQUIRE_DROPOFF === false.
+      pendingDropoffText: BOOKING_REQUIRE_DROPOFF
+        ? destinationText ?? undefined
+        : undefined,
     });
     return;
   }
@@ -561,9 +626,15 @@ async function tryQuoteFromBothPlaces(
   };
 
   // Nombre post-origen si aún no está guardado (sin onboarding previo).
+  // Con destino reactivado (BOOKING_REQUIRE_DROPOFF) sigue el dual Places.
   if (await passengerNeedsBookingName(phone)) {
     await persistDraft(phone, name, "WAITING_BOOKING_NAME", draft);
     await sendTextMessage(phone, ASK_BOOKING_NAME);
+    return true;
+  }
+
+  if (!BOOKING_REQUIRE_DROPOFF) {
+    await buildAndSendServiceSummary(phone, name, draft);
     return true;
   }
 
@@ -870,9 +941,16 @@ export async function handleBookingMessage(
         hasRoute: Boolean(draft.route),
         hasQuote: Boolean(draft.quote),
         quotedAmount: draft.quote?.amount ?? null,
+        requireDropoff: BOOKING_REQUIRE_DROPOFF,
       });
 
-      if (!draft.pickup || !draft.dropoff || !draft.route || !draft.quote) {
+      const dropoffReady = Boolean(
+        draft.dropoff && draft.route && draft.quote,
+      );
+      if (
+        !draft.pickup ||
+        (BOOKING_REQUIRE_DROPOFF && !dropoffReady)
+      ) {
         console.warn("[publish:diag] STOP_at_REQUEST_TRIP_incomplete_draft", {
           phone,
           continues: false,
@@ -910,15 +988,26 @@ export async function handleBookingMessage(
 
       // Despacho / asignación: sin cambios de lógica.
       try {
-        await offerTripToDrivers(phone, label, {
-          pickup: {
-            ...draft.pickup,
-            name: label,
-          },
-          dropoff: draft.dropoff,
-          route: draft.route,
-          quote: draft.quote,
-        });
+        await offerTripToDrivers(
+          phone,
+          label,
+          dropoffReady
+            ? {
+                pickup: {
+                  ...draft.pickup,
+                  name: label,
+                },
+                dropoff: draft.dropoff!,
+                route: draft.route!,
+                quote: draft.quote!,
+              }
+            : {
+                pickup: {
+                  ...draft.pickup,
+                  name: label,
+                },
+              },
+        );
         console.log("[publish:diag] STEP_0c_offerTripToDrivers_returned", {
           phone,
           continues: true,
