@@ -20,6 +20,7 @@ import {
 import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
 import { offerTripToDrivers } from "@/lib/dispatch";
 import { computeAutomaticEtaRange } from "@/lib/eta-auto";
+import { resolvePickupLabelFromText } from "@/lib/booking/intent";
 import { clearSession, upsertSession } from "@/lib/sessions";
 import {
   getActiveCity,
@@ -1042,14 +1043,21 @@ export async function handleBookingMessage(
       session.state === "WAITING_PICKUP") &&
     message.text
   ) {
-    if (ORIGIN_CAPTURE_MODE === "places_text") {
-      await resolveTextToPlace(phone, name, message.text, "pickup", session);
+    const raw = message.text.trim();
+    if (!raw) {
+      await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
       return true;
     }
 
-    const label = message.text.trim();
+    // No usar el utterance completo si es solicitud natural: reutilizar intent.
+    const label = resolvePickupLabelFromText(raw);
     if (!label) {
       await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
+      return true;
+    }
+
+    if (ORIGIN_CAPTURE_MODE === "places_text") {
+      await resolveTextToPlace(phone, name, label, "pickup", session);
       return true;
     }
 

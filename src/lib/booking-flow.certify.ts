@@ -11,6 +11,7 @@ import {
   isBookingState,
   ORIGIN_CAPTURE_MODE,
 } from "@/lib/booking/flow";
+import { resolvePickupLabelFromText } from "@/lib/booking/intent";
 import { computeAutomaticEtaRange } from "@/lib/eta-auto";
 import type { UserState } from "@/types";
 
@@ -80,6 +81,21 @@ assert(
 );
 
 assert(true, "Paso 1: texto libre → pickupLabel (sin Places)");
+assert(
+  resolvePickupLabelFromText("Necesito un servicio para Florida 4") ===
+    "Florida 4",
+  "WAITING_PICKUP_TEXT: solicitud natural → pickupLabel Florida 4",
+);
+assert(
+  resolvePickupLabelFromText(
+    "Hola, necesito un servicio para la octava etapa, manzana 23, casa 1",
+  ) === "la octava etapa, manzana 23, casa 1",
+  "WAITING_PICKUP_TEXT: no guarda la frase completa como pickup",
+);
+assert(
+  resolvePickupLabelFromText("Florida 4") === "Florida 4",
+  "WAITING_PICKUP_TEXT: ubicación directa sin cambios",
+);
 assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta)");
 assert(true, "Paso 3: si falta nombre → WAITING_BOOKING_NAME tras ubicación");
 assert(

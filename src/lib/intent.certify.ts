@@ -9,6 +9,7 @@ import {
   extractSinglePlaceFromText,
   hasServiceIntent,
   parseMobilityIntent,
+  resolvePickupLabelFromText,
   stripLeadingGreeting,
 } from "@/lib/booking/intent";
 
@@ -137,6 +138,30 @@ assert(
   extractSinglePlaceFromText("Necesito un servicio en el Centro") ===
     "el Centro",
   "un lugar = origen",
+);
+
+// WAITING_PICKUP_TEXT: solicitud natural → solo pickupText (no utterance completo).
+assert(
+  resolvePickupLabelFromText("Necesito un servicio para Florida 4") ===
+    "Florida 4",
+  "pickupLabel desde solicitud natural → Florida 4",
+);
+
+assert(
+  resolvePickupLabelFromText(
+    "Hola, necesito un servicio para la octava etapa, manzana 23, casa 1",
+  ) === "la octava etapa, manzana 23, casa 1",
+  "pickupLabel desde frase larga → dirección extraída (sin guardar frase completa)",
+);
+
+assert(
+  resolvePickupLabelFromText("Florida 4") === "Florida 4",
+  "ubicación directa → Florida 4",
+);
+
+assert(
+  resolvePickupLabelFromText("Necesito un servicio") === null,
+  "solicitud sin lugar → null (seguir preguntando)",
 );
 
 console.log("\nintent certify (origen primero): todas las aserciones OK");

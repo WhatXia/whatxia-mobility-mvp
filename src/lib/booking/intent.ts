@@ -209,3 +209,21 @@ export function parseMobilityIntent(text: string | null): MobilityIntentResult {
     destinationText: null,
   };
 }
+
+/**
+ * Label de origen desde texto libre (p. ej. WAITING_PICKUP_TEXT).
+ * Solicitud natural → solo pickupText. Ubicación directa → texto tal cual.
+ * @returns null si hay intención de servicio sin lugar extraíble (seguir preguntando).
+ */
+export function resolvePickupLabelFromText(text: string): string | null {
+  const raw = text.trim();
+  if (!raw) {
+    return null;
+  }
+  const mobility = parseMobilityIntent(raw);
+  if (mobility.isServiceIntent) {
+    const place = mobility.pickupText?.trim() || null;
+    return place;
+  }
+  return raw;
+}
