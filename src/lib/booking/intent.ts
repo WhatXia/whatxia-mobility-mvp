@@ -15,7 +15,8 @@ const INTENT_PATTERNS: RegExp[] = [
   /\b(necesito|quiero|pido|solicito|busco)\b.{0,40}\b(servicio|viaje|taxi|carro|transporte|carrera)\b/i,
   /\b(servicio|viaje|taxi|transporte|carrera)\b.{0,20}\b(por\s+favor|ya|ahora|urgente)?\b/i,
   /\b(llevame|ll[eé]vame|llevalo|ll[eé]valo|recojanme|rec[oó]janme)\b/i,
-  /\b(me\s+pueden\s+llevar|me\s+lleva|me\s+recogen)\b/i,
+  /\b(me\s+pueden\s+llevar|me\s+lleva|me\s+recogen|me\s+recojan)\b/i,
+  /\b(necesito|quiero|pido).{0,30}\bque\s+me\s+(recojan|recogen|lleven)\b/i,
   /\b(pedir|solicitar)\s+(un\s+)?(servicio|viaje|taxi)\b/i,
   /\bun\s+(servicio|viaje|taxi)\b/i,
   /\b(estoy\s+en|me\s+encuentro\s+en|desde)\b/i,
@@ -39,6 +40,7 @@ const BOTH_PLACE_PATTERNS: RegExp[] = [
 const PICKUP_EXTRACTORS: RegExp[] = [
   /(?:estoy\s+en|me\s+encuentro\s+en)\s+(.+)$/i,
   /(?:recojanme|rec[oó]janme|rec[oó]geme|recogerme)\s+(?:en\s+)?(.+)$/i,
+  /(?:necesito|quiero|pido).{0,30}(?:que\s+)?me\s+(?:recojan|recogen|lleven)\s+(?:en\s+)?(.+)$/i,
   /(?:desde)\s+(.+)$/i,
   /(?:llevame|ll[eé]vame)\s+(?:a|al|hacia|hasta|en)\s+(.+)$/i,
   /(?:me\s+pueden\s+llevar|me\s+lleva|me\s+recogen)\s+(?:a|al|hacia|hasta|en)\s+(.+)$/i,

@@ -64,6 +64,7 @@ const BOOKING_STATES: UserState[] = [
   "WAITING_DROPOFF_CONFIRM",
   "WAITING_QUOTE_CONFIRM",
   "WAITING_PICKUP",
+  "WAITING_BOOKING_NAME",
 ];
 
 const DROPOFF_NOT_FOUND_BODY = catalogBody("P_DROPOFF_NOT_FOUND");
@@ -94,6 +95,112 @@ const ASK_DESTINATION = catalogBody("P_ASK_DESTINATION");
 
 function askDestinationAfterPickup(_label: string): string {
   return ASK_DESTINATION;
+}
+
+const ASK_BOOKING_NAME = "¿Me recuerdas tu nombre, por favor?";
+
+function isBlockedBookingName(text: string): boolean {
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  return (
+    normalized === "hola" ||
+    normalized === "buenas" ||
+    normalized === "buenos dias" ||
+    normalized === "buenas tardes" ||
+    normalized === "buenas noches"
+  );
+}
+
+async function passengerNeedsBookingName(phone: string): Promise<boolean> {
+  const { findPassengerByPhone } = await import("@/lib/supabase/passengers");
+  const passenger = await findPassengerByPhone(phone);
+  if (!passenger) {
+    return true;
+  }
+  return !(
+    passenger.preferred_name?.trim() ||
+    passenger.name?.trim() ||
+    passenger.full_name?.trim()
+  );
+}
+
+async function saveBookingPassengerName(
+  phone: string,
+  rawName: string,
+): Promise<string> {
+  const {
+    findOrCreatePassenger,
+    hasFullName,
+    setPassengerFullName,
+    setPassengerPreferredName,
+  } = await import("@/lib/supabase/passengers");
+
+  const trimmed = rawName.trim().slice(0, 80);
+  await findOrCreatePassenger(phone);
+  const withPreferred = await setPassengerPreferredName(phone, trimmed);
+  if (!withPreferred || !hasFullName(withPreferred)) {
+    await setPassengerFullName(phone, trimmed);
+  }
+  return trimmed;
+}
+
+/**
+ * Tras origen resuelto: pedir nombre si falta, luego destino/cotización.
+ */
+async function maybeAskNameThenContinueAfterPickup(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+  session: UserSession,
+): Promise<void> {
+  if (await passengerNeedsBookingName(phone)) {
+    await persistDraft(phone, name, "WAITING_BOOKING_NAME", draft);
+    await sendTextMessage(phone, ASK_BOOKING_NAME);
+    return;
+  }
+  await continueAfterPickupCaptured(phone, name, draft, session);
+}
+
+async function continueAfterPickupCaptured(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+  session: UserSession,
+): Promise<void> {
+  const label =
+    draft.pickupLabel?.trim() ||
+    (draft.pickup ? placeLabel(draft.pickup) : "") ||
+    DEFAULT_PICKUP_LABEL;
+
+  if (draft.dropoff?.location) {
+    await buildAndSendQuote(phone, name, draft);
+    return;
+  }
+
+  const pendingDropoff = draft.pendingDropoffText?.trim();
+  if (pendingDropoff) {
+    const cleared: BookingDraft = {
+      ...draft,
+      pendingDropoffText: undefined,
+    };
+    await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", cleared, label);
+    await sendTextMessage(
+      phone,
+      await cms("P_PICKUP_CONFIRMED_LABEL", { label }),
+    );
+    await resolveTextToPlace(phone, name, pendingDropoff, "dropoff", {
+      ...session,
+      state: "WAITING_DROPOFF_TEXT",
+      bookingDraft: cleared,
+    });
+    return;
+  }
+
+  await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft, label);
+  await sendTextMessage(phone, askDestinationAfterPickup(label));
 }
 
 async function askForPickupLocation(
@@ -452,6 +559,13 @@ async function tryQuoteFromBothPlaces(
     pickup: pickupResolved,
     dropoff: dropoffResolved,
   };
+
+  // Nombre post-origen si aún no está guardado (sin onboarding previo).
+  if (await passengerNeedsBookingName(phone)) {
+    await persistDraft(phone, name, "WAITING_BOOKING_NAME", draft);
+    await sendTextMessage(phone, ASK_BOOKING_NAME);
+    return true;
+  }
 
   await buildAndSendQuote(phone, name, draft);
   return true;
@@ -913,32 +1027,12 @@ export async function handleBookingMessage(
       };
 
       await persistDraft(phone, name, "WAITING_PICKUP_LOCATION", nextDraft, label);
-
-      // Destino ya resuelto → cotizar.
-      if (nextDraft.dropoff?.location) {
-        await buildAndSendQuote(phone, name, nextDraft);
-        return true;
-      }
-
-      // Destino mencionado al inicio (falló dual) → Places ahora.
-      const pendingDropoff = nextDraft.pendingDropoffText?.trim();
-      if (pendingDropoff) {
-        const cleared: BookingDraft = {
-          ...nextDraft,
-          pendingDropoffText: undefined,
-        };
-        await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", cleared, label);
-        await sendTextMessage(phone, await cms("P_PICKUP_CONFIRMED_LABEL", { label }));
-        await resolveTextToPlace(phone, name, pendingDropoff, "dropoff", {
-          ...session,
-          state: "WAITING_DROPOFF_TEXT",
-          bookingDraft: cleared,
-        });
-        return true;
-      }
-
-      await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", nextDraft, label);
-      await sendTextMessage(phone, askDestinationAfterPickup(label));
+      await maybeAskNameThenContinueAfterPickup(
+        phone,
+        name,
+        nextDraft,
+        session,
+      );
       return true;
     }
 
@@ -947,6 +1041,25 @@ export async function handleBookingMessage(
       return true;
     }
 
+    return true;
+  }
+
+  // --- Nombre tras ubicación (sin onboarding "¿Cómo te gusta que te llamemos?") ---
+  if (session.state === "WAITING_BOOKING_NAME") {
+    if (!message.text?.trim()) {
+      await sendTextMessage(phone, ASK_BOOKING_NAME);
+      return true;
+    }
+    if (isBlockedBookingName(message.text)) {
+      await sendTextMessage(phone, ASK_BOOKING_NAME);
+      return true;
+    }
+
+    const savedName = await saveBookingPassengerName(phone, message.text);
+    await continueAfterPickupCaptured(phone, savedName, draft, {
+      ...session,
+      name: savedName,
+    });
     return true;
   }
 

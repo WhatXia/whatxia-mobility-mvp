@@ -13,6 +13,8 @@ import {
   ensureActivePassengerFromKnownIdentity,
   findOrCreatePassenger,
   findPassengerByPhone,
+  hasFullName,
+  hasPreferredName,
   type PassengerRow,
 } from "@/lib/supabase/passengers";
 import {
@@ -32,7 +34,9 @@ function driverIdentityFields(driver: DriverRow) {
 /**
  * Resuelve el pasajero para una solicitud de servicio.
  * - Conductor registrado: identidad del driver → pasajero ACTIVE (sin ensureIdentityOrPrompt).
- * - Pasajero nuevo: onboarding / PRE_LAUNCH habitual.
+ * - Pasajero (nuevo o existente): no exige onboarding previo; el nombre se captura
+ *   después de la ubicación en el flujo de booking. PIONEER con identidad completa
+ *   sigue bloqueado; PIONEER sin identidad (alta mínima en lanzamiento) → ACTIVE.
  */
 export async function resolvePassengerForServiceRequest(
   phone: string,
@@ -66,12 +70,48 @@ export async function resolvePassengerForServiceRequest(
     return passenger;
   }
 
-  const passenger = await ensureIdentityOrPrompt(phone, whatsappName ?? "");
-  if (!passenger) {
+  // Solicitud de servicio: no bloquear con ensureIdentityOrPrompt (nombre post-ubicación).
+  const passenger = await findOrCreatePassenger(phone, whatsappName);
+
+  if (passenger.status === "BLOCKED") {
+    await sendTextMessage(
+      phone,
+      await accessDeniedMessage(passenger.status, passenger.preferred_name),
+    );
+    console.log("[passenger-access] solicitud bloqueada", {
+      phone: passenger.phone,
+      status: passenger.status,
+    });
     return null;
   }
 
-  return assertPassengerCanRequestService(phone, whatsappName);
+  if (!canPassengerRequestService(passenger.status)) {
+    const incompleteIdentity =
+      !hasFullName(passenger) && !hasPreferredName(passenger);
+    if (incompleteIdentity) {
+      // Alta mínima para pedir servicio sin onboarding Pionero.
+      const activated = await ensureActivePassengerFromKnownIdentity(phone, {
+        whatsappName,
+      });
+      console.log(
+        "[passenger-access] servicio sin identidad previa → ACTIVE",
+        { phone: activated.phone, status: activated.status },
+      );
+      return activated;
+    }
+
+    await sendTextMessage(
+      phone,
+      await accessDeniedMessage(passenger.status, passenger.preferred_name),
+    );
+    console.log("[passenger-access] solicitud bloqueada", {
+      phone: passenger.phone,
+      status: passenger.status,
+    });
+    return null;
+  }
+
+  return passenger;
 }
 
 export async function assertPassengerCanRequestService(

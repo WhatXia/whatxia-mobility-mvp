@@ -464,8 +464,20 @@ export async function handleIncomingMessage(
       return;
     }
 
-    // USER-001 / CFG-001: !passenger && programa Pioneros activo → onboarding.
-    if (await handlePreLaunchNewUserIfNeeded(message.phone, message.name)) {
+    // Solicitud de servicio: no forzar onboarding Pionero / "hola" previo.
+    // El nombre se captura después de la ubicación en booking.
+    const isServiceRequestEntry =
+      message.button === BUTTON_IDS.SOLICITAR_SERVICIO ||
+      (Boolean(message.text) &&
+        !message.button &&
+        parseMobilityIntent(message.text).isServiceIntent);
+
+    // USER-001 / CFG-001: !passenger && programa Pioneros activo → onboarding
+    // (excepto entrada directa a solicitud de servicio).
+    if (
+      !isServiceRequestEntry &&
+      (await handlePreLaunchNewUserIfNeeded(message.phone, message.name))
+    ) {
       logRouteDiag({
         received: message.text,
         intentDetected: "pre_launch_new_user",

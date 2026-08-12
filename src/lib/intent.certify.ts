@@ -74,6 +74,24 @@ const cases: Array<{
     dest: "el aeropuerto",
   },
   {
+    text: "Necesito que me recojan",
+    intent: true,
+    pickup: null,
+    dest: null,
+  },
+  {
+    text: "Necesito que me recojan en Florida 4",
+    intent: true,
+    pickup: "Florida 4",
+    dest: null,
+  },
+  {
+    text: "Necesito un servicio para Florida 4",
+    intent: true,
+    pickup: "Florida 4",
+    dest: null,
+  },
+  {
     text: "Hola",
     intent: false,
     pickup: null,

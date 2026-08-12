@@ -32,11 +32,17 @@ const bookingStates: UserState[] = [
   "WAITING_DROPOFF_CONFIRM",
   "WAITING_QUOTE_CONFIRM",
   "WAITING_PICKUP",
+  "WAITING_BOOKING_NAME",
 ];
 
 for (const state of bookingStates) {
   assert(isBookingState(state), `isBookingState(${state})`);
 }
+
+assert(
+  !isBookingState("WAITING_PREFERRED_NAME"),
+  "identidad onboarding no es estado de booking",
+);
 
 assert(
   BOOKING_BUTTON_IDS.REQUEST_TRIP === "booking_request_trip",
@@ -55,6 +61,7 @@ assert(
 
 assert(true, "Paso 1: texto libre → pickupLabel (sin Places)");
 assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta)");
+assert(true, "Paso 3: si falta nombre → WAITING_BOOKING_NAME tras ubicación");
 assert(true, "Entrada: un lugar = origen; luego ¿Hacia dónde vamos?");
 assert(true, "Entrada dual origen+destino → Places → cotización");
 assert(true, "Destino alta confianza → cotización sin mapa/confirmación");

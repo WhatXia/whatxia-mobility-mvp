@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start -p 3002",
     "lint": "eslint",
+    "test:booking": "npx tsx src/lib/booking-flow.certify.ts",
+    "test:intent": "npx tsx src/lib/intent.certify.ts",
     "test:referrals": "npx tsx src/lib/referrals.certify.ts",
     "test:pioneers": "npx tsx src/lib/launch-programs/decision.certify.ts",
     "test:city-launch": "npx tsx src/lib/launch-programs/city-launch.certify.ts",
