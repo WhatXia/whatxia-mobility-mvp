@@ -1,7 +1,12 @@
 import { getSupabase } from "@/lib/supabase/client";
 import { getTrip, normalizePhone, samePhone } from "@/lib/trips";
+import type { IncomingLocation } from "@/types";
 import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
-import { sendTextMessage } from "@/lib/whatsapp/client";
+import {
+  sendLocationMessage,
+  sendLocationRequestMessage,
+  sendTextMessage,
+} from "@/lib/whatsapp/client";
 
 export type TunnelStatus = "active" | "closing" | "closed";
 export type TunnelMessageStatus = "pending" | "sent" | "failed";
@@ -33,6 +38,33 @@ export type TunnelMessage = {
 export const TUNNEL_CLOSED_MESSAGE = catalogBody("SYS_TUNNEL_CLOSED");
 
 const CLOSE_AFTER_MS = 5 * 60 * 1000;
+
+/**
+ * Petición clara de ubicación del conductor (conservador).
+ * Exige verbo de envío/pedido + "ubicación". No dispara con "¿dónde estás?" / "¿ya llegaste?".
+ */
+const DRIVER_LOCATION_REQUEST_PATTERNS: RegExp[] = [
+  /\b(regalame|enviame|mandame|pasame|comparteme|dame)\s+(tu\s+|la\s+)?ubicacion\b/,
+  /\b(necesito|quiero)\s+(tu\s+|la\s+)?ubicacion\b/,
+  /\b(envia|manda|pasa|comparte|envias|mandas)\s+(me\s+)?(tu\s+|la\s+)?ubicacion\b/,
+];
+
+function normalizeTunnelText(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+export function isDriverLocationRequest(text: string | null): boolean {
+  if (!text?.trim()) {
+    return false;
+  }
+  const normalized = normalizeTunnelText(text);
+  return DRIVER_LOCATION_REQUEST_PATTERNS.some((re) => re.test(normalized));
+}
 
 const OPEN_STATUSES: TunnelStatus[] = ["active", "closing"];
 
@@ -608,9 +640,74 @@ export type TunnelRouteResult = {
   reason: string;
 };
 
+type RoutableTunnel =
+  | { ok: true; tunnel: ConversationTunnel; reason: string }
+  | { ok: false; result: TunnelRouteResult };
+
+async function findRoutableTunnel(
+  senderPhone: string,
+): Promise<RoutableTunnel> {
+  try {
+    await closeExpiredTunnels();
+  } catch (error) {
+    console.error("[tunnel] closeExpiredTunnels falló (¿tabla existe?):", error);
+  }
+
+  const lookup = await lookupOpenTunnelForPhone(senderPhone);
+  const tunnel = lookup.tunnel;
+
+  if (!tunnel) {
+    return {
+      ok: false,
+      result: {
+        outcome: "none",
+        found: false,
+        tripId: null,
+        status: null,
+        reason: lookup.reason,
+      },
+    };
+  }
+
+  // Durante SEARCHING (reasignación) el túnel permanece abierto pero no enruta.
+  const trip = await getTrip(tunnel.trip_id);
+  if (
+    !trip ||
+    trip.status === "SEARCHING" ||
+    trip.status === "CANCELLED" ||
+    trip.status === "COMPLETED"
+  ) {
+    return {
+      ok: false,
+      result: {
+        outcome: "none",
+        found: true,
+        tripId: tunnel.trip_id,
+        status: tunnel.status,
+        reason: `trip_status_${trip?.status ?? "missing"}`,
+      },
+    };
+  }
+
+  return { ok: true, tunnel, reason: lookup.reason };
+}
+
+function tunnelPeers(
+  senderPhone: string,
+  tunnel: ConversationTunnel,
+): { isPassenger: boolean; recipientPhone: string; senderRole: TunnelSenderRole } {
+  const isPassenger = samePhone(senderPhone, tunnel.passenger_phone);
+  return {
+    isPassenger,
+    recipientPhone: isPassenger ? tunnel.driver_phone : tunnel.passenger_phone,
+    senderRole: isPassenger ? "passenger" : "driver",
+  };
+}
+
 /**
  * Enruta un texto del túnel al interlocutor.
  * Solo active/closing. closed → none (el handler puede volver al menú con Hola).
+ * Si el conductor pide ubicación de forma clara → location request nativo al pasajero.
  */
 export async function routeTunnelMessage(
   senderPhone: string,
@@ -627,50 +724,16 @@ export async function routeTunnelMessage(
     };
   }
 
-  try {
-    await closeExpiredTunnels();
-  } catch (error) {
-    console.error("[tunnel] closeExpiredTunnels falló (¿tabla existe?):", error);
+  const routable = await findRoutableTunnel(senderPhone);
+  if (!routable.ok) {
+    return routable.result;
   }
 
-  const lookup = await lookupOpenTunnelForPhone(senderPhone);
-  const tunnel = lookup.tunnel;
-
-  if (!tunnel) {
-    return {
-      outcome: "none",
-      found: false,
-      tripId: null,
-      status: null,
-      reason: lookup.reason,
-    };
-  }
-
-  // Durante SEARCHING (reasignación) el túnel permanece abierto pero no enruta.
-  const trip = await getTrip(tunnel.trip_id);
-  if (
-    !trip ||
-    trip.status === "SEARCHING" ||
-    trip.status === "CANCELLED" ||
-    trip.status === "COMPLETED"
-  ) {
-    return {
-      outcome: "none",
-      found: true,
-      tripId: tunnel.trip_id,
-      status: tunnel.status,
-      reason: `trip_status_${trip?.status ?? "missing"}`,
-    };
-  }
-
-  const isPassenger = samePhone(senderPhone, tunnel.passenger_phone);
-  const recipientPhone = isPassenger
-    ? tunnel.driver_phone
-    : tunnel.passenger_phone;
-  const senderRole: TunnelSenderRole = isPassenger ? "passenger" : "driver";
-  const relayBody = isPassenger
-    ? cmsSync("SYS_TUNNEL_RELAY_PASSENGER", { text: trimmed })
-    : cmsSync("SYS_TUNNEL_RELAY_DRIVER", { text: trimmed });
+  const { tunnel, reason } = routable;
+  const { isPassenger, recipientPhone, senderRole } = tunnelPeers(
+    senderPhone,
+    tunnel,
+  );
 
   const saved = await insertTunnelMessage({
     tunnelId: tunnel.id,
@@ -683,7 +746,21 @@ export async function routeTunnelMessage(
   });
 
   try {
-    await sendTextMessage(recipientPhone, relayBody);
+    if (senderRole === "driver" && isDriverLocationRequest(trimmed)) {
+      await sendLocationRequestMessage(
+        recipientPhone,
+        await cms("SYS_TUNNEL_DRIVER_LOCATION_REQUEST"),
+      );
+      console.log("[tunnel] conductor pidió ubicación → location request al pasajero", {
+        tunnelId: tunnel.id,
+        tripId: tunnel.trip_id,
+      });
+    } else {
+      const relayBody = isPassenger
+        ? cmsSync("SYS_TUNNEL_RELAY_PASSENGER", { text: trimmed })
+        : cmsSync("SYS_TUNNEL_RELAY_DRIVER", { text: trimmed });
+      await sendTextMessage(recipientPhone, relayBody);
+    }
     await updateMessageStatus(saved.id, "sent");
   } catch (error) {
     console.error("[tunnel] fallo al reenviar:", error);
@@ -699,7 +776,63 @@ export async function routeTunnelMessage(
     found: true,
     tripId: tunnel.trip_id,
     status: tunnel.status,
-    reason: lookup.reason,
+    reason,
+  };
+}
+
+/**
+ * Reenvía una ubicación nativa de WhatsApp al interlocutor del túnel.
+ */
+export async function routeTunnelLocation(
+  senderPhone: string,
+  location: IncomingLocation,
+): Promise<TunnelRouteResult> {
+  const routable = await findRoutableTunnel(senderPhone);
+  if (!routable.ok) {
+    return routable.result;
+  }
+
+  const { tunnel, reason } = routable;
+  const { recipientPhone, senderRole } = tunnelPeers(senderPhone, tunnel);
+  const content = [
+    "📍",
+    location.name?.trim() || "Ubicación",
+    `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`,
+  ].join(" ");
+
+  const saved = await insertTunnelMessage({
+    tunnelId: tunnel.id,
+    tripId: tunnel.trip_id,
+    senderPhone,
+    recipientPhone,
+    senderRole,
+    content,
+    status: "pending",
+  });
+
+  try {
+    await sendLocationMessage(recipientPhone, {
+      latitude: location.lat,
+      longitude: location.lng,
+      name: location.name ?? undefined,
+      address: location.address ?? undefined,
+    });
+    await updateMessageStatus(saved.id, "sent");
+  } catch (error) {
+    console.error("[tunnel] fallo al reenviar ubicación:", error);
+    await updateMessageStatus(saved.id, "failed");
+    await sendTextMessage(
+      senderPhone,
+      await cms("SYS_TUNNEL_DELIVERY_FAIL"),
+    );
+  }
+
+  return {
+    outcome: "routed",
+    found: true,
+    tripId: tunnel.trip_id,
+    status: tunnel.status,
+    reason,
   };
 }
 

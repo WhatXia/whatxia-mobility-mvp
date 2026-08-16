@@ -68,8 +68,8 @@ export type BookingDraft = {
   candidates?: PlaceCandidate[];
   candidateRole?: "pickup" | "dropoff";
   /**
-   * MVP: label_plus_whatsapp_location.
-   * Futuro: places_text para resolver origen solo por nombre.
+   * places_text: origen resuelto por Places.
+   * label_plus_whatsapp_location: pin GPS (fallback / bajo demanda).
    */
   originCapture?: "label_plus_whatsapp_location" | "places_text";
   route?: RouteEstimate;

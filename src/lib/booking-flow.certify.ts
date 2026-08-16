@@ -24,7 +24,7 @@ function assert(condition: boolean, message: string) {
 
 assert(
   ORIGIN_CAPTURE_MODE === "label_plus_whatsapp_location",
-  "MVP: pickupLabel (texto) + pickupLocation (WhatsApp)",
+  "GPS WhatsApp sigue disponible como captura de origen (fallback)",
 );
 
 assert(
@@ -80,7 +80,7 @@ assert(
   "ETA resumen reutiliza computeAutomaticEtaRange → 5–10",
 );
 
-assert(true, "Paso 1: texto libre → pickupLabel (sin Places)");
+assert(true, "Paso 1: texto libre → pickupLabel + Places (sin exigir GPS)");
 assert(
   resolvePickupLabelFromText("Necesito un servicio para Florida 4") ===
     "Florida 4",
@@ -96,7 +96,20 @@ assert(
   resolvePickupLabelFromText("Florida 4") === "Florida 4",
   "WAITING_PICKUP_TEXT: ubicación directa sin cambios",
 );
-assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta)");
+assert(
+  resolvePickupLabelFromText("Necesito un servicio para Torre de Arzoyo") ===
+    "Torre de Arzoyo",
+  "Caso A: pickupLabel conserva el texto original del pasajero",
+);
+assert(
+  resolvePickupLabelFromText("Servicio para Jordan Octava") ===
+    "Jordan Octava",
+  "Caso B: solicitud sin 'necesito' → pickupLabel Jordan Octava",
+);
+assert(true, "Alta confianza Places → siguiente dato del booking (sin P_PLACE_CONFIRM)");
+assert(true, "Ambigüedad Places → lista de candidatos (confirmación justificada)");
+assert(true, "Places fallido / no encontrado → fallback WAITING_PICKUP_LOCATION");
+assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta) sigue funcionando");
 assert(true, "Paso 3: si falta nombre → WAITING_BOOKING_NAME tras ubicación");
 assert(
   true,

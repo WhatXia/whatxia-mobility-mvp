@@ -1,4 +1,9 @@
-import type { IncomingMessage, UserSession, UserState } from "@/types";
+import type {
+  IncomingLocation,
+  IncomingMessage,
+  UserSession,
+  UserState,
+} from "@/types";
 import type {
   BookingDraft,
   PlaceCandidate,
@@ -36,8 +41,9 @@ import {
 } from "@/lib/whatsapp/client";
 
 /**
- * MVP: texto libre (pickupLabel) + ubicación WhatsApp (coords).
- * Futuro: "places_text" para resolver origen solo por nombre con Places.
+ * GPS WhatsApp sigue disponible como captura de origen (fallback / bajo demanda).
+ * Si el pasajero da un lugar por texto, el flujo intenta Places primero
+ * (originCapture = "places_text" en el draft) y no exige pin al inicio.
  */
 export const ORIGIN_CAPTURE_MODE:
   | "label_plus_whatsapp_location"
@@ -496,9 +502,10 @@ export type BookingIntentSlots = {
 
 /**
  * Entrada natural (Agent Zero):
- * - Un lugar → origen (label) + pedir share location → luego resumen (o destino si BOOKING_REQUIRE_DROPOFF)
+ * - Un lugar → Places (alta confianza sin confirmación) → siguiente dato del booking
+ * - Places ambiguo → lista de candidatos; Places fallido → GPS WhatsApp (fallback)
  * - Origen + destino claros → Places ambos → cotización (solo si BOOKING_REQUIRE_DROPOFF)
- * - Solo intención / Solicitar servicio → "¿Dónde te recogemos?" → luego ubicación
+ * - Solo intención / Solicitar servicio → "¿Dónde te recogemos?" (sin exigir GPS)
  */
 export async function startBookingFromIntent(
   phone: string,
@@ -535,17 +542,30 @@ export async function startBookingFromIntent(
   }
 
   if (pickupText) {
-    await startPickupLocationStep(phone, name, {
+    const draft: BookingDraft = {
+      originCapture: "places_text",
       pickupLabel: pickupText,
-      // Sin pendingDropoff mientras BOOKING_REQUIRE_DROPOFF === false.
       pendingDropoffText: BOOKING_REQUIRE_DROPOFF
         ? destinationText ?? undefined
         : undefined,
+    };
+    await persistDraft(phone, name, "WAITING_PICKUP_TEXT", draft, pickupText);
+    await resolveTextToPlace(phone, name, pickupText, "pickup", {
+      phone,
+      name,
+      state: "WAITING_PICKUP_TEXT",
+      pickupNeighborhood: pickupText,
+      driverName: null,
+      driverDraft: null,
+      driverFlowStep: null,
+      driverUpdateCategory: null,
+      driverUpdateField: null,
+      bookingDraft: draft,
     });
     return;
   }
 
-  // Solicitar servicio sin lugar: primero texto de recogida, luego pin.
+  // Solicitar servicio sin lugar: primero texto de recogida (Places; GPS si hace falta).
   await persistDraft(phone, name, "WAITING_PICKUP_TEXT", {
     originCapture: "label_plus_whatsapp_location",
   });
@@ -577,6 +597,106 @@ async function startPickupLocationStep(
 
   await persistDraft(phone, name, "WAITING_PICKUP_LOCATION", draft, draft.pickupLabel);
   await askForPickupLocation(phone, draft.pickupLabel);
+}
+
+function passengerPickupLabel(draft: BookingDraft, fallback: string): string {
+  return (
+    draft.pickupLabel?.trim() ||
+    fallback.trim() ||
+    DEFAULT_PICKUP_LABEL
+  );
+}
+
+async function fallbackPickupToGps(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+  label: string,
+): Promise<void> {
+  await startPickupLocationStep(phone, name, {
+    pickupLabel: passengerPickupLabel(draft, label),
+    pendingDropoffText: draft.pendingDropoffText,
+  });
+}
+
+async function continueWithResolvedPickup(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+  resolved: ResolvedPlace,
+  originalLabel: string,
+  session: UserSession,
+): Promise<void> {
+  const label = passengerPickupLabel(draft, originalLabel);
+  const next: BookingDraft = {
+    ...draft,
+    pickup: {
+      ...resolved,
+      name: label,
+    },
+    pickupLabel: label,
+    pickupLocation: resolved.location,
+    originCapture: "places_text",
+    candidates: undefined,
+    candidateRole: undefined,
+    route: undefined,
+    quote: undefined,
+  };
+  await maybeAskNameThenContinueAfterPickup(phone, name, next, {
+    ...session,
+    bookingDraft: next,
+  });
+}
+
+async function applyPickupFromWhatsAppLocation(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+  location: IncomingLocation,
+  session: UserSession,
+): Promise<void> {
+  const label =
+    (draft.pickupLabel?.trim() &&
+    draft.pickupLabel.trim() !== DEFAULT_PICKUP_LABEL
+      ? draft.pickupLabel.trim()
+      : null) ||
+    location.name?.trim() ||
+    draft.pickupLabel?.trim() ||
+    DEFAULT_PICKUP_LABEL;
+
+  const pickupLocation = {
+    lat: location.lat,
+    lng: location.lng,
+  };
+
+  const city = await getActiveCity();
+  if (!isPointInCity(pickupLocation, city)) {
+    await sendTextMessage(phone, outOfCityServiceMessage(city));
+    await askForPickupLocation(phone);
+    return;
+  }
+
+  const pickup: ResolvedPlace = {
+    placeId: null,
+    name: label,
+    address:
+      location.address ??
+      `${pickupLocation.lat.toFixed(5)}, ${pickupLocation.lng.toFixed(5)}`,
+    location: pickupLocation,
+  };
+
+  const nextDraft: BookingDraft = {
+    ...draft,
+    pickupLabel: label,
+    pickupLocation,
+    pickup,
+    originCapture: "label_plus_whatsapp_location",
+    route: undefined,
+    quote: undefined,
+  };
+
+  await persistDraft(phone, name, "WAITING_PICKUP_LOCATION", nextDraft, label);
+  await maybeAskNameThenContinueAfterPickup(phone, name, nextDraft, session);
 }
 
 /**
@@ -687,7 +807,7 @@ async function proceedAfterDropoffReady(
   await askForPickupLocation(phone, next.pickupLabel);
 }
 
-/** Solo destino en MVP; origen Places si ORIGIN_CAPTURE_MODE === places_text. */
+/** Resuelve un lugar con Places. Origen: alta confianza sin confirmación; si falla, GPS. */
 async function resolveTextToPlace(
   phone: string,
   name: string,
@@ -696,6 +816,9 @@ async function resolveTextToPlace(
   session: UserSession,
 ): Promise<void> {
   const draft: BookingDraft = { ...(session.bookingDraft ?? {}) };
+  if (role === "pickup" && !draft.pickupLabel?.trim()) {
+    draft.pickupLabel = text.trim();
+  }
 
   let searchResult;
   try {
@@ -720,7 +843,7 @@ async function resolveTextToPlace(
       await offerDropoffNotFoundOptions(phone, name, draft);
       return;
     }
-    await sendTextMessage(phone, await cms("P_PLACES_SEARCH_ERROR"));
+    await fallbackPickupToGps(phone, name, draft, text);
     return;
   }
 
@@ -745,10 +868,7 @@ async function resolveTextToPlace(
       await offerDropoffNotFoundOptions(phone, name, draft);
       return;
     }
-    await sendTextMessage(
-      phone,
-      await cms("P_PLACE_NOT_IN_CITY", { city_name: city.name }),
-    );
+    await fallbackPickupToGps(phone, name, draft, text);
     return;
   }
 
@@ -783,16 +903,16 @@ async function resolveTextToPlace(
       return;
     }
 
-    // Origen vía Places (modo futuro): sigue pidiendo confirmación.
-    draft.pickup = resolved;
-    draft.pickupLabel = resolved.name;
-    draft.originCapture = "places_text";
-    await persistDraft(phone, name, "WAITING_PICKUP_CONFIRM", draft);
-    await sendPlaceForConfirm(phone, resolved);
+    console.log("[booking] origen alta confianza → booking sin confirmación", {
+      placeId: resolved.placeId,
+      name: resolved.name,
+      pickupLabel: passengerPickupLabel(draft, text),
+    });
+    await continueWithResolvedPickup(phone, name, draft, resolved, text, session);
     return;
   }
 
-  // Varias opciones (o una sin umbral): lista; sin mapa.
+  // Varias opciones (o una sin umbral): lista; sin mapa. Ambigüedad real.
   const confirmState =
     role === "pickup" ? "WAITING_PICKUP_CONFIRM" : "WAITING_DROPOFF_CONFIRM";
   await persistDraft(phone, name, confirmState, draft);
@@ -1037,97 +1157,64 @@ export async function handleBookingMessage(
     return true;
   }
 
-  // --- Paso 1: texto libre → pickupLabel ---
+  // --- Paso 1: texto libre → Places (GPS si el pasajero envía pin) ---
   if (
-    (session.state === "WAITING_PICKUP_TEXT" ||
-      session.state === "WAITING_PICKUP") &&
-    message.text
+    session.state === "WAITING_PICKUP_TEXT" ||
+    session.state === "WAITING_PICKUP"
   ) {
-    const raw = message.text.trim();
-    if (!raw) {
-      await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
-      return true;
-    }
-
-    // No usar el utterance completo si es solicitud natural: reutilizar intent.
-    const label = resolvePickupLabelFromText(raw);
-    if (!label) {
-      await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
-      return true;
-    }
-
-    if (ORIGIN_CAPTURE_MODE === "places_text") {
-      await resolveTextToPlace(phone, name, label, "pickup", session);
-      return true;
-    }
-
-    await persistDraft(
-      phone,
-      name,
-      "WAITING_PICKUP_LOCATION",
-      {
-        ...draft,
-        pickupLabel: label,
-        pickup: undefined,
-        pickupLocation: undefined,
-        originCapture: "label_plus_whatsapp_location",
-        route: undefined,
-        quote: undefined,
-      },
-      label,
-    );
-    await askForPickupLocation(phone);
-    return true;
-  }
-
-  // --- Paso: ubicación WhatsApp → pickupLocation ---
-  if (session.state === "WAITING_PICKUP_LOCATION") {
     if (message.location) {
-      const label =
-        (draft.pickupLabel?.trim() &&
-        draft.pickupLabel.trim() !== DEFAULT_PICKUP_LABEL
-          ? draft.pickupLabel.trim()
-          : null) ||
-        message.location.name?.trim() ||
-        draft.pickupLabel?.trim() ||
-        DEFAULT_PICKUP_LABEL;
+      await applyPickupFromWhatsAppLocation(
+        phone,
+        name,
+        draft,
+        message.location,
+        session,
+      );
+      return true;
+    }
 
-      const pickupLocation = {
-        lat: message.location.lat,
-        lng: message.location.lng,
-      };
-
-      const city = await getActiveCity();
-      if (!isPointInCity(pickupLocation, city)) {
-        await sendTextMessage(phone, outOfCityServiceMessage(city));
-        await askForPickupLocation(phone);
+    if (message.text) {
+      const raw = message.text.trim();
+      if (!raw) {
+        await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
         return true;
       }
 
-      const pickup: ResolvedPlace = {
-        placeId: null,
-        name: label,
-        address:
-          message.location.address ??
-          `${pickupLocation.lat.toFixed(5)}, ${pickupLocation.lng.toFixed(5)}`,
-        location: pickupLocation,
-      };
+      const label = resolvePickupLabelFromText(raw);
+      if (!label) {
+        await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
+        return true;
+      }
 
       const nextDraft: BookingDraft = {
         ...draft,
         pickupLabel: label,
-        pickupLocation,
-        pickup,
-        originCapture: "label_plus_whatsapp_location",
+        pickup: undefined,
+        pickupLocation: undefined,
+        originCapture: "places_text",
         route: undefined,
         quote: undefined,
       };
+      await persistDraft(phone, name, "WAITING_PICKUP_TEXT", nextDraft, label);
+      await resolveTextToPlace(phone, name, label, "pickup", {
+        ...session,
+        bookingDraft: nextDraft,
+      });
+      return true;
+    }
 
-      await persistDraft(phone, name, "WAITING_PICKUP_LOCATION", nextDraft, label);
-      await maybeAskNameThenContinueAfterPickup(
+    await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
+    return true;
+  }
+
+  // --- Paso: ubicación WhatsApp → pickupLocation (fallback / bajo demanda) ---
+  if (session.state === "WAITING_PICKUP_LOCATION") {
+    if (message.location) {
+      await applyPickupFromWhatsAppLocation(
         phone,
         name,
-        nextDraft,
+        draft,
+        message.location,
         session,
       );
       return true;
@@ -1290,7 +1377,7 @@ export async function handleBookingMessage(
     return true;
   }
 
-  // Futuro: confirm de origen vía Places
+  // Confirm de origen vía Places: solo si hay ambigüedad (lista de candidatos).
   if (session.state === "WAITING_PICKUP_CONFIRM") {
     if (message.button === BOOKING_BUTTON_IDS.REJECT_PLACE) {
       await persistDraft(phone, name, "WAITING_PICKUP_TEXT", {
@@ -1304,14 +1391,26 @@ export async function handleBookingMessage(
     }
 
     if (message.button === BOOKING_BUTTON_IDS.CONFIRM_PLACE && draft.pickup) {
-      if (ORIGIN_CAPTURE_MODE === "places_text") {
-        await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", {
-          ...draft,
-          candidates: undefined,
-        });
-        await sendTextMessage(phone, ASK_DESTINATION);
+      const city = await getActiveCity();
+      if (!isPointInCity(draft.pickup.location, city)) {
+        await sendTextMessage(phone, outOfCityServiceMessage(city));
+        await fallbackPickupToGps(
+          phone,
+          name,
+          draft,
+          passengerPickupLabel(draft, draft.pickup.name),
+        );
         return true;
       }
+      await continueWithResolvedPickup(
+        phone,
+        name,
+        draft,
+        draft.pickup,
+        passengerPickupLabel(draft, draft.pickup.name),
+        session,
+      );
+      return true;
     }
 
     if (message.button?.startsWith(BOOKING_BUTTON_IDS.CANDIDATE_PREFIX)) {
@@ -1319,14 +1418,35 @@ export async function handleBookingMessage(
         message.button.slice(BOOKING_BUTTON_IDS.CANDIDATE_PREFIX.length),
       );
       const chosen = (draft.candidates ?? [])[index];
-      if (chosen) {
-        draft.pickup = candidateToResolved(chosen);
-        draft.pickupLabel = chosen.name;
-        await persistDraft(phone, name, "WAITING_PICKUP_CONFIRM", draft);
-        await sendPlaceForConfirm(phone, draft.pickup);
+      if (!chosen) {
+        await sendTextMessage(phone, await cms("P_CANDIDATE_INVALID"));
+        return true;
       }
+      const resolved = candidateToResolved(chosen);
+      const city = await getActiveCity();
+      if (!isPointInCity(resolved.location, city)) {
+        await sendTextMessage(phone, outOfCityServiceMessage(city));
+        await fallbackPickupToGps(
+          phone,
+          name,
+          { ...draft, candidates: undefined },
+          passengerPickupLabel(draft, chosen.name),
+        );
+        return true;
+      }
+      await continueWithResolvedPickup(
+        phone,
+        name,
+        draft,
+        resolved,
+        passengerPickupLabel(draft, chosen.name),
+        session,
+      );
       return true;
     }
+
+    await sendTextMessage(phone, await cms("P_CHOOSE_OR_REWRITE"));
+    return true;
   }
 
   return false;

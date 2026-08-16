@@ -13,6 +13,7 @@ export type MobilityIntentResult = {
 
 const INTENT_PATTERNS: RegExp[] = [
   /\b(necesito|quiero|pido|solicito|busco)\b.{0,40}\b(servicio|viaje|taxi|carro|transporte|carrera)\b/i,
+  /\b(un\s+)?(servicio|viaje|taxi|transporte|carrera)\s+(para|a|al|hacia|hasta|en)\s+\S+/i,
   /\b(servicio|viaje|taxi|transporte|carrera)\b.{0,20}\b(por\s+favor|ya|ahora|urgente)?\b/i,
   /\b(llevame|ll[eé]vame|llevalo|ll[eé]valo|recojanme|rec[oó]janme)\b/i,
   /\b(me\s+pueden\s+llevar|me\s+lleva|me\s+recogen|me\s+recojan)\b/i,

@@ -93,6 +93,30 @@ const cases: Array<{
     dest: null,
   },
   {
+    text: "Necesito un servicio para Torre de Arzoyo",
+    intent: true,
+    pickup: "Torre de Arzoyo",
+    dest: null,
+  },
+  {
+    text: "Servicio para Jordan Octava",
+    intent: true,
+    pickup: "Jordan Octava",
+    dest: null,
+  },
+  {
+    text: "Un taxi para Torre de Arzoyo",
+    intent: true,
+    pickup: "Torre de Arzoyo",
+    dest: null,
+  },
+  {
+    text: "Servicio para Torre de Arzoyo",
+    intent: true,
+    pickup: "Torre de Arzoyo",
+    dest: null,
+  },
+  {
     text: "Hola",
     intent: false,
     pickup: null,

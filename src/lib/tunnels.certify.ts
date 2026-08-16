@@ -1,9 +1,11 @@
 /**
- * Certificación lógica del túnel (Sprint 18 + post-viaje).
+ * Certificación lógica del túnel (Sprint 18 + post-viaje + location request).
  * Ejecutar: npx tsx src/lib/tunnels.certify.ts
  */
 
 export {};
+
+import { isDriverLocationRequest } from "@/lib/tunnels";
 
 const CLOSE_AFTER_MS = 5 * 60 * 1000;
 
@@ -112,7 +114,40 @@ assert(
   "Tras finalizar, el conductor queda disponible para nuevos servicios",
 );
 
-console.log("\nCertificación túnel (5 min + post-rating): PASS");
+assert(
+  isDriverLocationRequest("Regálame tu ubicación"),
+  "Caso C: Regálame tu ubicación → location request",
+);
+assert(
+  isDriverLocationRequest("Necesito tu ubicación"),
+  "Necesito tu ubicación → location request",
+);
+assert(
+  isDriverLocationRequest("Envíame tu ubicación"),
+  "Envíame tu ubicación → location request",
+);
+assert(
+  isDriverLocationRequest("Mándame la ubicación"),
+  "Mándame la ubicación → location request",
+);
+assert(
+  !isDriverLocationRequest("¿Ya llegaste?"),
+  "Caso D: ¿Ya llegaste? no dispara location request",
+);
+assert(
+  !isDriverLocationRequest("¿Dónde estás?"),
+  "¿Dónde estás? no dispara location request",
+);
+assert(
+  !isDriverLocationRequest("¿Dónde te encuentras?"),
+  "¿Dónde te encuentras? no dispara location request",
+);
+assert(
+  !isDriverLocationRequest("Voy en camino"),
+  "charla normal del túnel no dispara location request",
+);
+
+console.log("\nCertificación túnel (5 min + post-rating + location request): PASS");
 console.log(
   "Validar en WhatsApp: calificar → Nuevo servicio / Salir; túnel cerrado; conductor libre.",
 );

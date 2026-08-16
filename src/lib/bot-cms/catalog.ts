@@ -3666,6 +3666,16 @@ export const BOT_CMS_CATALOG = [
     "category": "ERRORS"
   },
   {
+    "code": "SYS_TUNNEL_DRIVER_LOCATION_REQUEST",
+    "name": "Driver requested passenger location",
+    "module": "SYSTEM",
+    "body": "El conductor solicitó tu ubicación.",
+    "content_type": "interactive",
+    "source_file": "tunnels.ts",
+    "source_symbol": "routeTunnelMessage",
+    "category": "SYSTEM"
+  },
+  {
     "code": "SYS_AUDIO_FAIL",
     "name": "Audio transcription fail",
     "module": "SYSTEM",

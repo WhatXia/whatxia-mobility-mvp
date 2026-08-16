@@ -162,6 +162,7 @@ import {
 } from "@/lib/sessions";
 import {
   notifyIfTunnelClosed,
+  routeTunnelLocation,
   routeTunnelMessage,
 } from "@/lib/tunnels";
 import { getTrip, samePhone } from "@/lib/trips";
@@ -956,6 +957,24 @@ export async function handleIncomingMessage(
 
   // Conversation Tunnel: ANTES del Core Agent y de flujos guiados.
   // Si hay túnel active/closing para este teléfono → enrutar y no continuar.
+  if (message.location && !message.button) {
+    const locationResult = await routeTunnelLocation(
+      message.phone,
+      message.location,
+    );
+    console.log("[tunnel:handler] location", {
+      phone: message.phone,
+      found: locationResult.found,
+      tripId: locationResult.tripId,
+      status: locationResult.status,
+      outcome: locationResult.outcome,
+      reason: locationResult.reason,
+    });
+    if (locationResult.outcome === "routed") {
+      return;
+    }
+  }
+
   if (message.text && !message.button) {
     const tunnelResult = await routeTunnelMessage(
       message.phone,
