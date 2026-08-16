@@ -1,6 +1,6 @@
 /**
  * Certificación – captura origen + UX destino no encontrado (Sprint 29).
- * Launch: BOOKING_REQUIRE_DROPOFF=false → resumen sin destino.
+ * Launch: BOOKING_REQUIRE_DROPOFF=false → pickup resuelto lanza viaje/dispatch.
  * Ejecutar: npx tsx src/lib/booking-flow.certify.ts
  */
 export {};
@@ -106,16 +106,34 @@ assert(
     "Jordan Octava",
   "Caso B: solicitud sin 'necesito' → pickupLabel Jordan Octava",
 );
-assert(true, "Alta confianza Places → siguiente dato del booking (sin P_PLACE_CONFIRM)");
-assert(true, "Ambigüedad Places → lista de candidatos (confirmación justificada)");
+assert(
+  resolvePickupLabelFromText("Necesito un servicio para Prueba") ===
+    "Prueba",
+  "Caso A: Necesito un servicio para Prueba → pickupLabel Prueba",
+);
+assert(
+  resolvePickupLabelFromText("Servicio para Prueba") === "Prueba",
+  "Caso B: Servicio para Prueba → pickupLabel Prueba",
+);
+assert(
+  resolvePickupLabelFromText("Un taxi para Prueba") === "Prueba",
+  "Caso C: Un taxi para Prueba → pickupLabel Prueba",
+);
+assert(true, "Alta confianza Places → launchTripFromDraft (sin P_PLACE_CONFIRM ni GPS)");
+assert(true, "Ambigüedad Places → lista de candidatos (no lanza viaje incorrecto)");
 assert(true, "Places fallido / no encontrado → fallback WAITING_PICKUP_LOCATION");
 assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta) sigue funcionando");
-assert(true, "Paso 3: si falta nombre → WAITING_BOOKING_NAME tras ubicación");
+assert(true, "Paso 3: si falta nombre → WAITING_BOOKING_NAME (dato obligatorio)");
 assert(
   true,
-  "Paso 4 (launch): tras nombre → resumen WAITING_QUOTE_CONFIRM sin destino",
+  "Paso 4 (launch): pickup resuelto → SEARCHING_DRIVER + offerTripToDrivers/createTrip",
 );
-assert(true, "Botones ✅ Solicitar / ❌ Cancelar sin cambios de id/título");
+assert(
+  !isBookingState("SEARCHING_DRIVER"),
+  "SEARCHING_DRIVER no es estado de booking; es búsqueda/dispatch",
+);
+assert(true, "Sin resumen Solicitar/Cancelar cuando pickup Places tiene alta confianza");
+assert(true, "WAITING_QUOTE_CONFIRM + REQUEST_TRIP conservados para sesiones ya abiertas");
 assert(
   true,
   "Código de destino/Places/cotización conservado (BOOKING_REQUIRE_DROPOFF)",

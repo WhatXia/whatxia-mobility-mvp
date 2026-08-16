@@ -52,7 +52,7 @@ export const ORIGIN_CAPTURE_MODE:
 /**
  * Launch: desactiva temporalmente destino/Places/cotización en el camino de solicitud.
  * true → flujo completo con destino (código conservado debajo).
- * false → ubicación (+ nombre) → resumen → Solicitar/Cancelar.
+ * false → pickup resuelto → crear viaje / dispatch (sin resumen Solicitar/Cancelar).
  */
 export const BOOKING_REQUIRE_DROPOFF = false;
 
@@ -162,7 +162,7 @@ async function saveBookingPassengerName(
 }
 
 /**
- * Tras origen resuelto: pedir nombre si falta, luego resumen (o destino si se reactiva).
+ * Tras origen resuelto: pedir nombre si falta, luego lanzar viaje (o destino si se reactiva).
  */
 async function maybeAskNameThenContinueAfterPickup(
   phone: string,
@@ -179,8 +179,107 @@ async function maybeAskNameThenContinueAfterPickup(
 }
 
 /**
- * Resumen sin destino (launch): mismos botones Solicitar/Cancelar.
- * ETA: reutiliza computeAutomaticEtaRange (banda 5–10 = rangos existentes).
+ * Punto único de lanzamiento: misma lógica que el botón REQUEST_TRIP.
+ * persist SEARCHING_DRIVER → P_SEARCHING_DRIVER → offerTripToDrivers → createTrip.
+ */
+async function launchTripFromDraft(
+  phone: string,
+  name: string,
+  draft: BookingDraft,
+): Promise<void> {
+  console.log("[publish:diag] STEP_0_REQUEST_TRIP_enter", {
+    phone,
+    hasPickup: Boolean(draft.pickup),
+    hasDropoff: Boolean(draft.dropoff),
+    hasRoute: Boolean(draft.route),
+    hasQuote: Boolean(draft.quote),
+    quotedAmount: draft.quote?.amount ?? null,
+    requireDropoff: BOOKING_REQUIRE_DROPOFF,
+    autoLaunch: true,
+  });
+
+  const dropoffReady = Boolean(draft.dropoff && draft.route && draft.quote);
+  if (!draft.pickup || (BOOKING_REQUIRE_DROPOFF && !dropoffReady)) {
+    console.warn("[publish:diag] STOP_at_REQUEST_TRIP_incomplete_draft", {
+      phone,
+      continues: false,
+    });
+    await sendTextMessage(phone, await cms("P_QUOTE_EXPIRED"));
+    await clearSession(phone);
+    return;
+  }
+
+  const { assertPassengerCanRequestService } = await import(
+    "@/lib/passenger-access"
+  );
+  if (!(await assertPassengerCanRequestService(phone, name))) {
+    await clearSession(phone);
+    return;
+  }
+
+  const label = pickupDisplayLabel(draft);
+
+  await upsertSession(phone, {
+    name,
+    state: "SEARCHING_DRIVER",
+    pickupNeighborhood: label,
+    bookingDraft: draft,
+  });
+
+  await sendTextMessage(phone, await cms("P_SEARCHING_DRIVER"));
+
+  console.log("[publish:diag] STEP_0b_calling_offerTripToDrivers", {
+    phone,
+    label,
+    note: "Lanzamiento directo: offerTripToDrivers → createTrip SEARCHING",
+    continues: true,
+  });
+
+  try {
+    await offerTripToDrivers(
+      phone,
+      label,
+      dropoffReady
+        ? {
+            pickup: {
+              ...draft.pickup,
+              name: label,
+            },
+            dropoff: draft.dropoff!,
+            route: draft.route!,
+            quote: draft.quote!,
+          }
+        : {
+            pickup: {
+              ...draft.pickup,
+              name: label,
+            },
+          },
+    );
+    console.log("[publish:diag] STEP_0c_offerTripToDrivers_returned", {
+      phone,
+      continues: true,
+    });
+  } catch (error) {
+    console.error("[publish:diag] STOP_at_offerTripToDrivers_threw", {
+      phone,
+      continues: false,
+      error,
+      errorMessage:
+        error && typeof error === "object" && "message" in error
+          ? (error as { message?: string }).message
+          : String(error),
+      errorCode:
+        error && typeof error === "object" && "code" in error
+          ? (error as { code?: string }).code
+          : null,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Resumen sin destino: conservado para sesiones WAITING_QUOTE_CONFIRM ya abiertas.
  */
 async function buildAndSendServiceSummary(
   phone: string,
@@ -231,9 +330,14 @@ async function continueAfterPickupCaptured(
   draft: BookingDraft,
   session: UserSession,
 ): Promise<void> {
-  // Launch: sin destino → resumen → Solicitar/Cancelar.
+  // Launch: pickup resuelto → crear viaje / búsqueda, sin Solicitar/Cancelar.
   if (!BOOKING_REQUIRE_DROPOFF) {
-    await buildAndSendServiceSummary(phone, name, draft);
+    await launchTripFromDraft(phone, name, {
+      ...draft,
+      candidates: undefined,
+      candidateRole: undefined,
+      pendingDropoffText: undefined,
+    });
     return;
   }
 
@@ -502,7 +606,7 @@ export type BookingIntentSlots = {
 
 /**
  * Entrada natural (Agent Zero):
- * - Un lugar → Places (alta confianza sin confirmación) → siguiente dato del booking
+ * - Un lugar → Places (alta confianza) → lanzar viaje / dispatch
  * - Places ambiguo → lista de candidatos; Places fallido → GPS WhatsApp (fallback)
  * - Origen + destino claros → Places ambos → cotización (solo si BOOKING_REQUIRE_DROPOFF)
  * - Solo intención / Solicitar servicio → "¿Dónde te recogemos?" (sin exigir GPS)
@@ -755,7 +859,7 @@ async function tryQuoteFromBothPlaces(
   }
 
   if (!BOOKING_REQUIRE_DROPOFF) {
-    await buildAndSendServiceSummary(phone, name, draft);
+    await launchTripFromDraft(phone, name, draft);
     return true;
   }
 
@@ -1054,102 +1158,7 @@ export async function handleBookingMessage(
     }
 
     if (message.button === BOOKING_BUTTON_IDS.REQUEST_TRIP) {
-      console.log("[publish:diag] STEP_0_REQUEST_TRIP_enter", {
-        phone,
-        state: session.state,
-        hasPickup: Boolean(draft.pickup),
-        hasDropoff: Boolean(draft.dropoff),
-        hasRoute: Boolean(draft.route),
-        hasQuote: Boolean(draft.quote),
-        quotedAmount: draft.quote?.amount ?? null,
-        requireDropoff: BOOKING_REQUIRE_DROPOFF,
-      });
-
-      const dropoffReady = Boolean(
-        draft.dropoff && draft.route && draft.quote,
-      );
-      if (
-        !draft.pickup ||
-        (BOOKING_REQUIRE_DROPOFF && !dropoffReady)
-      ) {
-        console.warn("[publish:diag] STOP_at_REQUEST_TRIP_incomplete_draft", {
-          phone,
-          continues: false,
-        });
-        await sendTextMessage(phone, await cms("P_QUOTE_EXPIRED"));
-        await clearSession(phone);
-        return true;
-      }
-
-      const { assertPassengerCanRequestService } = await import(
-        "@/lib/passenger-access"
-      );
-      if (!(await assertPassengerCanRequestService(phone, name))) {
-        await clearSession(phone);
-        return true;
-      }
-
-      const label = pickupDisplayLabel(draft);
-
-      await upsertSession(phone, {
-        name,
-        state: "SEARCHING_DRIVER",
-        pickupNeighborhood: label,
-        bookingDraft: draft,
-      });
-
-      await sendTextMessage(phone, await cms("P_SEARCHING_DRIVER"));
-
-      console.log("[publish:diag] STEP_0b_calling_offerTripToDrivers", {
-        phone,
-        label,
-        note: "Equivale a requestTrip() / DispatchEngine; PricingEngine ya corrió en cotización (WAITING_QUOTE_CONFIRM)",
-        continues: true,
-      });
-
-      // Despacho / asignación: sin cambios de lógica.
-      try {
-        await offerTripToDrivers(
-          phone,
-          label,
-          dropoffReady
-            ? {
-                pickup: {
-                  ...draft.pickup,
-                  name: label,
-                },
-                dropoff: draft.dropoff!,
-                route: draft.route!,
-                quote: draft.quote!,
-              }
-            : {
-                pickup: {
-                  ...draft.pickup,
-                  name: label,
-                },
-              },
-        );
-        console.log("[publish:diag] STEP_0c_offerTripToDrivers_returned", {
-          phone,
-          continues: true,
-          note: "Si no hubo oferta WA, revisar STOP_* anteriores en dispatch:diag",
-        });
-      } catch (error) {
-        console.error("[publish:diag] STOP_at_offerTripToDrivers_threw", {
-          phone,
-          continues: false,
-          error,
-          errorMessage:
-            error && typeof error === "object" && "message" in error
-              ? (error as { message?: string }).message
-              : String(error),
-          errorCode:
-            error && typeof error === "object" && "code" in error
-              ? (error as { code?: string }).code
-              : null,
-        });
-        throw error;
-      }
+      await launchTripFromDraft(phone, name, draft);
       return true;
     }
 

@@ -117,6 +117,24 @@ const cases: Array<{
     dest: null,
   },
   {
+    text: "Necesito un servicio para Prueba",
+    intent: true,
+    pickup: "Prueba",
+    dest: null,
+  },
+  {
+    text: "Servicio para Prueba",
+    intent: true,
+    pickup: "Prueba",
+    dest: null,
+  },
+  {
+    text: "Un taxi para Prueba",
+    intent: true,
+    pickup: "Prueba",
+    dest: null,
+  },
+  {
     text: "Hola",
     intent: false,
     pickup: null,
