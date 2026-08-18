@@ -1,6 +1,6 @@
 /**
  * Certificación – captura origen + UX destino no encontrado (Sprint 29).
- * Launch: BOOKING_REQUIRE_DROPOFF=false → pickup resuelto lanza viaje/dispatch.
+ * BOOKING_REQUIRE_DROPOFF=true → origen → destino → cotización → Solicitar/Cancelar.
  * Ejecutar: npx tsx src/lib/booking-flow.certify.ts
  */
 export {};
@@ -28,8 +28,8 @@ assert(
 );
 
 assert(
-  BOOKING_REQUIRE_DROPOFF === false,
-  "Launch: destino temporalmente fuera del camino de solicitud",
+  BOOKING_REQUIRE_DROPOFF === true,
+  "Destino/Places/cotización activo en el camino de solicitud",
 );
 
 const bookingStates: UserState[] = [
@@ -126,14 +126,14 @@ assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta) sigue funci
 assert(true, "Paso 3: si falta nombre → WAITING_BOOKING_NAME (dato obligatorio)");
 assert(
   true,
-  "Paso 4 (launch): pickup resuelto → SEARCHING_DRIVER + offerTripToDrivers/createTrip",
+  "Paso 4: pickup resuelto → pregunta destino (P_ASK_DESTINATION)",
 );
 assert(
   !isBookingState("SEARCHING_DRIVER"),
   "SEARCHING_DRIVER no es estado de booking; es búsqueda/dispatch",
 );
-assert(true, "Sin resumen Solicitar/Cancelar cuando pickup Places tiene alta confianza");
-assert(true, "WAITING_QUOTE_CONFIRM + REQUEST_TRIP conservados para sesiones ya abiertas");
+assert(true, "Pickup Places alta confianza → preguntar destino (no lanzar viaje)");
+assert(true, "WAITING_QUOTE_CONFIRM + REQUEST_TRIP tras tarifa estimada");
 assert(
   true,
   "Código de destino/Places/cotización conservado (BOOKING_REQUIRE_DROPOFF)",

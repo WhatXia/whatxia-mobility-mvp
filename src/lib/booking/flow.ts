@@ -50,11 +50,10 @@ export const ORIGIN_CAPTURE_MODE:
   | "places_text" = "label_plus_whatsapp_location";
 
 /**
- * Launch: desactiva temporalmente destino/Places/cotización en el camino de solicitud.
- * true → flujo completo con destino (código conservado debajo).
- * false → pickup resuelto → crear viaje / dispatch (sin resumen Solicitar/Cancelar).
+ * true → flujo completo: origen → destino (Places) → cotización → Solicitar/Cancelar.
+ * false → pickup resuelto → crear viaje / dispatch (sin destino ni cotización).
  */
-export const BOOKING_REQUIRE_DROPOFF = false;
+export const BOOKING_REQUIRE_DROPOFF = true;
 
 export const BOOKING_BUTTON_IDS = {
   CONFIRM_PLACE: "booking_confirm_place",
