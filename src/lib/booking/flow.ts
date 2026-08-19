@@ -199,10 +199,27 @@ async function maybeAskNameThenContinueAfterPickup(
   await continueAfterPickupCaptured(phone, name, draft, session);
 }
 
+function isGenericPickupOrigin(value: string | null | undefined): boolean {
+  const trimmed = value?.trim() ?? "";
+  return !trimmed || trimmed === DEFAULT_PICKUP_LABEL;
+}
+
 /**
- * Punto único de lanzamiento: misma lógica que el botón REQUEST_TRIP.
- * persist SEARCHING_DRIVER → P_SEARCHING_DRIVER → offerTripToDrivers → createTrip.
+ * Barrio que se persiste en trips.pickup_neighborhood y se ofrece al conductor.
+ * Si la sesión ya tiene un barrio válido, no se recalcula desde el draft.
  */
+export function resolveTripPickupNeighborhood(
+  sessionPickupNeighborhood: string | null | undefined,
+  draftPickupLabel?: string | null,
+): string {
+  const stored = sessionPickupNeighborhood?.trim() ?? "";
+  if (!isGenericPickupOrigin(stored)) {
+    return stored;
+  }
+  return resolveOfferOrigin(null, draftPickupLabel);
+}
+
+/** Punto único de lanzamiento: REQUEST_TRIP → createTrip / oferta. */
 async function launchTripFromDraft(
   phone: string,
   name: string,
@@ -239,7 +256,7 @@ async function launchTripFromDraft(
   }
 
   const current = await getSession(phone);
-  const zone = resolveOfferOrigin(
+  const zone = resolveTripPickupNeighborhood(
     current?.pickupNeighborhood,
     pickupDisplayLabel(draft),
   );

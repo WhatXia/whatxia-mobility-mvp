@@ -11,6 +11,7 @@ import {
   buildPickupPlaceFromGps,
   isBookingState,
   ORIGIN_CAPTURE_MODE,
+  resolveTripPickupNeighborhood,
 } from "@/lib/booking/flow";
 import {
   parsePickupAddress,
@@ -193,8 +194,9 @@ const jordanOctavaLabel =
     "Necesito un servicio para Jordán Octava, Manzana 23, Casa 1.",
   ) ?? "";
 assert(
-  resolveOfferOrigin("Jordán Octava", jordanOctavaLabel) === "Jordán Octava",
-  "Oferta usa pickupNeighborhood: Jordán Octava",
+  resolveTripPickupNeighborhood("Jordán Octava", "Punto de recogida") ===
+    "Jordán Octava",
+  "session.pickup_neighborhood se preserva aunque draft.pickupLabel sea el fallback",
 );
 assert(
   resolveOfferOrigin("Jordán Octava", jordanOctavaLabel).includes("Manzana") ===
