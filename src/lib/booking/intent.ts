@@ -388,13 +388,13 @@ function detailWithoutZone(detail: string, zone: string): string {
 }
 
 /**
- * Líneas de recogida para el conductor después de aceptar.
- * 📍 barrio/zona; 🏠 nomenclatura sin repetir el barrio.
+ * Barrio y detalle para el conductor después de aceptar.
+ * El detalle no repite el barrio si pickupLabel ya lo incluye.
  */
-export function formatAssignedPickupLines(
+export function formatAssignedPickupParts(
   pickupNeighborhood?: string | null,
   pickupLabel?: string | null,
-): string {
+): { neighborhood: string; detail: string } {
   const zone = (pickupNeighborhood ?? "").trim();
   const label = (pickupLabel ?? "").trim();
   const parsed = label ? parsePickupAddress(label) : null;
@@ -409,11 +409,28 @@ export function formatAssignedPickupLines(
     detail = "";
   }
 
-  const lines: string[] = [];
   const zoneLine =
     zone && zone !== GENERIC_OFFER_ORIGIN ? zone : parsed?.zone?.trim() || "";
-  if (zoneLine && zoneLine !== GENERIC_OFFER_ORIGIN) {
-    lines.push(`📍 ${zoneLine}`);
+  const neighborhood =
+    zoneLine && zoneLine !== GENERIC_OFFER_ORIGIN ? zoneLine : "";
+  return { neighborhood, detail };
+}
+
+/**
+ * Líneas de recogida para el conductor después de aceptar.
+ * 📍 barrio/zona; 🏠 nomenclatura sin repetir el barrio.
+ */
+export function formatAssignedPickupLines(
+  pickupNeighborhood?: string | null,
+  pickupLabel?: string | null,
+): string {
+  const { neighborhood, detail } = formatAssignedPickupParts(
+    pickupNeighborhood,
+    pickupLabel,
+  );
+  const lines: string[] = [];
+  if (neighborhood) {
+    lines.push(`📍 ${neighborhood}`);
   }
   if (detail) {
     lines.push(`🏠 ${detail}`);

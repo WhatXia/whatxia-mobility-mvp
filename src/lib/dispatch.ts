@@ -64,7 +64,11 @@ import {
 import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
 import { getActiveCity } from "@/lib/city/context";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
-import { formatAssignedPickupLines, resolveOfferOrigin } from "@/lib/booking/intent";
+import {
+  formatAssignedPickupLines,
+  formatAssignedPickupParts,
+  resolveOfferOrigin,
+} from "@/lib/booking/intent";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -267,8 +271,14 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     },
   ]);
 
+  const assignedPickup = formatAssignedPickupParts(
+    updated.pickupNeighborhood,
+    updated.pickupLabel,
+  );
   const driverBody = await cms("D_SERVICE_ASSIGNED", {
     passenger_full_name: passengerFullName,
+    pickup_neighborhood: assignedPickup.neighborhood,
+    pickup_detail: assignedPickup.detail,
     pickup_lines: formatAssignedPickupLines(
       updated.pickupNeighborhood,
       updated.pickupLabel,

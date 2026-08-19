@@ -344,8 +344,9 @@ assert(
   "Oferta D_TRIP_OFFER no cambia (solo barrio)",
 );
 assert(
-  catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_lines}}"),
-  "D_SERVICE_ASSIGNED recibe pickup_lines tras aceptar",
+  catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_neighborhood}}") &&
+    catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_detail}}"),
+  "D_SERVICE_ASSIGNED recibe pickup_neighborhood y pickup_detail tras aceptar",
 );
 
 assert(true, "Dirección de recogida → WAITING_PICKUP_LOCATION + Enviar ubicación");
