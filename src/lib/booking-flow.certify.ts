@@ -189,6 +189,114 @@ assert(
   "Nombre de lugar con Torre no se oculta como nomenclatura",
 );
 
+function assertPickupZone(
+  input: string,
+  zone: string,
+  message: string,
+  detail?: string,
+) {
+  const parsed = parsePickupAddress(input);
+  assert(parsed.zone === zone, message);
+  assert(
+    parsed.fullText === input.replace(/[.]+$/g, "").trim() ||
+      parsed.fullText === input,
+    `${message} (fullText conservado)`,
+  );
+  if (detail !== undefined) {
+    assert(parsed.detail === detail, `${message} (detalle)`);
+  }
+  if (zone) {
+    assert(pickupOfferZone(input) === zone, `${message} (oferta)`);
+    assert(
+      !pickupOfferZone(input).toLowerCase().includes("manzana") &&
+        !pickupOfferZone(input).toLowerCase().includes("casa") &&
+        pickupOfferZone(input) !== "Punto de recogida",
+      `${message} (oferta sin fallback falso)`,
+    );
+  }
+}
+
+assertPickupZone(
+  "Jordán Octava Etapa, Manzana 23, Casa 1",
+  "Jordán Octava Etapa",
+  "barrio + manzana + casa (con comas)",
+  "Manzana 23, Casa 1",
+);
+assertPickupZone(
+  "Manzana 23, Casa 1, Jordán Octava Etapa",
+  "Jordán Octava Etapa",
+  "manzana + casa + barrio (con comas)",
+);
+assertPickupZone(
+  "Jordán Octava Etapa Manzana 23 Casa 1",
+  "Jordán Octava Etapa",
+  "barrio compuesto sin comas",
+  "Manzana 23, Casa 1",
+);
+assertPickupZone(
+  "Manzana 23 Casa 1 Jordán Octava Etapa",
+  "Jordán Octava Etapa",
+  "manzana + casa + barrio (sin comas)",
+);
+assertPickupZone(
+  "Nueva Castilla, Supermanzana 1, Manzana 10, Casa 1",
+  "Nueva Castilla",
+  "Nueva Castilla + Supermanzana (con comas)",
+);
+assertPickupZone(
+  "Supermanzana 1, Manzana 10, Casa 1, Nueva Castilla",
+  "Nueva Castilla",
+  "Supermanzana + Nueva Castilla (barrio al final)",
+);
+assertPickupZone(
+  "Nueva Castilla Supermanzana 1 Manzana 10 Casa 1",
+  "Nueva Castilla",
+  "Nueva Castilla + Supermanzana (sin comas)",
+);
+assertPickupZone(
+  "Carrera 4 # 32-1, La Pola",
+  "La Pola",
+  "nomenclatura + barrio (con comas)",
+  "Carrera 4 # 32-1",
+);
+assertPickupZone(
+  "La Pola, Carrera 4 # 32-1",
+  "La Pola",
+  "barrio + nomenclatura (con comas)",
+);
+assertPickupZone(
+  "Carrera 4 # 32-1 La Pola",
+  "La Pola",
+  "nomenclatura + barrio (sin comas)",
+);
+assertPickupZone(
+  "La Pola Carrera 4 # 32-1",
+  "La Pola",
+  "barrio + nomenclatura (sin comas)",
+);
+assertPickupZone(
+  "Carrera 20 # 8A-16, barrio X",
+  "barrio X",
+  "nomenclatura alfanumérica + barrio",
+  "Carrera 20 # 8A-16",
+);
+
+const unknownResidential = parsePickupAddress("Manzana 23, Casa 1");
+assert(
+  unknownResidential.fullText === "Manzana 23, Casa 1" &&
+    unknownResidential.zone === "" &&
+    unknownResidential.detail.includes("Manzana 23"),
+  "sin barrio identificable: se conserva el texto, no se inventa zona",
+);
+assert(
+  pickupOfferZone("Manzana 23, Casa 1") === "",
+  "sin barrio identificable: oferta no usa Punto de recogida como barrio",
+);
+assert(
+  pickupOfferZone("Carrera 4 # 32-1") === "",
+  "solo nomenclatura: no se inventa barrio",
+);
+
 const jordanOctavaLabel =
   resolvePickupLabelFromText(
     "Necesito un servicio para Jordán Octava, Manzana 23, Casa 1.",

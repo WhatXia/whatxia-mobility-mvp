@@ -238,29 +238,84 @@ export type ParsedPickupAddress = {
   detail: string;
 };
 
-const STREET_SEGMENT =
-  /\b(carrera|cra\.?|cr\.?|kr\.?|calle|cll?\.?|avenida|avda?\.?|diagonal|diag\.?|dg\.?|transversal|tv\.?|transv\.?)\b|#\s*\d/i;
+const STREET_TYPE =
+  "(?:carrera|cra|kr|calle|cll|avenida|avda|diagonal|diag|transversal|transv|circunvalar|av|dg|tv|cl)";
 
-const RESIDENTIAL_SEGMENT =
-  /\b(super\s*manzana|supermanzana|smz\.?|manzana|mza?\.?|casa|lote|interior|apto\.?|apartamento|torre|bloque)\s*\.?\s*\d/i;
+const STREET_UNIT_RE = new RegExp(
+  String.raw`\b${STREET_TYPE}\.?\s+\d+[A-Za-z]?(?:\s*#\s*[0-9A-Za-z]+(?:\s*-\s*[0-9A-Za-z]+)?)?`,
+  "gi",
+);
+
+const RESIDENTIAL_TYPE =
+  "(?:super\\s*manzana|supermanzana|smz|manzana|mza|mz|casa|lote|interior|apartamento|apto|torre|bloque)";
+
+const RESIDENTIAL_UNIT_RE = new RegExp(
+  String.raw`\b${RESIDENTIAL_TYPE}\.?\s+\d+[A-Za-z]?`,
+  "gi",
+);
 
 type PickupSegmentKind = "street" | "residential" | "zone";
 
-function pickupSegmentKind(segment: string): PickupSegmentKind {
-  const folded = stripDiacritics(segment);
-  if (STREET_SEGMENT.test(folded)) {
-    return "street";
+type PickupUnit = {
+  start: number;
+  end: number;
+  kind: "street" | "residential";
+};
+
+function collectNomenclatureUnits(text: string): PickupUnit[] {
+  const found: PickupUnit[] = [];
+  for (const [source, kind] of [
+    [STREET_UNIT_RE.source, "street"],
+    [RESIDENTIAL_UNIT_RE.source, "residential"],
+  ] as const) {
+    const re = new RegExp(source, "gi");
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(text)) !== null) {
+      found.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        kind,
+      });
+    }
   }
-  if (RESIDENTIAL_SEGMENT.test(folded)) {
-    return "residential";
+
+  found.sort(
+    (a, b) => a.start - b.start || b.end - b.start - (a.end - a.start),
+  );
+
+  const kept: PickupUnit[] = [];
+  for (const unit of found) {
+    const overlaps = kept.some(
+      (other) => !(unit.end <= other.start || unit.start >= other.end),
+    );
+    if (!overlaps) {
+      kept.push(unit);
+    }
+  }
+  return kept.sort((a, b) => a.start - b.start);
+}
+
+function pickupSegmentKind(segment: string): PickupSegmentKind {
+  const trimmed = segment.trim();
+  const units = collectNomenclatureUnits(trimmed);
+  if (
+    units.length === 1 &&
+    units[0].start === 0 &&
+    units[0].end >= trimmed.length
+  ) {
+    return units[0].kind;
   }
   return "zone";
 }
 
+function trimPunctuation(value: string): string {
+  return value.replace(/^[\s,;]+|[\s,;]+$/g, "").trim();
+}
+
 /**
- * Separa zona visible en oferta vs nomenclatura detallada.
- * No inventa barrio: si no hay zona, la oferta usa un label genérico
- * para no filtrar Supermanzana/Manzana/Casa antes de aceptar.
+ * Separa barrio/zona (oferta) vs nomenclatura (después de aceptar).
+ * El barrio puede ir antes o después del detalle, con o sin comas.
+ * No inventa barrio: si no hay zona identificable, zone queda vacío.
  */
 export function parsePickupAddress(text: string): ParsedPickupAddress {
   const fullText = text.trim().replace(/[.]+$/g, "").trim();
@@ -268,55 +323,45 @@ export function parsePickupAddress(text: string): ParsedPickupAddress {
     return { fullText: "", zone: "", detail: "" };
   }
 
-  const segments = fullText
-    .split(/\s*,\s*/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (segments.length <= 1) {
-    const only = pickupSegmentKind(fullText);
-    if (only === "residential") {
-      return { fullText, zone: "Punto de recogida", detail: fullText };
-    }
+  const units = collectNomenclatureUnits(fullText);
+  if (units.length === 0) {
     return { fullText, zone: fullText, detail: "" };
   }
 
-  const kinds = segments.map(pickupSegmentKind);
-  const hasZone = kinds.some((kind) => kind === "zone");
-
-  if (!hasZone) {
-    if (kinds.every((kind) => kind === "residential")) {
-      return { fullText, zone: "Punto de recogida", detail: fullText };
+  const zoneParts: string[] = [];
+  const detailParts: string[] = [];
+  let cursor = 0;
+  for (const unit of units) {
+    const gap = trimPunctuation(fullText.slice(cursor, unit.start));
+    if (gap) {
+      zoneParts.push(gap);
     }
-    return { fullText, zone: fullText, detail: "" };
+    detailParts.push(fullText.slice(unit.start, unit.end).trim());
+    cursor = unit.end;
   }
-
-  if (kinds[0] !== "zone") {
-    const zone = segments
-      .filter((_, index) => kinds[index] === "zone")
-      .join(", ");
-    const detail = segments
-      .filter((_, index) => kinds[index] !== "zone")
-      .join(", ");
-    return { fullText, zone, detail };
-  }
-
-  let leadingZones = 0;
-  while (leadingZones < kinds.length && kinds[leadingZones] === "zone") {
-    leadingZones += 1;
+  const tail = trimPunctuation(fullText.slice(cursor));
+  if (tail) {
+    zoneParts.push(tail);
   }
 
   return {
     fullText,
-    zone: segments.slice(0, leadingZones).join(", "),
-    detail: segments.slice(leadingZones).join(", "),
+    zone: zoneParts.join(", "),
+    detail: detailParts.join(", "),
   };
 }
 
 /** Zona que debe ver el conductor en la oferta (antes de aceptar). */
 export function pickupOfferZone(text: string): string {
   const parsed = parsePickupAddress(text);
-  return (parsed.zone || parsed.fullText).trim();
+  const zone = parsed.zone.trim();
+  if (zone) {
+    return zone;
+  }
+  if (parsed.detail.trim()) {
+    return "";
+  }
+  return parsed.fullText.trim();
 }
 
 const GENERIC_OFFER_ORIGIN = "Punto de recogida";
