@@ -228,3 +228,93 @@ export function resolvePickupLabelFromText(text: string): string | null {
   }
   return raw;
 }
+
+export type ParsedPickupAddress = {
+  /** Texto descriptivo completo (sin la frase de solicitud). */
+  fullText: string;
+  /** Zona/barrio/sector visible en la oferta al conductor. */
+  zone: string;
+  /** Nomenclatura detallada; disponible tras aceptar. */
+  detail: string;
+};
+
+const STREET_SEGMENT =
+  /\b(carrera|cra\.?|cr\.?|kr\.?|calle|cll?\.?|avenida|avda?\.?|diagonal|diag\.?|dg\.?|transversal|tv\.?|transv\.?)\b|#\s*\d/i;
+
+const RESIDENTIAL_SEGMENT =
+  /\b(super\s*manzana|supermanzana|smz\.?|manzana|mza?\.?|casa|lote|interior|apto\.?|apartamento|torre|bloque)\s*\.?\s*\d/i;
+
+type PickupSegmentKind = "street" | "residential" | "zone";
+
+function pickupSegmentKind(segment: string): PickupSegmentKind {
+  const folded = stripDiacritics(segment);
+  if (STREET_SEGMENT.test(folded)) {
+    return "street";
+  }
+  if (RESIDENTIAL_SEGMENT.test(folded)) {
+    return "residential";
+  }
+  return "zone";
+}
+
+/**
+ * Separa zona visible en oferta vs nomenclatura detallada.
+ * No inventa barrio: si no hay zona, la oferta usa un label genérico
+ * para no filtrar Supermanzana/Manzana/Casa antes de aceptar.
+ */
+export function parsePickupAddress(text: string): ParsedPickupAddress {
+  const fullText = text.trim().replace(/[.]+$/g, "").trim();
+  if (!fullText) {
+    return { fullText: "", zone: "", detail: "" };
+  }
+
+  const segments = fullText
+    .split(/\s*,\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (segments.length <= 1) {
+    const only = pickupSegmentKind(fullText);
+    if (only === "residential") {
+      return { fullText, zone: "Punto de recogida", detail: fullText };
+    }
+    return { fullText, zone: fullText, detail: "" };
+  }
+
+  const kinds = segments.map(pickupSegmentKind);
+  const hasZone = kinds.some((kind) => kind === "zone");
+
+  if (!hasZone) {
+    if (kinds.every((kind) => kind === "residential")) {
+      return { fullText, zone: "Punto de recogida", detail: fullText };
+    }
+    return { fullText, zone: fullText, detail: "" };
+  }
+
+  if (kinds[0] !== "zone") {
+    const zone = segments
+      .filter((_, index) => kinds[index] === "zone")
+      .join(", ");
+    const detail = segments
+      .filter((_, index) => kinds[index] !== "zone")
+      .join(", ");
+    return { fullText, zone, detail };
+  }
+
+  let leadingZones = 0;
+  while (leadingZones < kinds.length && kinds[leadingZones] === "zone") {
+    leadingZones += 1;
+  }
+
+  return {
+    fullText,
+    zone: segments.slice(0, leadingZones).join(", "),
+    detail: segments.slice(leadingZones).join(", "),
+  };
+}
+
+/** Zona que debe ver el conductor en la oferta (antes de aceptar). */
+export function pickupOfferZone(text: string): string {
+  const parsed = parsePickupAddress(text);
+  return (parsed.zone || parsed.fullText).trim();
+}

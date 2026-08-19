@@ -590,8 +590,6 @@ async function publishTripOffer(
     return;
   }
 
-  const pickupLabel = trip.pickupLabel ?? trip.pickupNeighborhood;
-
   console.log("[publish:diag] STEP_R1_reputation_enter", {
     tripId: trip.id,
     tripPassengerId: trip.passengerId,
@@ -642,7 +640,7 @@ async function publishTripOffer(
   }
 
   const body = await cms("D_TRIP_OFFER", {
-    pickup: pickupLabel,
+    pickup: trip.pickupNeighborhood,
     dropoff: trip.dropoffLabel?.trim() || "Por confirmar",
     min:
       trip.quotedFare != null

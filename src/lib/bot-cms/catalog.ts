@@ -349,7 +349,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_PICKUP_LOCATION_WITH_LABEL",
     "name": "Pickup location with label",
     "module": "MOBILITY",
-    "body": "Recoger en: {{pickup_label}}\n\n📍 Comparte tu ubicación actual para encontrarte más rápido.",
+    "body": "📍 Perfecto, ya sabemos dónde te vamos a recoger. Envíanos tu ubicación actual para que el conductor pueda encontrarte con mayor precisión.",
     "content_type": "interactive",
     "variables": [
       "pickup_label"

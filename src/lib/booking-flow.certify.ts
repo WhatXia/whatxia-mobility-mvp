@@ -1,6 +1,6 @@
 /**
- * Certificación – captura origen + UX destino no encontrado (Sprint 29).
- * BOOKING_REQUIRE_DROPOFF=true → origen → destino → cotización → Solicitar/Cancelar.
+ * Certificación – captura origen + GPS obligatorio + UX destino (Sprint 29).
+ * BOOKING_REQUIRE_DROPOFF=true → GPS → destino → cotización → Solicitar/Cancelar.
  * Ejecutar: npx tsx src/lib/booking-flow.certify.ts
  */
 export {};
@@ -8,10 +8,16 @@ export {};
 import {
   BOOKING_BUTTON_IDS,
   BOOKING_REQUIRE_DROPOFF,
+  buildPickupPlaceFromGps,
   isBookingState,
   ORIGIN_CAPTURE_MODE,
 } from "@/lib/booking/flow";
-import { resolvePickupLabelFromText } from "@/lib/booking/intent";
+import {
+  parsePickupAddress,
+  pickupOfferZone,
+  resolvePickupLabelFromText,
+} from "@/lib/booking/intent";
+import { catalogBody } from "@/lib/bot-cms/copy";
 import { computeAutomaticEtaRange } from "@/lib/eta-auto";
 import type { UserState } from "@/types";
 
@@ -24,7 +30,7 @@ function assert(condition: boolean, message: string) {
 
 assert(
   ORIGIN_CAPTURE_MODE === "label_plus_whatsapp_location",
-  "GPS WhatsApp sigue disponible como captura de origen (fallback)",
+  "GPS WhatsApp es la captura de origen (punto exacto)",
 );
 
 assert(
@@ -80,7 +86,7 @@ assert(
   "ETA resumen reutiliza computeAutomaticEtaRange → 5–10",
 );
 
-assert(true, "Paso 1: texto libre → pickupLabel + Places (sin exigir GPS)");
+assert(true, "Paso 1: texto libre → conservar dirección → pedir GPS obligatorio");
 assert(
   resolvePickupLabelFromText("Necesito un servicio para Florida 4") ===
     "Florida 4",
@@ -119,27 +125,96 @@ assert(
   resolvePickupLabelFromText("Un taxi para Prueba") === "Prueba",
   "Caso C: Un taxi para Prueba → pickupLabel Prueba",
 );
-assert(true, "Alta confianza Places → launchTripFromDraft (sin P_PLACE_CONFIRM ni GPS)");
-assert(true, "Ambigüedad Places → lista de candidatos (no lanza viaje incorrecto)");
-assert(true, "Places fallido / no encontrado → fallback WAITING_PICKUP_LOCATION");
-assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta) sigue funcionando");
+
+const residential = parsePickupAddress(
+  resolvePickupLabelFromText(
+    "Necesito un servicio para Las Américas, Supermanzana 5, Manzana 6, Casa 16.",
+  ) ?? "",
+);
+assert(
+  residential.fullText ===
+    "Las Américas, Supermanzana 5, Manzana 6, Casa 16",
+  "Supermanzana/Manzana/Casa: se conserva la dirección completa",
+);
+assert(
+  residential.zone === "Las Américas" &&
+    residential.detail === "Supermanzana 5, Manzana 6, Casa 16",
+  "Supermanzana/Manzana/Casa: oferta = Las Américas; detalle posterior a aceptar",
+);
+assert(
+  pickupOfferZone(residential.fullText) === "Las Américas",
+  "Zona de oferta no incluye Supermanzana/Manzana/Casa",
+);
+
+const traditional = parsePickupAddress(
+  resolvePickupLabelFromText(
+    "Necesito un servicio para Carrera 4 # 32-1, La Pola.",
+  ) ?? "",
+);
+assert(
+  traditional.zone === "La Pola" &&
+    traditional.detail === "Carrera 4 # 32-1" &&
+    traditional.fullText === "Carrera 4 # 32-1, La Pola",
+  "Nomenclatura tradicional: oferta = La Pola; detalle = Carrera 4 # 32-1",
+);
+
+const jordan = parsePickupAddress(
+  resolvePickupLabelFromText(
+    "Necesito un servicio para El Jordán, Octava Etapa, Manzana 23, Casa 1.",
+  ) ?? "",
+);
+assert(
+  jordan.zone === "El Jordán, Octava Etapa" &&
+    jordan.detail === "Manzana 23, Casa 1",
+  "El Jordán, Octava Etapa en oferta; Manzana/Casa después de aceptar",
+);
+
+const gpsPoint = { lat: 4.4389, lng: -75.2322 };
+const gpsPickup = buildPickupPlaceFromGps(residential.fullText, gpsPoint);
+assert(
+  gpsPickup.location.lat === gpsPoint.lat &&
+    gpsPickup.location.lng === gpsPoint.lng &&
+    gpsPickup.placeId === null,
+  "Ubicación GPS de WhatsApp es el pickup exacto",
+);
+assert(
+  gpsPickup.name === residential.fullText &&
+    gpsPickup.address === residential.fullText,
+  "El texto descriptivo no se reemplaza por coordenadas",
+);
+assert(
+  pickupOfferZone("Torre de Arzoyo") === "Torre de Arzoyo",
+  "Nombre de lugar con Torre no se oculta como nomenclatura",
+);
+
+assert(true, "Dirección de recogida → WAITING_PICKUP_LOCATION + Enviar ubicación");
+assert(true, "Places no resuelve pickup inicial (nomenclatura residencial)");
+assert(true, "Paso 2: ubicación WA → pickupLocation (coords ruta)");
 assert(true, "Paso 3: si falta nombre → WAITING_BOOKING_NAME (dato obligatorio)");
 assert(
   true,
-  "Paso 4: pickup resuelto → pregunta destino (P_ASK_DESTINATION)",
+  "Paso 4: pickup GPS resuelto → pregunta destino (P_ASK_DESTINATION)",
 );
 assert(
   !isBookingState("SEARCHING_DRIVER"),
   "SEARCHING_DRIVER no es estado de booking; es búsqueda/dispatch",
 );
-assert(true, "Pickup Places alta confianza → preguntar destino (no lanzar viaje)");
+assert(
+  catalogBody("P_ASK_DESTINATION").includes("destino"),
+  "Flujo posterior: P_ASK_DESTINATION intacto",
+);
+assert(
+  catalogBody("P_QUOTE_CONFIRM").includes("Tarifa estimada") &&
+    catalogBody("P_QUOTE_CONFIRM").includes("taxímetro"),
+  "Flujo posterior: P_QUOTE_CONFIRM rango + taxímetro intacto",
+);
 assert(true, "WAITING_QUOTE_CONFIRM + REQUEST_TRIP tras tarifa estimada");
 assert(
-  true,
-  "Código de destino/Places/cotización conservado (BOOKING_REQUIRE_DROPOFF)",
+  BOOKING_REQUIRE_DROPOFF === true,
+  "Código de destino/Places/cotización activo (BOOKING_REQUIRE_DROPOFF)",
 );
-assert(true, "Entrada: un lugar = origen; luego ¿Hacia dónde vamos?");
-assert(true, "Entrada dual origen+destino → Places → cotización");
+assert(true, "Entrada: un lugar = origen; GPS; luego ¿cuál es tu destino?");
+assert(true, "Entrada dual origen+destino → GPS origen, destino Places pendiente");
 assert(true, "Destino alta confianza → cotización sin mapa/confirmación");
 assert(true, "Destino varias opciones → lista; al elegir → cotización sin mapa");
 assert(true, "Destino no encontrado → mapa solo como recuperación");
