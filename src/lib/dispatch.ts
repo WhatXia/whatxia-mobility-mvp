@@ -64,6 +64,7 @@ import {
 import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
 import { getActiveCity } from "@/lib/city/context";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
+import { resolveOfferOrigin } from "@/lib/booking/intent";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -640,7 +641,7 @@ async function publishTripOffer(
   }
 
   const body = await cms("D_TRIP_OFFER", {
-    pickup: trip.pickupNeighborhood,
+    pickup: resolveOfferOrigin(trip.pickupNeighborhood, trip.pickupLabel),
     dropoff: trip.dropoffLabel?.trim() || "Por confirmar",
     min:
       trip.quotedFare != null

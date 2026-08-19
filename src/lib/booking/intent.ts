@@ -318,3 +318,27 @@ export function pickupOfferZone(text: string): string {
   const parsed = parsePickupAddress(text);
   return (parsed.zone || parsed.fullText).trim();
 }
+
+const GENERIC_OFFER_ORIGIN = "Punto de recogida";
+
+/**
+ * Texto de origen para la oferta al conductor.
+ * Si hay pickupNeighborhood real, se usa tal cual. El fallback genérico
+ * no sustituye un barrio ya disponible.
+ */
+export function resolveOfferOrigin(
+  pickupNeighborhood?: string | null,
+  pickupLabel?: string | null,
+): string {
+  const stored = pickupNeighborhood?.trim() ?? "";
+  if (stored && stored !== GENERIC_OFFER_ORIGIN) {
+    return stored;
+  }
+  const fromLabel = pickupLabel?.trim()
+    ? pickupOfferZone(pickupLabel).trim()
+    : "";
+  if (fromLabel && fromLabel !== GENERIC_OFFER_ORIGIN) {
+    return fromLabel;
+  }
+  return stored || GENERIC_OFFER_ORIGIN;
+}

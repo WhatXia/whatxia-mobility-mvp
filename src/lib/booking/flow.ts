@@ -28,9 +28,10 @@ import { offerTripToDrivers } from "@/lib/dispatch";
 import { computeAutomaticEtaRange } from "@/lib/eta-auto";
 import {
   pickupOfferZone,
+  resolveOfferOrigin,
   resolvePickupLabelFromText,
 } from "@/lib/booking/intent";
-import { clearSession, upsertSession } from "@/lib/sessions";
+import { clearSession, getSession, upsertSession } from "@/lib/sessions";
 import {
   getActiveCity,
   isPointInCity,
@@ -237,7 +238,11 @@ async function launchTripFromDraft(
     return;
   }
 
-  const zone = pickupZoneLabel(draft);
+  const current = await getSession(phone);
+  const zone = resolveOfferOrigin(
+    current?.pickupNeighborhood,
+    pickupDisplayLabel(draft),
+  );
   const fullLabel = pickupDisplayLabel(draft);
 
   await upsertSession(phone, {
@@ -545,16 +550,26 @@ async function persistDraft(
   draft: BookingDraft,
   pickupNeighborhood?: string | null,
 ): Promise<void> {
+  const derived = draft.pickupLabel?.trim()
+    ? pickupOfferZone(draft.pickupLabel)
+    : draft.pickup
+      ? pickupOfferZone(placeLabel(draft.pickup))
+      : null;
+  const derivedIsReal = Boolean(
+    derived &&
+      derived.trim() &&
+      derived.trim() !== DEFAULT_PICKUP_LABEL,
+  );
+
   await upsertSession(phone, {
     name,
     state,
     bookingDraft: draft,
-    pickupNeighborhood:
-      pickupNeighborhood !== undefined
-        ? pickupNeighborhood
-        : draft.pickupLabel?.trim()
-          ? pickupOfferZone(draft.pickupLabel)
-          : (draft.pickup ? pickupOfferZone(placeLabel(draft.pickup)) : null),
+    ...(pickupNeighborhood !== undefined
+      ? { pickupNeighborhood }
+      : derivedIsReal
+        ? { pickupNeighborhood: derived }
+        : {}),
   });
 }
 
@@ -668,7 +683,7 @@ export async function startBookingFromIntent(
   // Solicitar servicio sin lugar: primero texto de recogida; luego GPS obligatorio.
   await persistDraft(phone, name, "WAITING_PICKUP_TEXT", {
     originCapture: "label_plus_whatsapp_location",
-  });
+  }, null);
   await sendTextMessage(phone, await cms("P_ASK_PICKUP_TEXT"));
 }
 

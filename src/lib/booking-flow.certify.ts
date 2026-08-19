@@ -15,6 +15,7 @@ import {
 import {
   parsePickupAddress,
   pickupOfferZone,
+  resolveOfferOrigin,
   resolvePickupLabelFromText,
 } from "@/lib/booking/intent";
 import { catalogBody } from "@/lib/bot-cms/copy";
@@ -185,6 +186,27 @@ assert(
 assert(
   pickupOfferZone("Torre de Arzoyo") === "Torre de Arzoyo",
   "Nombre de lugar con Torre no se oculta como nomenclatura",
+);
+
+const jordanOctavaLabel =
+  resolvePickupLabelFromText(
+    "Necesito un servicio para Jordán Octava, Manzana 23, Casa 1.",
+  ) ?? "";
+assert(
+  resolveOfferOrigin("Jordán Octava", jordanOctavaLabel) === "Jordán Octava",
+  "Oferta usa pickupNeighborhood: Jordán Octava",
+);
+assert(
+  resolveOfferOrigin("Jordán Octava", jordanOctavaLabel).includes("Manzana") ===
+    false &&
+    resolveOfferOrigin("Jordán Octava", jordanOctavaLabel).includes("Casa") ===
+      false,
+  "Oferta no incluye Manzana/Casa ni nomenclatura detallada",
+);
+assert(
+  resolveOfferOrigin("Punto de recogida", jordanOctavaLabel) ===
+    "Jordán Octava",
+  "Fallback Punto de recogida no se usa si se puede obtener el barrio",
 );
 
 assert(true, "Dirección de recogida → WAITING_PICKUP_LOCATION + Enviar ubicación");
