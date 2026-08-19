@@ -14,6 +14,7 @@ import {
   resolveTripPickupNeighborhood,
 } from "@/lib/booking/flow";
 import {
+  formatAssignedPickupLines,
   parsePickupAddress,
   pickupOfferZone,
   resolveOfferOrigin,
@@ -317,6 +318,34 @@ assert(
   resolveOfferOrigin("Punto de recogida", jordanOctavaLabel) ===
     "Jordán Octava",
   "Fallback Punto de recogida no se usa si se puede obtener el barrio",
+);
+
+const assignedJordan = formatAssignedPickupLines(
+  "Jordán Octava Etapa",
+  "Jordán Octava Etapa, Manzana 23, Casa 1",
+);
+assert(
+  assignedJordan ===
+    "📍 Jordán Octava Etapa\n🏠 Manzana 23, Casa 1",
+  "Tras aceptar: barrio + manzana/casa sin duplicar el barrio",
+);
+
+const assignedPola = formatAssignedPickupLines(
+  "La Pola",
+  "Carrera 4 # 32-1, La Pola",
+);
+assert(
+  assignedPola === "📍 La Pola\n🏠 Carrera 4 # 32-1",
+  "Tras aceptar: La Pola no se duplica en el detalle",
+);
+assert(
+  catalogBody("D_TRIP_OFFER").includes("📍 Origen: {{pickup}}") &&
+    !catalogBody("D_TRIP_OFFER").includes("🏠"),
+  "Oferta D_TRIP_OFFER no cambia (solo barrio)",
+);
+assert(
+  catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_lines}}"),
+  "D_SERVICE_ASSIGNED recibe pickup_lines tras aceptar",
 );
 
 assert(true, "Dirección de recogida → WAITING_PICKUP_LOCATION + Enviar ubicación");

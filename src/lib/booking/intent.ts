@@ -366,6 +366,61 @@ export function pickupOfferZone(text: string): string {
 
 const GENERIC_OFFER_ORIGIN = "Punto de recogida";
 
+function foldPickupText(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detailWithoutZone(detail: string, zone: string): string {
+  if (!detail || !zone) {
+    return detail;
+  }
+  const foldedZone = foldPickupText(zone);
+  return detail
+    .split(/\s*,\s*/)
+    .map((part) => part.trim())
+    .filter((part) => part && foldPickupText(part) !== foldedZone)
+    .join(", ");
+}
+
+/**
+ * Líneas de recogida para el conductor después de aceptar.
+ * 📍 barrio/zona; 🏠 nomenclatura sin repetir el barrio.
+ */
+export function formatAssignedPickupLines(
+  pickupNeighborhood?: string | null,
+  pickupLabel?: string | null,
+): string {
+  const zone = (pickupNeighborhood ?? "").trim();
+  const label = (pickupLabel ?? "").trim();
+  const parsed = label ? parsePickupAddress(label) : null;
+
+  let detail = (parsed?.detail ?? "").trim();
+  if (!detail && label && foldPickupText(label) !== foldPickupText(zone)) {
+    detail = detailWithoutZone(label, zone);
+  } else {
+    detail = detailWithoutZone(detail, zone);
+  }
+  if (detail && zone && foldPickupText(detail) === foldPickupText(zone)) {
+    detail = "";
+  }
+
+  const lines: string[] = [];
+  const zoneLine =
+    zone && zone !== GENERIC_OFFER_ORIGIN ? zone : parsed?.zone?.trim() || "";
+  if (zoneLine && zoneLine !== GENERIC_OFFER_ORIGIN) {
+    lines.push(`📍 ${zoneLine}`);
+  }
+  if (detail) {
+    lines.push(`🏠 ${detail}`);
+  }
+  return lines.join("\n");
+}
+
 /**
  * Texto de origen para la oferta al conductor.
  * Si hay pickupNeighborhood real, se usa tal cual. El fallback genérico

@@ -64,7 +64,7 @@ import {
 import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
 import { getActiveCity } from "@/lib/city/context";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
-import { resolveOfferOrigin } from "@/lib/booking/intent";
+import { formatAssignedPickupLines, resolveOfferOrigin } from "@/lib/booking/intent";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -269,11 +269,15 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
 
   const driverBody = await cms("D_SERVICE_ASSIGNED", {
     passenger_full_name: passengerFullName,
+    pickup_lines: formatAssignedPickupLines(
+      updated.pickupNeighborhood,
+      updated.pickupLabel,
+    ),
     tripId: updated.id,
   });
 
   await sendButtonsMessage(driverPhone, driverBody, [
-    { id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" },
+    { id: verUbicacionButtonId(updated.id), title: "📌 Ver ubicación" },
     { id: llegueButtonId(updated.id), title: "✅ Llegué" },
     {
       id: cancelServicioButtonId(updated.id),

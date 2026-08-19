@@ -886,12 +886,12 @@ export const BOT_CMS_CATALOG = [
     "code": "D_SERVICE_ASSIGNED",
     "name": "Service assigned to driver",
     "module": "DRIVER",
-    "body": "✅ Servicio asignado\n\n👤 Pasajero: {{passenger_full_name}}\n\n📍 Dirígete al punto de recogida.",
+    "body": "✅ Servicio asignado\n\n👤 Pasajero: {{passenger_full_name}}\n\n{{pickup_lines}}",
     "content_type": "interactive",
     "buttons": [
       {
         "id": "ver_ubicacion:{{tripId}}",
-        "title": "📍 Ver ubicación",
+        "title": "📌 Ver ubicación",
         "sort_order": 0
       },
       {
@@ -907,6 +907,7 @@ export const BOT_CMS_CATALOG = [
     ],
     "variables": [
       "passenger_full_name",
+      "pickup_lines",
       "tripId"
     ],
     "source_file": "dispatch.ts",
