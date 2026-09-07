@@ -63,6 +63,41 @@ export const ORIGIN_CAPTURE_MODE:
  */
 export const BOOKING_REQUIRE_DROPOFF = true;
 
+/** Demo operacional: única ciudad que publica sin tarifa estimada. */
+export const PASTO_CITY_SLUG = "pasto";
+
+export function requiresFareQuote(citySlug: string): boolean {
+  return citySlug.trim().toLowerCase() !== PASTO_CITY_SLUG;
+}
+
+/**
+ * Ibagué (y el resto): pickup + dropoff + route + quote.
+ * Pasto: pickup + dropoff; quote no es requisito de publicación.
+ */
+export function isDraftReadyToPublish(
+  draft: Pick<BookingDraft, "pickup" | "dropoff" | "route" | "quote">,
+  citySlug: string,
+): boolean {
+  if (!draft.pickup || !draft.dropoff) return false;
+  if (!requiresFareQuote(citySlug)) return true;
+  return Boolean(draft.route && draft.quote);
+}
+
+export function buildPastoConfirmBody(pickup: string, dropoff: string): string {
+  return [
+    "📍 Recogida:",
+    pickup,
+    "",
+    "🏁 Destino:",
+    dropoff,
+    "",
+    "En Pasto todavía no mostramos tarifa estimada.",
+    "El servicio se publicará con origen y destino.",
+    "",
+    "¿Confirmas tu solicitud?",
+  ].join("\n");
+}
+
 export const BOOKING_BUTTON_IDS = {
   CONFIRM_PLACE: "booking_confirm_place",
   REJECT_PLACE: "booking_reject_place",
@@ -240,10 +275,17 @@ async function launchTripFromDraft(
     autoLaunch: true,
   });
 
-  const dropoffReady = Boolean(draft.dropoff && draft.route && draft.quote);
-  if (!draft.pickup || (BOOKING_REQUIRE_DROPOFF && !dropoffReady)) {
+  const serviceCity = await cityForPickupDraft(draft);
+  const dropoffReady = serviceCity
+    ? isDraftReadyToPublish(draft, serviceCity.slug)
+    : false;
+  if (
+    !draft.pickup ||
+    (BOOKING_REQUIRE_DROPOFF && (!serviceCity || !dropoffReady))
+  ) {
     console.warn("[publish:diag] STOP_at_REQUEST_TRIP_incomplete_draft", {
       phone,
+      citySlug: serviceCity?.slug ?? null,
       continues: false,
     });
     await sendTextMessage(phone, await cms("P_QUOTE_EXPIRED"));
@@ -283,28 +325,16 @@ async function launchTripFromDraft(
   });
 
   try {
-    await offerTripToDrivers(
-      phone,
-      zone,
-      dropoffReady
-        ? {
-            pickup: {
-              ...draft.pickup,
-              name: fullLabel,
-              address: fullLabel,
-            },
-            dropoff: draft.dropoff!,
-            route: draft.route!,
-            quote: draft.quote!,
-          }
-        : {
-            pickup: {
-              ...draft.pickup,
-              name: fullLabel,
-              address: fullLabel,
-            },
-          },
-    );
+    await offerTripToDrivers(phone, zone, {
+      pickup: {
+        ...draft.pickup,
+        name: fullLabel,
+        address: fullLabel,
+      },
+      ...(draft.dropoff ? { dropoff: draft.dropoff } : {}),
+      ...(draft.route ? { route: draft.route } : {}),
+      ...(draft.quote ? { quote: draft.quote } : {}),
+    });
     console.log("[publish:diag] STEP_0c_offerTripToDrivers_returned", {
       phone,
       continues: true,
@@ -1073,6 +1103,13 @@ async function resolveTextToPlace(
   await sendCandidateList(phone, candidates);
 }
 
+async function sendQuoteConfirmButtons(phone: string, body: string): Promise<void> {
+  await sendButtonsMessage(phone, body, [
+    { id: BOOKING_BUTTON_IDS.REQUEST_TRIP, title: "✅ Solicitar" },
+    { id: BOOKING_BUTTON_IDS.CANCEL_QUOTE, title: "❌ Cancelar" },
+  ]);
+}
+
 async function buildAndSendQuote(
   phone: string,
   name: string,
@@ -1096,8 +1133,53 @@ async function buildAndSendQuote(
     return;
   }
 
+  const city = await cityForPickupDraft(draft);
+  if (!city) {
+    await sendTextMessage(phone, outOfCoverageMessage());
+    await sendTextMessage(phone, await cms("P_QUOTE_MISSING_PLACES"));
+    return;
+  }
+
   let route = draft.route;
   let quote = draft.quote;
+
+  if (!requiresFareQuote(city.slug)) {
+    if (!route) {
+      try {
+        route = await estimateRoute(
+          draft.pickup.location,
+          draft.dropoff.location,
+        );
+      } catch (error) {
+        console.warn("[booking] Pasto: estimateRoute omitido; se publica sin distancia", {
+          phone,
+          error,
+        });
+      }
+    }
+    const nextDraft: BookingDraft = {
+      ...draft,
+      route,
+      quote: undefined,
+      candidates: undefined,
+      candidateRole: undefined,
+    };
+    await persistDraft(phone, name, "WAITING_QUOTE_CONFIRM", nextDraft);
+    console.log("[publish:diag] STEP_P1_Pasto_confirm_without_fare", {
+      phone,
+      citySlug: city.slug,
+      hasRoute: Boolean(route),
+      continues: true,
+    });
+    await sendQuoteConfirmButtons(
+      phone,
+      buildPastoConfirmBody(
+        pickupDisplayLabel(draft),
+        placeLabel(draft.dropoff),
+      ),
+    );
+    return;
+  }
 
   if (!route || !quote) {
     try {
@@ -1105,12 +1187,6 @@ async function buildAndSendQuote(
         draft.pickup.location,
         draft.dropoff.location,
       );
-      const city = await cityForPickupDraft(draft);
-      if (!city) {
-        await sendTextMessage(phone, outOfCoverageMessage());
-        await sendTextMessage(phone, await cms("P_QUOTE_MISSING_PLACES"));
-        return;
-      }
       const tariff = await estimateFare({
         citySlug: city.slug,
         origin: {
@@ -1151,6 +1227,11 @@ async function buildAndSendQuote(
     });
   }
 
+  if (!quote) {
+    await sendTextMessage(phone, await cms("P_QUOTE_ROUTE_ERROR"));
+    return;
+  }
+
   const nextDraft: BookingDraft = {
     ...draft,
     route,
@@ -1168,10 +1249,7 @@ async function buildAndSendQuote(
     max: formatCopSymbol(quote.amount + ESTIMATED_FARE_RANGE_MARGIN_COP),
   });
 
-  await sendButtonsMessage(phone, body, [
-    { id: BOOKING_BUTTON_IDS.REQUEST_TRIP, title: "✅ Solicitar" },
-    { id: BOOKING_BUTTON_IDS.CANCEL_QUOTE, title: "❌ Cancelar" },
-  ]);
+  await sendQuoteConfirmButtons(phone, body);
 }
 
 async function afterDropoffConfirmed(

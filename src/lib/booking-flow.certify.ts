@@ -8,9 +8,13 @@ export {};
 import {
   BOOKING_BUTTON_IDS,
   BOOKING_REQUIRE_DROPOFF,
+  buildPastoConfirmBody,
   buildPickupPlaceFromGps,
   isBookingState,
+  isDraftReadyToPublish,
   ORIGIN_CAPTURE_MODE,
+  PASTO_CITY_SLUG,
+  requiresFareQuote,
   resolveTripPickupNeighborhood,
 } from "@/lib/booking/flow";
 import {
@@ -22,6 +26,11 @@ import {
 } from "@/lib/booking/intent";
 import { catalogBody } from "@/lib/bot-cms/copy";
 import { computeAutomaticEtaRange } from "@/lib/eta-auto";
+import {
+  resolveCityFromPointSync,
+  type City,
+} from "@/lib/city/context";
+import { filterDriversByTripCity } from "@/lib/city/isolation";
 import type { UserState } from "@/types";
 
 function assert(condition: boolean, message: string) {
@@ -382,5 +391,137 @@ assert(true, "Destino varias opciones → lista; al elegir → cotización sin m
 assert(true, "Destino no encontrado → mapa solo como recuperación");
 assert(true, "Ubicación WA como destino → cotización directa (sin re-pedir origen)");
 assert(true, "Reescritura → nueva búsqueda Places; si falla, mismas opciones");
+
+const pastoPickup = buildPickupPlaceFromGps("Hospital", {
+  lat: 1.2048721297106,
+  lng: -77.268133834004,
+});
+const pastoDropoff = {
+  placeId: "ChIJmz9rxp3ULo4R-dr-POPKXJ0",
+  name: "Centro Comercial Unico Outlet - Pasto",
+  address: "Cl. 22 #6-61, Pasto, Nariño",
+  location: { lat: 1.2056794, lng: -77.2604111 },
+};
+const ibaguePickup = buildPickupPlaceFromGps("Jordán", {
+  lat: 4.44129,
+  lng: -75.195,
+});
+const ibagueDropoff = {
+  placeId: "x",
+  name: "Multicentro",
+  address: "Multicentro",
+  location: { lat: 4.43663, lng: -75.20174 },
+};
+const ibagueRoute = { distanceMeters: 2000, durationSeconds: 400 };
+const ibagueQuote = {
+  amount: 7050,
+  currency: "COP" as const,
+  distanceKm: 2,
+  durationMin: 7,
+  breakdown: {
+    flagDrop: 4500,
+    distanceComponent: 0,
+    waitComponent: 0,
+    officialRaw: 7050,
+    officialFare: 7050,
+    minimumApplied: false,
+    surchargeNight: 0,
+    surchargeSundayHoliday: 0,
+    surchargeAirport: 0,
+    surchargeWhatxia: 0,
+    base: 4500,
+    timeComponent: 0,
+    raw: 7050,
+  },
+};
+
+assert(PASTO_CITY_SLUG === "pasto", "Slug operacional Pasto");
+assert(!requiresFareQuote("pasto"), "Pasto: no exige estimateFare / quote");
+assert(!requiresFareQuote("PASTO"), "Pasto: slug case-insensitive");
+assert(requiresFareQuote("ibague"), "Ibagué: sigue exigiendo cotización");
+assert(
+  isDraftReadyToPublish(
+    { pickup: pastoPickup, dropoff: pastoDropoff },
+    "pasto",
+  ),
+  "Test Pasto: confirmar destino sin quote permite publicar",
+);
+assert(
+  isDraftReadyToPublish(
+    { pickup: pastoPickup, dropoff: pastoDropoff, quote: undefined },
+    "pasto",
+  ),
+  "Test Pasto: launch con quoted_fare null (sin quote en draft)",
+);
+assert(
+  !isDraftReadyToPublish({ pickup: pastoPickup }, "pasto"),
+  "Pasto: pickup solo no publica (hace falta destino)",
+);
+assert(
+  !isDraftReadyToPublish(
+    { pickup: ibaguePickup, dropoff: ibagueDropoff },
+    "ibague",
+  ),
+  "Test Ibagué: destino sin route+quote NO publica",
+);
+assert(
+  isDraftReadyToPublish(
+    {
+      pickup: ibaguePickup,
+      dropoff: ibagueDropoff,
+      route: ibagueRoute,
+      quote: ibagueQuote,
+    },
+    "ibague",
+  ),
+  "Test Ibagué: route + quote siguen siendo requisito",
+);
+assert(requiresFareQuote("ibague"), "Test Ibagué: sigue calculando tarifa");
+
+const pastoCity: City = {
+  id: "city-pasto",
+  slug: "pasto",
+  name: "Pasto",
+  region: "Nariño",
+  countryCode: "CO",
+  center: { lat: 1.2136, lng: -77.2811 },
+  radiusMeters: 20000,
+  active: true,
+};
+const ibagueCity: City = {
+  id: "city-ibague",
+  slug: "ibague",
+  name: "Ibagué",
+  region: "Tolima",
+  countryCode: "CO",
+  center: { lat: 4.4389, lng: -75.2322 },
+  radiusMeters: 18000,
+  active: true,
+};
+assert(
+  resolveCityFromPointSync(pastoPickup.location, [ibagueCity, pastoCity])?.id ===
+    pastoCity.id,
+  "Test Pasto: trip.city_id correspondería a Pasto (pickup en radio Pasto)",
+);
+assert(
+  filterDriversByTripCity(
+    [
+      { id: "d-pas", city_id: pastoCity.id },
+      { id: "d-iba", city_id: ibagueCity.id },
+    ],
+    pastoCity.id,
+  ).every((d) => d.city_id === pastoCity.id),
+  "Test Pasto: dispatch solo considera drivers de Pasto",
+);
+
+const pastoBody = buildPastoConfirmBody("Hospital", "Único Outlet");
+assert(
+  pastoBody.includes("Hospital") && pastoBody.includes("Único Outlet"),
+  "Confirmación Pasto conserva pickup y destino",
+);
+assert(
+  !pastoBody.includes("$") && !pastoBody.includes("COP"),
+  "Confirmación Pasto sin valores monetarios",
+);
 
 console.log("\nbooking-flow: todas las aserciones OK");
