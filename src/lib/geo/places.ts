@@ -11,7 +11,6 @@ import type { GeoPoint, PlaceCandidate } from "@/lib/geo/types";
 import {
   buildCityScopedPlaceQuery,
   filterCandidatesInCity,
-  getActiveCity,
   type City,
 } from "@/lib/city/context";
 
@@ -38,7 +37,7 @@ export type SearchPlacesResult = {
  * Places API (New) Text Search — `locationRestriction` SOLO admite rectangle.
  * `locationRestriction.circle` es inválido (Unknown name "circle") y provoca
  * fallos / cero resultados. Por eso usamos `locationBias.circle` (válido)
- * + query enriquecida "…, Ibagué, Tolima" + filtro local isPointInCity.
+ * + query enriquecida con ciudad/región + filtro local isPointInCity.
  *
  * Docs: https://developers.google.com/maps/documentation/places/web-service/text-search
  */
@@ -81,14 +80,14 @@ export function circleToViewportRectangle(
 }
 
 /**
- * Busca lugares con Places API (New), sesgados a la ciudad activa.
+ * Busca lugares con Places API (New), sesgados a la ciudad del servicio.
  */
 export async function searchPlaces(
   query: string,
+  city: City,
 ): Promise<SearchPlacesResult> {
   const trimmed = query.trim();
   if (!trimmed) {
-    const city = await getActiveCity();
     return {
       city,
       queryUsed: "",
@@ -96,8 +95,6 @@ export async function searchPlaces(
       rejectedOutsideCity: 0,
     };
   }
-
-  const city = await getActiveCity();
   const textQuery = buildCityScopedPlaceQuery(trimmed, city);
   const endpoint = "https://places.googleapis.com/v1/places:searchText";
   const apiProduct = "Places API (New) — places:searchText";

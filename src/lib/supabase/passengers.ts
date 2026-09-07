@@ -1,6 +1,6 @@
 import { getSupabase } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/trips";
-import { getActiveCity } from "@/lib/city/context";
+import { listEnabledCities } from "@/lib/city/context";
 import {
   defaultStatusForNewPassenger,
   isPassengerStatus,
@@ -125,6 +125,11 @@ export async function findPassengerById(
   return data ? mapPassenger(data as PassengerRow) : null;
 }
 
+async function maybeSingleEnabledCityId(): Promise<string | null> {
+  const cities = await listEnabledCities();
+  return cities.length === 1 ? cities[0].id : null;
+}
+
 /**
  * Crea o reutiliza pasajero.
  * `whatsappName` solo actualiza whatsapp_name (referencia).
@@ -137,14 +142,14 @@ export async function findOrCreatePassenger(
   whatsappName?: string,
 ): Promise<PassengerRow> {
   const existing = await findPassengerByPhone(phone);
-  const city = await getActiveCity();
+  const cityId = await maybeSingleEnabledCityId();
   const wa = whatsappName?.trim() || null;
 
   if (existing) {
     const supabase = getSupabase();
     const patch: Record<string, string> = {};
-    if (!existing.city_id) {
-      patch.city_id = city.id;
+    if (!existing.city_id && cityId) {
+      patch.city_id = cityId;
     }
     if (wa && wa !== existing.whatsapp_name) {
       patch.whatsapp_name = wa;
@@ -197,7 +202,7 @@ export async function findOrCreatePassenger(
       full_name: null,
       preferred_name: null,
       whatsapp_name: wa,
-      city_id: city.id,
+      city_id: cityId,
       status,
       registered_at: new Date().toISOString(),
     })
@@ -252,7 +257,7 @@ export async function ensureActivePassengerFromKnownIdentity(
     whatsappName?: string | null;
   },
 ): Promise<PassengerRow> {
-  const city = await getActiveCity();
+  const cityId = await maybeSingleEnabledCityId();
   const normalized = normalizePhone(phone);
   const fullName =
     identity.fullName?.trim() || identity.preferredName?.trim() || null;
@@ -263,7 +268,7 @@ export async function ensureActivePassengerFromKnownIdentity(
 
   if (existing) {
     const patch: Record<string, string> = {};
-    if (!existing.city_id) patch.city_id = city.id;
+    if (!existing.city_id && cityId) patch.city_id = cityId;
     if (wa && wa !== existing.whatsapp_name) patch.whatsapp_name = wa;
     if (fullName && !existing.full_name?.trim()) patch.full_name = fullName;
     if (preferredName && !existing.preferred_name?.trim()) {
@@ -313,7 +318,7 @@ export async function ensureActivePassengerFromKnownIdentity(
       full_name: fullName,
       preferred_name: preferredName,
       whatsapp_name: wa,
-      city_id: city.id,
+      city_id: cityId,
       status: "ACTIVE",
       registered_at: new Date().toISOString(),
     })

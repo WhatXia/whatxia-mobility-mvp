@@ -1,0 +1,457 @@
+[1mdiff --git a/src/lib/booking/flow.ts b/src/lib/booking/flow.ts[m
+[1mindex 0afc50f..fc9762a 100644[m
+[1m--- a/src/lib/booking/flow.ts[m
+[1m+++ b/src/lib/booking/flow.ts[m
+[36m@@ -33,9 +33,13 @@[m [mimport {[m
+ } from "@/lib/booking/intent";[m
+ import { clearSession, getSession, upsertSession } from "@/lib/sessions";[m
+ import {[m
+[31m-  getActiveCity,[m
+   isPointInCity,[m
+[32m+[m[32m  listEnabledCities,[m
+   outOfCityServiceMessage,[m
+[32m+[m[32m  outOfCoverageMessage,[m
+[32m+[m[32m  resolveCityFromPoint,[m
+[32m+[m[32m  sameCityDestinationMessage,[m
+[32m+[m[32m  type City,[m
+ } from "@/lib/city/context";[m
+ import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";[m
+ import {[m
+[36m@@ -473,6 +477,24 @@[m [masync function offerDropoffNotFoundOptions([m
+   ]);[m
+ }[m
+ [m
+[32m+[m[32masync function cityForPickupDraft(draft: BookingDraft): Promise<City | null> {[m
+[32m+[m[32m  const loc = draft.pickup?.location ?? draft.pickupLocation;[m
+[32m+[m[32m  if (!loc) return null;[m
+[32m+[m[32m  return resolveCityFromPoint(loc);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32masync function rejectOutsideCoverage([m
+[32m+[m[32m  phone: string,[m
+[32m+[m[32m  point: GeoPoint,[m
+[32m+[m[32m): Promise<City | null> {[m
+[32m+[m[32m  const city = await resolveCityFromPoint(point);[m
+[32m+[m[32m  if (!city) {[m
+[32m+[m[32m    await sendTextMessage(phone, outOfCoverageMessage());[m
+[32m+[m[32m    return null;[m
+[32m+[m[32m  }[m
+[32m+[m[32m  return city;[m
+[32m+[m[32m}[m
+[32m+[m
+ async function applyDropoffFromWhatsAppLocation([m
+   phone: string,[m
+   name: string,[m
+[36m@@ -480,10 +502,14 @@[m [masync function applyDropoffFromWhatsAppLocation([m
+   location: { lat: number; lng: number; name: string | null; address: string | null },[m
+ ): Promise<void> {[m
+   const dropoffLocation = { lat: location.lat, lng: location.lng };[m
+[31m-  const city = await getActiveCity();[m
+[31m-[m
+[31m-  if (!isPointInCity(dropoffLocation, city)) {[m
+[31m-    await sendTextMessage(phone, outOfCityServiceMessage(city));[m
+[32m+[m[32m  const serviceCity = await cityForPickupDraft(draft);[m
+[32m+[m[32m  if (serviceCity) {[m
+[32m+[m[32m    if (!isPointInCity(dropoffLocation, serviceCity)) {[m
+[32m+[m[32m      await sendTextMessage(phone, sameCityDestinationMessage(serviceCity));[m
+[32m+[m[32m      await offerDropoffNotFoundOptions(phone, name, draft);[m
+[32m+[m[32m      return;[m
+[32m+[m[32m    }[m
+[32m+[m[32m  } else if (!(await rejectOutsideCoverage(phone, dropoffLocation))) {[m
+     await offerDropoffNotFoundOptions(phone, name, draft);[m
+     return;[m
+   }[m
+[36m@@ -631,12 +657,17 @@[m [mexport async function startBookingFromFavorite([m
+     return;[m
+   }[m
+ [m
+[31m-  const city = await getActiveCity();[m
+   const pickupLoc = { lat: favorite.pickupLat, lng: favorite.pickupLng };[m
+   const dropoffLoc = { lat: favorite.dropoffLat, lng: favorite.dropoffLng };[m
+[32m+[m[32m  const city = await resolveCityFromPoint(pickupLoc);[m
+[32m+[m
+[32m+[m[32m  if (!city) {[m
+[32m+[m[32m    await sendTextMessage(phone, outOfCoverageMessage());[m
+[32m+[m[32m    return;[m
+[32m+[m[32m  }[m
+ [m
+[31m-  if (!isPointInCity(pickupLoc, city) || !isPointInCity(dropoffLoc, city)) {[m
+[31m-    await sendTextMessage(phone, outOfCityServiceMessage(city));[m
+[32m+[m[32m  if (!isPointInCity(dropoffLoc, city)) {[m
+[32m+[m[32m    await sendTextMessage(phone, sameCityDestinationMessage(city));[m
+     return;[m
+   }[m
+ [m
+[36m@@ -797,9 +828,8 @@[m [masync function applyPickupFromWhatsAppLocation([m
+     lng: location.lng,[m
+   };[m
+ [m
+[31m-  const city = await getActiveCity();[m
+[31m-  if (!isPointInCity(pickupLocation, city)) {[m
+[31m-    await sendTextMessage(phone, outOfCityServiceMessage(city));[m
+[32m+[m[32m  const city = await rejectOutsideCoverage(phone, pickupLocation);[m
+[32m+[m[32m  if (!city) {[m
+     await askForPickupLocation(phone, pickupOfferZone(label));[m
+     return;[m
+   }[m
+[36m@@ -842,21 +872,28 @@[m [masync function tryQuoteFromBothPlaces([m
+     destinationText,[m
+   });[m
+ [m
+[31m-  let pickupSearch;[m
+[31m-  let dropoffSearch;[m
+[32m+[m[32m  let pickupResolved: ResolvedPlace | null = null;[m
+[32m+[m[32m  let dropoffResolved: ResolvedPlace | null = null;[m
+[32m+[m
+   try {[m
+[31m-    pickupSearch = await searchPlaces(pickupText);[m
+[31m-    dropoffSearch = await searchPlaces(destinationText);[m
+[32m+[m[32m    const cities = await listEnabledCities();[m
+[32m+[m
+[32m+[m[32m    for (const city of cities) {[m
+[32m+[m[32m      const pickupSearch = await searchPlaces(pickupText, city);[m
+[32m+[m[32m      const resolvedPickup = pickResolvedPlace(pickupSearch.candidates, city);[m
+[32m+[m[32m      if (!resolvedPickup) continue;[m
+[32m+[m[32m      const dropoffSearch = await searchPlaces(destinationText, city);[m
+[32m+[m[32m      const resolvedDropoff = pickResolvedPlace(dropoffSearch.candidates, city);[m
+[32m+[m[32m      if (!resolvedDropoff) continue;[m
+[32m+[m[32m      pickupResolved = resolvedPickup;[m
+[32m+[m[32m      dropoffResolved = resolvedDropoff;[m
+[32m+[m[32m      break;[m
+[32m+[m[32m    }[m
+   } catch (error) {[m
+     console.error("[booking] Places dual error:", error);[m
+     return false;[m
+   }[m
+ [m
+[31m-  const city = await getActiveCity();[m
+[31m-[m
+[31m-  const pickupResolved = pickResolvedPlace(pickupSearch.candidates, city);[m
+[31m-  const dropoffResolved = pickResolvedPlace(dropoffSearch.candidates, city);[m
+[31m-[m
+   if (!pickupResolved || !dropoffResolved) {[m
+     console.log("[booking] dual Places: sin alta confianza o fuera de ciudad", {[m
+       pickupOk: Boolean(pickupResolved),[m
+[36m@@ -892,7 +929,7 @@[m [masync function tryQuoteFromBothPlaces([m
+ [m
+ function pickResolvedPlace([m
+   candidates: PlaceCandidate[],[m
+[31m-  city: Awaited<ReturnType<typeof getActiveCity>>,[m
+[32m+[m[32m  city: City,[m
+ ): ResolvedPlace | null {[m
+   if (candidates.length === 0) {[m
+     return null;[m
+[36m@@ -951,14 +988,27 @@[m [masync function resolveTextToPlace([m
+     return;[m
+   }[m
+ [m
+[32m+[m[32m  const serviceCity = await cityForPickupDraft(draft);[m
+[32m+[m[32m  if (!serviceCity) {[m
+[32m+[m[32m    await sendTextMessage(phone, outOfCoverageMessage());[m
+[32m+[m[32m    await fallbackPickupToGps([m
+[32m+[m[32m      phone,[m
+[32m+[m[32m      name,[m
+[32m+[m[32m      draft,[m
+[32m+[m[32m      draft.pickupLabel ?? DEFAULT_PICKUP_LABEL,[m
+[32m+[m[32m    );[m
+[32m+[m[32m    return;[m
+[32m+[m[32m  }[m
+[32m+[m
+   let searchResult;[m
+   try {[m
+     console.log("[booking:places] resolveTextToPlace", {[m
+       role,[m
+       text,[m
+       phone,[m
+[32m+[m[32m      city: serviceCity.slug,[m
+     });[m
+[31m-    searchResult = await searchPlaces(text);[m
+[32m+[m[32m    searchResult = await searchPlaces(text, serviceCity);[m
+   } catch (error) {[m
+     console.error("[booking] Places error FULL:", error);[m
+     if (error instanceof GoogleMapsError) {[m
+[36m@@ -1055,7 +1105,12 @@[m [masync function buildAndSendQuote([m
+         draft.pickup.location,[m
+         draft.dropoff.location,[m
+       );[m
+[31m-      const city = await getActiveCity();[m
+[32m+[m[32m      const city = await cityForPickupDraft(draft);[m
+[32m+[m[32m      if (!city) {[m
+[32m+[m[32m        await sendTextMessage(phone, outOfCoverageMessage());[m
+[32m+[m[32m        await sendTextMessage(phone, await cms("P_QUOTE_MISSING_PLACES"));[m
+[32m+[m[32m        return;[m
+[32m+[m[32m      }[m
+       const tariff = await estimateFare({[m
+         citySlug: city.slug,[m
+         origin: {[m
+[36m@@ -1333,9 +1388,16 @@[m [mexport async function handleBookingMessage([m
+         await sendTextMessage(phone, ASK_DESTINATION);[m
+         return true;[m
+       }[m
+[31m-      const city = await getActiveCity();[m
+[31m-      if (!isPointInCity(draft.dropoff.location, city)) {[m
+[31m-        await sendTextMessage(phone, outOfCityServiceMessage(city));[m
+[32m+[m[32m      const serviceCity = await cityForPickupDraft(draft);[m
+[32m+[m[32m      if (!serviceCity) {[m
+[32m+[m[32m        await sendTextMessage(phone, outOfCoverageMessage());[m
+[32m+[m[32m        draft.dropoff = undefined;[m
+[32m+[m[32m        await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);[m
+[32m+[m[32m        await sendTextMessage(phone, ASK_DESTINATION);[m
+[32m+[m[32m        return true;[m
+[32m+[m[32m      }[m
+[32m+[m[32m      if (!isPointInCity(draft.dropoff.location, serviceCity)) {[m
+[32m+[m[32m        await sendTextMessage(phone, sameCityDestinationMessage(serviceCity));[m
+         draft.dropoff = undefined;[m
+         await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);[m
+         await sendTextMessage(phone, ASK_DESTINATION);[m
+[36m@@ -1358,9 +1420,14 @@[m [mexport async function handleBookingMessage([m
+         return true;[m
+       }[m
+       const resolved = candidateToResolved(chosen);[m
+[31m-      const city = await getActiveCity();[m
+[31m-      if (!isPointInCity(resolved.location, city)) {[m
+[31m-        await sendTextMessage(phone, outOfCityServiceMessage(city));[m
+[32m+[m[32m      const serviceCity = await cityForPickupDraft(draft);[m
+[32m+[m[32m      if (!serviceCity || !isPointInCity(resolved.location, serviceCity)) {[m
+[32m+[m[32m        await sendTextMessage([m
+[32m+[m[32m          phone,[m
+[32m+[m[32m          serviceCity[m
+[32m+[m[32m            ? sameCityDestinationMessage(serviceCity)[m
+[32m+[m[32m            : outOfCoverageMessage(),[m
+[32m+[m[32m        );[m
+         draft.dropoff = undefined;[m
+         draft.candidates = undefined;[m
+         await offerDropoffNotFoundOptions(phone, name, draft);[m
+[36m@@ -1399,9 +1466,9 @@[m [mexport async function handleBookingMessage([m
+     }[m
+ [m
+     if (message.button === BOOKING_BUTTON_IDS.CONFIRM_PLACE && draft.pickup) {[m
+[31m-      const city = await getActiveCity();[m
+[31m-      if (!isPointInCity(draft.pickup.location, city)) {[m
+[31m-        await sendTextMessage(phone, outOfCityServiceMessage(city));[m
+[32m+[m[32m      const city = await resolveCityFromPoint(draft.pickup.location);[m
+[32m+[m[32m      if (!city) {[m
+[32m+[m[32m        await sendTextMessage(phone, outOfCoverageMessage());[m
+         await fallbackPickupToGps([m
+           phone,[m
+           name,[m
+[36m@@ -1431,9 +1498,9 @@[m [mexport async function handleBookingMessage([m
+         return true;[m
+       }[m
+       const resolved = candidateToResolved(chosen);[m
+[31m-      const city = await getActiveCity();[m
+[31m-      if (!isPointInCity(resolved.location, city)) {[m
+[31m-        await sendTextMessage(phone, outOfCityServiceMessage(city));[m
+[32m+[m[32m      const city = await resolveCityFromPoint(resolved.location);[m
+[32m+[m[32m      if (!city) {[m
+[32m+[m[32m        await sendTextMessage(phone, outOfCoverageMessage());[m
+         await fallbackPickupToGps([m
+           phone,[m
+           name,[m
+[1mdiff --git a/src/lib/city/context.ts b/src/lib/city/context.ts[m
+[1mindex 08efc64..869f0cd 100644[m
+[1m--- a/src/lib/city/context.ts[m
+[1m+++ b/src/lib/city/context.ts[m
+[36m@@ -24,6 +24,9 @@[m [mtype CityRow = {[m
+   active: boolean;[m
+ };[m
+ [m
+[32m+[m[32mconst CITY_COLUMNS =[m
+[32m+[m[32m  "id, slug, name, region, country_code, center_lat, center_lng, radius_meters, active";[m
+[32m+[m
+ function mapCity(row: CityRow): City {[m
+   return {[m
+     id: row.id,[m
+[36m@@ -38,65 +41,177 @@[m [mfunction mapCity(row: CityRow): City {[m
+ }[m
+ [m
+ const CACHE_TTL_MS = 60_000;[m
+[31m-let cached: { city: City; loadedAt: number } | null = null;[m
+[32m+[m[32mlet cachedEnabled: { cities: City[]; loadedAt: number } | null = null;[m
+ [m
+ export function clearActiveCityCache(): void {[m
+[31m-  cached = null;[m
+[32m+[m[32m  cachedEnabled = null;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction haversineMeters(a: GeoPoint, b: GeoPoint): number {[m
+[32m+[m[32m  const R = 6371000;[m
+[32m+[m[32m  const toRad = (d: number) => (d * Math.PI) / 180;[m
+[32m+[m[32m  const dLat = toRad(b.lat - a.lat);[m
+[32m+[m[32m  const dLng = toRad(b.lng - a.lng);[m
+[32m+[m[32m  const x =[m
+[32m+[m[32m    Math.sin(dLat / 2) ** 2 +[m
+[32m+[m[32m    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;[m
+[32m+[m[32m  return 2 * R * Math.asin(Math.sqrt(x));[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/** ¿El punto está dentro del radio de operación de la ciudad? */[m
+[32m+[m[32mexport function isPointInCity(point: GeoPoint, city: City): boolean {[m
+[32m+[m[32m  return haversineMeters(point, city.center) <= city.radiusMeters;[m
+ }[m
+ [m
+ /**[m
+[31m- * Ciudad de operación activa (por ahora Ibagué).[m
+[32m+[m[32m * Ciudades habilitadas (`cities.active = true`). Puede haber varias a la vez.[m
+  */[m
+[31m-export async function getActiveCity(): Promise<City> {[m
+[31m-  if (cached && Date.now() - cached.loadedAt < CACHE_TTL_MS) {[m
+[31m-    return cached.city;[m
+[32m+[m[32mexport async function listEnabledCities(): Promise<City[]> {[m
+[32m+[m[32m  if (cachedEnabled && Date.now() - cachedEnabled.loadedAt < CACHE_TTL_MS) {[m
+[32m+[m[32m    return cachedEnabled.cities;[m
+   }[m
+ [m
+   const supabase = getSupabase();[m
+   const { data, error } = await supabase[m
+     .from("cities")[m
+[31m-    .select([m
+[31m-      "id, slug, name, region, country_code, center_lat, center_lng, radius_meters, active",[m
+[31m-    )[m
+[32m+[m[32m    .select(CITY_COLUMNS)[m
+     .eq("active", true)[m
+[32m+[m[32m    .order("slug", { ascending: true });[m
+[32m+[m
+[32m+[m[32m  if (error) {[m
+[32m+[m[32m    console.error("[city] error al listar ciudades habilitadas:", error);[m
+[32m+[m[32m    throw error;[m
+[32m+[m[32m  }[m
+[32m+[m
+[32m+[m[32m  const cities = ((data ?? []) as CityRow[]).map(mapCity);[m
+[32m+[m[32m  cachedEnabled = { cities, loadedAt: Date.now() };[m
+[32m+[m[32m  return cities;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport async function getCityById(id: string): Promise<City | null> {[m
+[32m+[m[32m  const trimmed = id.trim();[m
+[32m+[m[32m  if (!trimmed) return null;[m
+[32m+[m
+[32m+[m[32m  const fromCache = cachedEnabled?.cities.find((c) => c.id === trimmed);[m
+[32m+[m[32m  if (fromCache) return fromCache;[m
+[32m+[m
+[32m+[m[32m  const supabase = getSupabase();[m
+[32m+[m[32m  const { data, error } = await supabase[m
+[32m+[m[32m    .from("cities")[m
+[32m+[m[32m    .select(CITY_COLUMNS)[m
+[32m+[m[32m    .eq("id", trimmed)[m
+     .maybeSingle();[m
+ [m
+   if (error) {[m
+[31m-    console.error("[city] error al leer ciudad activa:", error);[m
+[32m+[m[32m    console.error("[city] error al leer ciudad por id:", error);[m
+     throw error;[m
+   }[m
+ [m
+[31m-  if (!data) {[m
+[31m-    throw new Error([m
+[31m-      "No hay ciudad activa. Aplica la migración 017_city_context.sql.",[m
+[31m-    );[m
+[32m+[m[32m  return data ? mapCity(data as CityRow) : null;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport async function getCityBySlug(slug: string): Promise<City | null> {[m
+[32m+[m[32m  const normalized = slug.trim().toLowerCase();[m
+[32m+[m[32m  if (!normalized) return null;[m
+[32m+[m
+[32m+[m[32m  const fromCache = cachedEnabled?.cities.find((c) => c.slug === normalized);[m
+[32m+[m[32m  if (fromCache) return fromCache;[m
+[32m+[m
+[32m+[m[32m  const supabase = getSupabase();[m
+[32m+[m[32m  const { data, error } = await supabase[m
+[32m+[m[32m    .from("cities")[m
+[32m+[m[32m    .select(CITY_COLUMNS)[m
+[32m+[m[32m    .eq("slug", normalized)[m
+[32m+[m[32m    .maybeSingle();[m
+[32m+[m
+[32m+[m[32m  if (error) {[m
+[32m+[m[32m    console.error("[city] error al leer ciudad por slug:", error);[m
+[32m+[m[32m    throw error;[m
+   }[m
+ [m
+[31m-  const city = mapCity(data as CityRow);[m
+[31m-  cached = { city, loadedAt: Date.now() };[m
+[31m-  return city;[m
+[32m+[m[32m  return data ? mapCity(data as CityRow) : null;[m
+ }[m
+ [m
+[31m-function haversineMeters(a: GeoPoint, b: GeoPoint): number {[m
+[31m-  const R = 6371000;[m
+[31m-  const toRad = (d: number) => (d * Math.PI) / 180;[m
+[31m-  const dLat = toRad(b.lat - a.lat);[m
+[31m-  const dLng = toRad(b.lng - a.lng);[m
+[31m-  const x =[m
+[31m-    Math.sin(dLat / 2) ** 2 +[m
+[31m-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;[m
+[31m-  return 2 * R * Math.asin(Math.sqrt(x));[m
+[32m+[m[32m/**[m
+[32m+[m[32m * Resolución pura: primera ciudad habilitada cuyo radio contiene el punto.[m
+[32m+[m[32m * Si hay solape, gana el radio más pequeño.[m
+[32m+[m[32m */[m
+[32m+[m[32mexport function resolveCityFromPointSync([m
+[32m+[m[32m  point: GeoPoint,[m
+[32m+[m[32m  cities: City[],[m
+[32m+[m[32m): City | null {[m
+[32m+[m[32m  const matches = cities.filter([m
+[32m+[m[32m    (city) => city.active && isPointInCity(point, city),[m
+[32m+[m[32m  );[m
+[32m+[m[32m  if (matches.length === 0) return null;[m
+[32m+[m[32m  if (matches.length === 1) return matches[0];[m
+[32m+[m[32m  return matches.reduce((a, b) =>[m
+[32m+[m[32m    a.radiusMeters <= b.radiusMeters ? a : b,[m
+[32m+[m[32m  );[m
+ }[m
+ [m
+[31m-/** ¿El punto está dentro del radio de operación de la ciudad? */[m
+[31m-export function isPointInCity(point: GeoPoint, city: City): boolean {[m
+[31m-  return haversineMeters(point, city.center) <= city.radiusMeters;[m
+[32m+[m[32m/** Ciudad habilitada que cubre el punto, o null si está fuera de cobertura. */[m
+[32m+[m[32mexport async function resolveCityFromPoint([m
+[32m+[m[32m  point: GeoPoint,[m
+[32m+[m[32m): Promise<City | null> {[m
+[32m+[m[32m  const cities = await listEnabledCities();[m
+[32m+[m[32m  return resolveCityFromPointSync(point, cities);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/**[m
+[32m+[m[32m * @deprecated Legacy / admin. No usar para trip, dispatch ni tarifa.[m
+[32m+[m[32m * Con 0 habilitadas lanza. Con 1 devuelve esa. Con N avisa y devuelve la[m
+[32m+[m[32m * primera por slug (determinista) — no es fuente de verdad operacional.[m
+[32m+[m[32m */[m
+[32m+[m[32mexport async function getActiveCity(): Promise<City> {[m
+[32m+[m[32m  const cities = await listEnabledCities();[m
+[32m+[m[32m  if (cities.length === 0) {[m
+[32m+[m[32m    throw new Error([m
+[32m+[m[32m      "No hay ciudad habilitada. Aplica las migraciones 017_city_context.sql y 046_multicity_enabled.sql.",[m
+[32m+[m[32m    );[m
+[32m+[m[32m  }[m
+[32m+[m[32m  if (cities.length > 1) {[m
+[32m+[m[32m    console.warn("[city] getActiveCity() es legacy; hay múltiples ciudades habilitadas", {[m
+[32m+[m[32m      slugs: cities.map((c) => c.slug),[m
+[32m+[m[32m      note: "Operación debe usar resolveCityFromPoint / trip.city_id",[m
+[32m+[m[32m    });[m
+[32m+[m[32m  }[m
+[32m+[m[32m  return cities[0];[m
+ }[m
+ [m
+ export function outOfCityServiceMessage(city: City): string {[m
+   return `Lo sentimos, por el momento WhatXia solo opera dentro de ${city.name}.`;[m
+ }[m
+ [m
+[32m+[m[32mexport function outOfCoverageMessage(): string {[m
+[32m+[m[32m  return "Lo sentimos, por el momento WhatXia no opera en esta zona.";[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport function sameCityDestinationMessage(city: City): string {[m
+[32m+[m[32m  return `El destino debe estar dentro de ${city.name}.`;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mexport function normalizeCityHint(value: string): string {[m
+[32m+[m[32m  return value[m
+[32m+[m[32m    .normalize("NFD")[m
+[32m+[m[32m    .replace(/[\u0300-\u036f]/g, "")[m
+[32m+[m[32m    .toLowerCase()[m
+[32m+[m[32m    .trim();[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m/** Asocia texto de registro a una ciudad habilitada (slug o nombre). No es fuente operacional. */[m
+[32m+[m[32mexport function matchCityByHint(hint: str

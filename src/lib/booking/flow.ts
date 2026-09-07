@@ -33,9 +33,13 @@ import {
 } from "@/lib/booking/intent";
 import { clearSession, getSession, upsertSession } from "@/lib/sessions";
 import {
-  getActiveCity,
   isPointInCity,
+  listEnabledCities,
   outOfCityServiceMessage,
+  outOfCoverageMessage,
+  resolveCityFromPoint,
+  sameCityDestinationMessage,
+  type City,
 } from "@/lib/city/context";
 import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import {
@@ -473,6 +477,24 @@ async function offerDropoffNotFoundOptions(
   ]);
 }
 
+async function cityForPickupDraft(draft: BookingDraft): Promise<City | null> {
+  const loc = draft.pickup?.location ?? draft.pickupLocation;
+  if (!loc) return null;
+  return resolveCityFromPoint(loc);
+}
+
+async function rejectOutsideCoverage(
+  phone: string,
+  point: GeoPoint,
+): Promise<City | null> {
+  const city = await resolveCityFromPoint(point);
+  if (!city) {
+    await sendTextMessage(phone, outOfCoverageMessage());
+    return null;
+  }
+  return city;
+}
+
 async function applyDropoffFromWhatsAppLocation(
   phone: string,
   name: string,
@@ -480,10 +502,14 @@ async function applyDropoffFromWhatsAppLocation(
   location: { lat: number; lng: number; name: string | null; address: string | null },
 ): Promise<void> {
   const dropoffLocation = { lat: location.lat, lng: location.lng };
-  const city = await getActiveCity();
-
-  if (!isPointInCity(dropoffLocation, city)) {
-    await sendTextMessage(phone, outOfCityServiceMessage(city));
+  const serviceCity = await cityForPickupDraft(draft);
+  if (serviceCity) {
+    if (!isPointInCity(dropoffLocation, serviceCity)) {
+      await sendTextMessage(phone, sameCityDestinationMessage(serviceCity));
+      await offerDropoffNotFoundOptions(phone, name, draft);
+      return;
+    }
+  } else if (!(await rejectOutsideCoverage(phone, dropoffLocation))) {
     await offerDropoffNotFoundOptions(phone, name, draft);
     return;
   }
@@ -631,12 +657,17 @@ export async function startBookingFromFavorite(
     return;
   }
 
-  const city = await getActiveCity();
   const pickupLoc = { lat: favorite.pickupLat, lng: favorite.pickupLng };
   const dropoffLoc = { lat: favorite.dropoffLat, lng: favorite.dropoffLng };
+  const city = await resolveCityFromPoint(pickupLoc);
 
-  if (!isPointInCity(pickupLoc, city) || !isPointInCity(dropoffLoc, city)) {
-    await sendTextMessage(phone, outOfCityServiceMessage(city));
+  if (!city) {
+    await sendTextMessage(phone, outOfCoverageMessage());
+    return;
+  }
+
+  if (!isPointInCity(dropoffLoc, city)) {
+    await sendTextMessage(phone, sameCityDestinationMessage(city));
     return;
   }
 
@@ -797,9 +828,8 @@ async function applyPickupFromWhatsAppLocation(
     lng: location.lng,
   };
 
-  const city = await getActiveCity();
-  if (!isPointInCity(pickupLocation, city)) {
-    await sendTextMessage(phone, outOfCityServiceMessage(city));
+  const city = await rejectOutsideCoverage(phone, pickupLocation);
+  if (!city) {
     await askForPickupLocation(phone, pickupOfferZone(label));
     return;
   }
@@ -842,20 +872,27 @@ async function tryQuoteFromBothPlaces(
     destinationText,
   });
 
-  let pickupSearch;
-  let dropoffSearch;
+  let pickupResolved: ResolvedPlace | null = null;
+  let dropoffResolved: ResolvedPlace | null = null;
+
   try {
-    pickupSearch = await searchPlaces(pickupText);
-    dropoffSearch = await searchPlaces(destinationText);
+    const cities = await listEnabledCities();
+
+    for (const city of cities) {
+      const pickupSearch = await searchPlaces(pickupText, city);
+      const resolvedPickup = pickResolvedPlace(pickupSearch.candidates, city);
+      if (!resolvedPickup) continue;
+      const dropoffSearch = await searchPlaces(destinationText, city);
+      const resolvedDropoff = pickResolvedPlace(dropoffSearch.candidates, city);
+      if (!resolvedDropoff) continue;
+      pickupResolved = resolvedPickup;
+      dropoffResolved = resolvedDropoff;
+      break;
+    }
   } catch (error) {
     console.error("[booking] Places dual error:", error);
     return false;
   }
-
-  const city = await getActiveCity();
-
-  const pickupResolved = pickResolvedPlace(pickupSearch.candidates, city);
-  const dropoffResolved = pickResolvedPlace(dropoffSearch.candidates, city);
 
   if (!pickupResolved || !dropoffResolved) {
     console.log("[booking] dual Places: sin alta confianza o fuera de ciudad", {
@@ -892,7 +929,7 @@ async function tryQuoteFromBothPlaces(
 
 function pickResolvedPlace(
   candidates: PlaceCandidate[],
-  city: Awaited<ReturnType<typeof getActiveCity>>,
+  city: City,
 ): ResolvedPlace | null {
   if (candidates.length === 0) {
     return null;
@@ -951,14 +988,27 @@ async function resolveTextToPlace(
     return;
   }
 
+  const serviceCity = await cityForPickupDraft(draft);
+  if (!serviceCity) {
+    await sendTextMessage(phone, outOfCoverageMessage());
+    await fallbackPickupToGps(
+      phone,
+      name,
+      draft,
+      draft.pickupLabel ?? DEFAULT_PICKUP_LABEL,
+    );
+    return;
+  }
+
   let searchResult;
   try {
     console.log("[booking:places] resolveTextToPlace", {
       role,
       text,
       phone,
+      city: serviceCity.slug,
     });
-    searchResult = await searchPlaces(text);
+    searchResult = await searchPlaces(text, serviceCity);
   } catch (error) {
     console.error("[booking] Places error FULL:", error);
     if (error instanceof GoogleMapsError) {
@@ -1055,7 +1105,12 @@ async function buildAndSendQuote(
         draft.pickup.location,
         draft.dropoff.location,
       );
-      const city = await getActiveCity();
+      const city = await cityForPickupDraft(draft);
+      if (!city) {
+        await sendTextMessage(phone, outOfCoverageMessage());
+        await sendTextMessage(phone, await cms("P_QUOTE_MISSING_PLACES"));
+        return;
+      }
       const tariff = await estimateFare({
         citySlug: city.slug,
         origin: {
@@ -1333,9 +1388,16 @@ export async function handleBookingMessage(
         await sendTextMessage(phone, ASK_DESTINATION);
         return true;
       }
-      const city = await getActiveCity();
-      if (!isPointInCity(draft.dropoff.location, city)) {
-        await sendTextMessage(phone, outOfCityServiceMessage(city));
+      const serviceCity = await cityForPickupDraft(draft);
+      if (!serviceCity) {
+        await sendTextMessage(phone, outOfCoverageMessage());
+        draft.dropoff = undefined;
+        await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);
+        await sendTextMessage(phone, ASK_DESTINATION);
+        return true;
+      }
+      if (!isPointInCity(draft.dropoff.location, serviceCity)) {
+        await sendTextMessage(phone, sameCityDestinationMessage(serviceCity));
         draft.dropoff = undefined;
         await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);
         await sendTextMessage(phone, ASK_DESTINATION);
@@ -1358,9 +1420,14 @@ export async function handleBookingMessage(
         return true;
       }
       const resolved = candidateToResolved(chosen);
-      const city = await getActiveCity();
-      if (!isPointInCity(resolved.location, city)) {
-        await sendTextMessage(phone, outOfCityServiceMessage(city));
+      const serviceCity = await cityForPickupDraft(draft);
+      if (!serviceCity || !isPointInCity(resolved.location, serviceCity)) {
+        await sendTextMessage(
+          phone,
+          serviceCity
+            ? sameCityDestinationMessage(serviceCity)
+            : outOfCoverageMessage(),
+        );
         draft.dropoff = undefined;
         draft.candidates = undefined;
         await offerDropoffNotFoundOptions(phone, name, draft);
@@ -1399,9 +1466,9 @@ export async function handleBookingMessage(
     }
 
     if (message.button === BOOKING_BUTTON_IDS.CONFIRM_PLACE && draft.pickup) {
-      const city = await getActiveCity();
-      if (!isPointInCity(draft.pickup.location, city)) {
-        await sendTextMessage(phone, outOfCityServiceMessage(city));
+      const city = await resolveCityFromPoint(draft.pickup.location);
+      if (!city) {
+        await sendTextMessage(phone, outOfCoverageMessage());
         await fallbackPickupToGps(
           phone,
           name,
@@ -1431,9 +1498,9 @@ export async function handleBookingMessage(
         return true;
       }
       const resolved = candidateToResolved(chosen);
-      const city = await getActiveCity();
-      if (!isPointInCity(resolved.location, city)) {
-        await sendTextMessage(phone, outOfCityServiceMessage(city));
+      const city = await resolveCityFromPoint(resolved.location);
+      if (!city) {
+        await sendTextMessage(phone, outOfCoverageMessage());
         await fallbackPickupToGps(
           phone,
           name,

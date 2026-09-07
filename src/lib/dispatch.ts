@@ -62,7 +62,15 @@ import {
   formatEstimatedFareRangeLine,
 } from "@/lib/tariff";
 import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
-import { getActiveCity } from "@/lib/city/context";
+import {
+  getCityById,
+  outOfCoverageMessage,
+  resolveCityFromPoint,
+} from "@/lib/city/context";
+import {
+  canAcceptTripInCity,
+  filterDriversByTripCity,
+} from "@/lib/city/isolation";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
 import {
   formatAssignedPickupLines,
@@ -369,9 +377,40 @@ export async function offerTripToDrivers(
     requesterDriverId: requesterDriver?.id ?? null,
   });
 
+  const pickupPoint = details?.pickup?.location;
+  if (
+    pickupPoint == null ||
+    !Number.isFinite(pickupPoint.lat) ||
+    !Number.isFinite(pickupPoint.lng)
+  ) {
+    console.error("[dispatch] STOP_at_missing_pickup_coords", {
+      passengerPhone,
+      note: "Sin pickup no se resuelve trip.city_id",
+    });
+    const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
+    await sendPassengerActionMenu(passengerPhone, "", {
+      body: outOfCoverageMessage(),
+    });
+    return;
+  }
+
+  const serviceCity = await resolveCityFromPoint(pickupPoint);
+  if (!serviceCity) {
+    console.warn("[dispatch] STOP_at_pickup_outside_enabled_city", {
+      passengerPhone,
+      pickup: pickupPoint,
+    });
+    const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
+    await sendPassengerActionMenu(passengerPhone, "", {
+      body: outOfCoverageMessage(),
+    });
+    return;
+  }
+
   let availableDrivers;
   try {
     availableDrivers = await listAvailableDrivers({
+      cityId: serviceCity.id,
       excludePhone: passengerPhone,
       excludeDriverId: requesterDriver?.id,
     });
@@ -462,6 +501,8 @@ export async function offerTripToDrivers(
     );
     console.log("[dispatch:diag] STEP_5_trip_created", {
       tripId: trip.id,
+      cityId: trip.cityId,
+      citySlug: serviceCity.slug,
       status: trip.status,
       searchDeadlineAt: trip.searchDeadlineAt ?? null,
       quotedFare: trip.quotedFare,
@@ -524,6 +565,12 @@ export async function republishTripToDrivers(tripId: string): Promise<void> {
     return;
   }
 
+  console.log("[dispatch] republish", {
+    tripId: trip.id,
+    cityId: trip.cityId,
+    status: trip.status,
+  });
+
   await startSearchCycle(trip.id);
 
   await publishTripOffer(trip, {
@@ -560,9 +607,17 @@ async function publishTripOffer(
     ]),
   );
 
+  if (!trip.cityId) {
+    console.error("[dispatch] STOP_at_publish_missing_trip_city", {
+      tripId: trip.id,
+    });
+    return;
+  }
+
   let candidates;
   try {
     candidates = await listAvailableDrivers({
+      cityId: trip.cityId,
       excludePhone: options?.excludePhone,
     });
   } catch (error) {
@@ -581,7 +636,7 @@ async function publishTripOffer(
   });
 
   const availableDrivers = filterDriversForTripOffer({
-    drivers: candidates,
+    drivers: filterDriversByTripCity(candidates, trip.cityId),
     excludedDriverIds,
   });
 
@@ -761,6 +816,17 @@ export async function handleDriverAccept(
   }
 
   if (!driver.is_available) {
+    await sendTextMessage(driverPhone, await cms("D_NOT_AVAILABLE"));
+    return;
+  }
+
+  if (!canAcceptTripInCity(trip.cityId, driver.city_id)) {
+    console.warn("[dispatch] accept rejected cross-city", {
+      tripId: trip.id,
+      tripCityId: trip.cityId,
+      driverId: driver.id,
+      driverCityId: driver.city_id,
+    });
     await sendTextMessage(driverPhone, await cms("D_NOT_AVAILABLE"));
     return;
   }
@@ -1181,7 +1247,22 @@ export async function handleDriverFinalizarViaje(
   }
 
   // Tarifa final: Mobility solo solicita al Tariff Engine (sin fórmulas propias).
-  const city = await getActiveCity();
+  let fareCity = trip.cityId ? await getCityById(trip.cityId) : null;
+  if (!fareCity && trip.pickupLat != null && trip.pickupLng != null) {
+    fareCity = await resolveCityFromPoint({
+      lat: trip.pickupLat,
+      lng: trip.pickupLng,
+    });
+  }
+  if (!fareCity) {
+    console.error("[dispatch] finalizeFare sin ciudad operacional", {
+      tripId: trip.id,
+      tripCityId: trip.cityId,
+    });
+    await sendTextMessage(driverPhone, await cms("D_FINAL_FARE_ERROR"));
+    return;
+  }
+
   const finishedAt = new Date();
   const startedAt = trip.startedAt
     ? new Date(trip.startedAt)
@@ -1194,7 +1275,7 @@ export async function handleDriverFinalizarViaje(
   let finalQuote;
   try {
     finalQuote = await finalizeFare({
-      citySlug: city.slug,
+      citySlug: fareCity.slug,
       origin:
         trip.pickupLat != null && trip.pickupLng != null
           ? {

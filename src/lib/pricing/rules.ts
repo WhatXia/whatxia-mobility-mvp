@@ -2,7 +2,7 @@
  * @deprecated Preferir `@/lib/tariff/config-loader` (SSoT = fare_rules).
  * Mantiene getActiveFareRules para compatibilidad Sprint 25.
  */
-import { getActiveCity } from "@/lib/city/context";
+import { listEnabledCities } from "@/lib/city/context";
 import {
   clearTariffConfigCache,
   loadCityTariffConfig,
@@ -18,8 +18,13 @@ export function clearFareRulesCache(): void {
  * Carga reglas activas de la ciudad activa vía Tariff config-loader.
  */
 export async function getActiveFareRules(): Promise<FareRules> {
-  const city = await getActiveCity();
-  const config = await loadCityTariffConfig(city.slug);
+  const cities = await listEnabledCities();
+  if (cities.length !== 1) {
+    throw new Error(
+      "getActiveFareRules() es legacy: usa loadCityTariffConfig(citySlug) cuando hay varias ciudades.",
+    );
+  }
+  const config = await loadCityTariffConfig(cities[0].slug);
 
   return {
     id: `city:${config.citySlug}`,

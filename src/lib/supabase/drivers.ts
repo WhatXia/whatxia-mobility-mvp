@@ -3,7 +3,10 @@ import type { DriverDraft, DriverFieldKey } from "@/lib/driver-profile-fields";
 import { hasExpiredDocuments } from "@/lib/driver-documents";
 import { findPassengerByPhone } from "@/lib/supabase/passengers";
 import { normalizePhone, samePhone } from "@/lib/trips";
-import { getActiveCity } from "@/lib/city/context";
+import {
+  listEnabledCities,
+  matchCityByHint,
+} from "@/lib/city/context";
 
 export type DriverStatus = "active" | "inactive";
 
@@ -149,12 +152,16 @@ export async function findDriverByDocumentId(
   return (data as DriverRow | null) ?? null;
 }
 
-export async function listAvailableDrivers(options?: {
+export async function listAvailableDrivers(options: {
+  cityId: string;
   excludePhone?: string;
   excludeDriverId?: string;
 }): Promise<DriverRow[]> {
   const supabase = getSupabase();
-  const city = await getActiveCity();
+  const cityId = options.cityId.trim();
+  if (!cityId) {
+    return [];
+  }
   const nowIso = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -163,7 +170,7 @@ export async function listAvailableDrivers(options?: {
     .eq("is_available", true)
     .eq("documents_blocked", false)
     .eq("status", "active")
-    .eq("city_id", city.id);
+    .eq("city_id", cityId);
 
   if (error) {
     console.error("[supabase] error al listar conductores:", error);
@@ -306,7 +313,15 @@ export async function createDriver(
   input: CreateDriverInput,
 ): Promise<{ driver: DriverRow; documentsExpired: boolean }> {
   const supabase = getSupabase();
-  const city = await getActiveCity();
+  const enabledCities = await listEnabledCities();
+  const city =
+    matchCityByHint(input.city, enabledCities) ??
+    (enabledCities.length === 1 ? enabledCities[0] : null);
+  if (!city) {
+    throw new Error(
+      "No se pudo asociar city_id operacional al conductor. Indica una ciudad habilitada (Ibagué, Pasto, …).",
+    );
+  }
   const documentsExpired = hasExpiredDocuments(input);
   const passenger = await findPassengerByPhone(input.phone);
   const fullName =

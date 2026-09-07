@@ -5,7 +5,7 @@
  */
 
 import type { IncomingMessage } from "@/types";
-import { getActiveCity } from "@/lib/city/context";
+import { resolveCityFromPoint } from "@/lib/city/context";
 import { estimateRoute } from "@/lib/geo/routes";
 import type { GeoPoint } from "@/lib/geo/types";
 import { findDriverByPhone } from "@/lib/supabase/drivers";
@@ -237,7 +237,15 @@ async function completeWithEndLocation(
     fallback,
   };
 
-  const city = await getActiveCity();
+  const city = await resolveCityFromPoint({ lat: start.lat, lng: start.lng });
+  if (!city) {
+    await sendTextMessage(
+      phone,
+      "Esta prueba está fuera de una ciudad habilitada. Envía 🚖 para reiniciar.",
+    );
+    await clearTaximeterSession(phone);
+    return;
+  }
   let whatxiaFare: number;
   try {
     const quote = await finalizeFare({
@@ -319,7 +327,18 @@ async function persistRun(
       ? 0
       : Math.round((differencePesos / session.whatxiaFare) * 10000) / 10000;
 
-  const city = await getActiveCity();
+  const city = await resolveCityFromPoint({
+    lat: session.startLat,
+    lng: session.startLng,
+  });
+  if (!city) {
+    await sendTextMessage(
+      phone,
+      "Esta prueba está fuera de una ciudad habilitada. Envía 🚖 para reiniciar.",
+    );
+    await clearTaximeterSession(phone);
+    return;
+  }
 
   const routeSnapshot: TaximeterRouteSnapshot = session.route ?? {
     provider: session.routeProvider ?? ROUTE_PROVIDER_HAVERSINE,

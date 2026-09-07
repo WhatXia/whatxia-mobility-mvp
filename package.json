@@ -13,6 +13,8 @@
     "test:pioneers": "npx tsx src/lib/launch-programs/decision.certify.ts",
     "test:city-launch": "npx tsx src/lib/launch-programs/city-launch.certify.ts",
     "test:webhook-parser": "npx tsx src/lib/whatsapp/webhook-parser.certify.ts",
+    "test:city": "npx tsx src/lib/city.certify.ts",
+    "test:multicity": "npx tsx src/lib/multicity.certify.ts",
     "test:sistema": "npx tsx src/lib/bot-operational-status/decision.certify.ts"
   },
   "dependencies": {

@@ -81,7 +81,7 @@ export function logGoogleMapsApiKeyRuntimeProbe(context: string): void {
   });
 }
 
-/** Centro de bias legacy — preferir getActiveCity() (Sprint 26). */
+/** Centro de bias legacy — no usar. Fuente de verdad: tabla cities. */
 export function getCityBias(): GeoPoint {
   return {
     lat: envNumber("GEO_CITY_LAT", 4.4389),

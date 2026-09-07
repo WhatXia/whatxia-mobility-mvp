@@ -3,7 +3,7 @@
  * Este módulo delega al Tariff Engine (config = Supabase fare_rules + holidays).
  */
 import type { FareQuote, RouteEstimate } from "@/lib/geo/types";
-import { getActiveCity } from "@/lib/city/context";
+import { resolveCityFromPoint } from "@/lib/city/context";
 import {
   calculateTariff,
   formatTariffCop,
@@ -102,8 +102,20 @@ export async function calculateFare(
   route: RouteEstimate,
   context: FareContext = {},
 ): Promise<FareQuote> {
-  const city = await getActiveCity();
-  const config = await loadCityTariffConfig(city.slug);
+  let citySlug = context.citySlug?.trim().toLowerCase() ?? "";
+  if (!citySlug && context.pickupLat != null && context.pickupLng != null) {
+    const city = await resolveCityFromPoint({
+      lat: context.pickupLat,
+      lng: context.pickupLng,
+    });
+    citySlug = city?.slug ?? "";
+  }
+  if (!citySlug) {
+    throw new Error(
+      "calculateFare: no se pudo resolver la ciudad (citySlug o pickup).",
+    );
+  }
+  const config = await loadCityTariffConfig(citySlug);
   const waitSeconds = context.waitSeconds ?? 0;
   const at = context.at ?? new Date();
   const holiday = await isPublicHoliday(config.countryCode, at);

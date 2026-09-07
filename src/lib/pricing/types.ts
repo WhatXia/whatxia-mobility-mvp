@@ -35,4 +35,6 @@ export type FareContext = {
   pickupLng?: number;
   dropoffLat?: number;
   dropoffLng?: number;
+  /** Slug de ciudad operacional (trip / pickup). Obligatorio si no hay coords. */
+  citySlug?: string;
 };

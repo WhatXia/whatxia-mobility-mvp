@@ -1,5 +1,5 @@
 import { getSupabase } from "@/lib/supabase/client";
-import { getActiveCity } from "@/lib/city/context";
+import { resolveCityFromPoint } from "@/lib/city/context";
 
 export type TripStatus =
   | "SEARCHING"
@@ -191,7 +191,26 @@ export async function createTrip(
   geo?: CreateTripGeoInput,
 ): Promise<Trip> {
   const supabase = getSupabase();
-  const city = await getActiveCity();
+  if (
+    geo == null ||
+    !Number.isFinite(geo.pickupLat) ||
+    !Number.isFinite(geo.pickupLng)
+  ) {
+    throw new Error(
+      "createTrip requiere coordenadas de pickup para resolver trip.city_id.",
+    );
+  }
+
+  const city = await resolveCityFromPoint({
+    lat: geo.pickupLat,
+    lng: geo.pickupLng,
+  });
+  if (!city) {
+    throw new Error(
+      "createTrip: pickup fuera de una ciudad habilitada; no se crea el viaje.",
+    );
+  }
+
   const searchDeadline = new Date(
     Date.now() + SEARCH_WINDOW_MS,
   ).toISOString();
@@ -248,6 +267,8 @@ export async function createTrip(
   const trip = mapRow(data as TripRow);
   console.log("[trip:created]", {
     tripId: trip.id,
+    cityId: trip.cityId,
+    citySlug: city.slug,
     passengerId: trip.passengerId,
     passengerPhone: trip.passengerPhone,
     status: trip.status,
