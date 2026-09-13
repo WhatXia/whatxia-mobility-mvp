@@ -8,12 +8,19 @@
  * Añadir una ciudad sin tarifa = incluir su slug aquí; no ramificar en finalizeFare().
  */
 
+import { PASTO_CORRIDOR_SLUGS } from "@/lib/city/corridors";
+
 export type CityPricingMode = "FARE" | "NO_FARE";
 
 /** Ciudad operacional que hoy opera sin tarifa. */
 export const PASTO_CITY_SLUG = "pasto";
 
-const NO_FARE_CITY_SLUGS = new Set<string>([PASTO_CITY_SLUG]);
+/**
+ * Corredor Pasto: mismos slugs geográficos, mismo NO_FARE.
+ * Sin esto, un pickup en Tangua/etc. intentaría FARE y el cierre fallaría
+ * (no hay fare_rules; no se inventan tarifas).
+ */
+const NO_FARE_CITY_SLUGS = new Set<string>(PASTO_CORRIDOR_SLUGS);
 
 export function pricingModeForCitySlug(citySlug: string): CityPricingMode {
   const slug = citySlug.trim().toLowerCase();

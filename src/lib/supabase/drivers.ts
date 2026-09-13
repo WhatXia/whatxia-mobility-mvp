@@ -3,10 +3,8 @@ import type { DriverDraft, DriverFieldKey } from "@/lib/driver-profile-fields";
 import { hasExpiredDocuments } from "@/lib/driver-documents";
 import { findPassengerByPhone } from "@/lib/supabase/passengers";
 import { normalizePhone, samePhone } from "@/lib/trips";
-import {
-  listEnabledCities,
-  matchCityByHint,
-} from "@/lib/city/context";
+import { listEnabledCities } from "@/lib/city/context";
+import { matchDriverFleetCity } from "@/lib/city/corridors";
 
 export type DriverStatus = "active" | "inactive";
 
@@ -315,7 +313,7 @@ export async function createDriver(
   const supabase = getSupabase();
   const enabledCities = await listEnabledCities();
   const city =
-    matchCityByHint(input.city, enabledCities) ??
+    matchDriverFleetCity(input.city, enabledCities) ??
     (enabledCities.length === 1 ? enabledCities[0] : null);
   if (!city) {
     throw new Error(

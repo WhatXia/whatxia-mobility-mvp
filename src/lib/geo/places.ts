@@ -4,15 +4,23 @@ import {
 } from "@/lib/geo/client";
 import {
   getGoogleMapsApiKey,
+  isMapboxExperimentalEnabled,
   logGoogleMapsApiKeyRuntimeProbe,
 } from "@/lib/geo/config";
+import { searchPlacesWithMapbox } from "@/lib/geo/mapbox-search";
 import { rankPlaceCandidates } from "@/lib/geo/confidence";
 import type { GeoPoint, PlaceCandidate } from "@/lib/geo/types";
 import {
-  buildCityScopedPlaceQuery,
   filterCandidatesInCity,
+  listEnabledCities,
   type City,
 } from "@/lib/city/context";
+import {
+  buildDropoffPlaceQuery,
+  filterCandidatesForDropoff,
+  placeSearchBiasCircle,
+  preferMunicipalityPlaces,
+} from "@/lib/city/corridors";
 
 type PlacesSearchTextResponse = {
   places?: Array<{
@@ -20,6 +28,8 @@ type PlacesSearchTextResponse = {
     displayName?: { text?: string };
     formattedAddress?: string;
     location?: { latitude?: number; longitude?: number };
+    primaryType?: string;
+    types?: string[];
   }>;
   error?: unknown;
 };
@@ -41,15 +51,14 @@ export type SearchPlacesResult = {
  *
  * Docs: https://developers.google.com/maps/documentation/places/web-service/text-search
  */
-function buildLocationBiasCircle(city: City) {
+function buildLocationBiasCircle(center: GeoPoint, radiusMeters: number) {
   return {
     circle: {
       center: {
-        latitude: city.center.lat,
-        longitude: city.center.lng,
+        latitude: center.lat,
+        longitude: center.lng,
       },
-      // Metros (0–50000). 18000 = 18 km.
-      radius: city.radiusMeters,
+      radius: Math.min(50_000, Math.max(1, radiusMeters)),
     },
   };
 }
@@ -80,9 +89,9 @@ export function circleToViewportRectangle(
 }
 
 /**
- * Busca lugares con Places API (New), sesgados a la ciudad del servicio.
+ * Camino Google (producción). No se elimina.
  */
-export async function searchPlaces(
+export async function searchPlacesWithGoogle(
   query: string,
   city: City,
 ): Promise<SearchPlacesResult> {
@@ -95,12 +104,14 @@ export async function searchPlaces(
       rejectedOutsideCity: 0,
     };
   }
-  const textQuery = buildCityScopedPlaceQuery(trimmed, city);
+  const cities = await listEnabledCities();
+  const textQuery = buildDropoffPlaceQuery(trimmed, city, cities);
+  const bias = placeSearchBiasCircle(city, trimmed, cities);
   const endpoint = "https://places.googleapis.com/v1/places:searchText";
   const apiProduct = "Places API (New) — places:searchText";
-  const locationBias = buildLocationBiasCircle(city);
+  const locationBias = buildLocationBiasCircle(bias.center, bias.radiusMeters);
 
-  logGoogleMapsApiKeyRuntimeProbe("searchPlaces:before_fetch");
+  logGoogleMapsApiKeyRuntimeProbe("searchPlacesWithGoogle:before_fetch");
 
   let keyLoaded = false;
   let keyMasked: string | null = null;
@@ -137,6 +148,11 @@ export async function searchPlaces(
       radiusMeters: city.radiusMeters,
       radiusNote: "metros (18000 = 18 km)",
     },
+    biasCity: {
+      slug: bias.slug,
+      center: bias.center,
+      radiusMeters: bias.radiusMeters,
+    },
     locationMode: "locationBias.circle (NO locationRestriction.circle)",
     locationBias,
     keyLoaded,
@@ -149,7 +165,7 @@ export async function searchPlaces(
       method: "POST",
       headers: {
         "X-Goog-FieldMask":
-          "places.id,places.displayName,places.formattedAddress,places.location",
+          "places.id,places.displayName,places.formattedAddress,places.location,places.primaryType,places.types",
       },
       body,
       includeKeyInQuery: false,
@@ -191,12 +207,18 @@ export async function searchPlaces(
         name: place.displayName?.text ?? "Lugar",
         address: place.formattedAddress ?? "",
         location: { lat, lng },
+        primaryType: place.primaryType ?? null,
+        types: place.types ?? [],
       };
     })
     .filter((p): p is NonNullable<typeof p> => p !== null && Boolean(p.placeId));
 
   const ranked = rankPlaceCandidates(raw);
-  const inCity = filterCandidatesInCity(ranked, city);
+  const preferred = preferMunicipalityPlaces(trimmed, ranked, cities);
+  const inCity =
+    cities.length > 0
+      ? filterCandidatesForDropoff(preferred, city, cities)
+      : filterCandidatesInCity(preferred, city);
   const rejectedOutsideCity = ranked.length - inCity.length;
 
   console.log("[places:diag] OK", {
@@ -222,4 +244,28 @@ export async function searchPlaces(
     candidates: inCity,
     rejectedOutsideCity,
   };
+}
+
+/**
+ * Búsqueda de destinos. Default: Google.
+ * GEO_EXPERIMENTAL_PROVIDER=mapbox intenta Search Box y cae a Google.
+ */
+export async function searchPlaces(
+  query: string,
+  city: City,
+): Promise<SearchPlacesResult> {
+  if (isMapboxExperimentalEnabled()) {
+    try {
+      const mapped = await searchPlacesWithMapbox(query, city);
+      if (mapped.candidates.length > 0) {
+        return mapped;
+      }
+      console.warn("[geo:places] Mapbox experimental sin candidatos in-city; fallback Google");
+    } catch (error) {
+      console.warn("[geo:places] Mapbox experimental falló; fallback Google", {
+        reason: error instanceof Error ? error.message : "error",
+      });
+    }
+  }
+  return searchPlacesWithGoogle(query, city);
 }

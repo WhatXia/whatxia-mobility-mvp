@@ -1,5 +1,6 @@
 import { getSupabase } from "@/lib/supabase/client";
-import { resolveCityFromPoint } from "@/lib/city/context";
+import { listEnabledCities, resolveCityFromPoint } from "@/lib/city/context";
+import { operationalTripCity } from "@/lib/city/corridors";
 
 export type TripStatus =
   | "SEARCHING"
@@ -201,15 +202,17 @@ export async function createTrip(
     );
   }
 
-  const city = await resolveCityFromPoint({
+  const geoCity = await resolveCityFromPoint({
     lat: geo.pickupLat,
     lng: geo.pickupLng,
   });
-  if (!city) {
+  if (!geoCity) {
     throw new Error(
       "createTrip: pickup fuera de una ciudad habilitada; no se crea el viaje.",
     );
   }
+  const cities = await listEnabledCities();
+  const city = operationalTripCity(geoCity, cities);
 
   const searchDeadline = new Date(
     Date.now() + SEARCH_WINDOW_MS,

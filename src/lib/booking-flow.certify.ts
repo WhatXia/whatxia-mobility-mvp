@@ -536,6 +536,11 @@ assert(
   "Pasto: pricing_mode NO_FARE",
 );
 assert(
+  pricingModeForCitySlug("tangua") === "NO_FARE" &&
+    !shouldFinalizeFare("tangua"),
+  "Corredor: Tangua hereda NO_FARE (sin fare_rules inventadas)",
+);
+assert(
   pricingModeForCitySlug("ibague") === "FARE",
   "Ibagué: pricing_mode FARE",
 );

@@ -170,13 +170,19 @@ export async function getActiveCity(): Promise<City> {
       "No hay ciudad habilitada. Aplica las migraciones 017_city_context.sql y 046_multicity_enabled.sql.",
     );
   }
+  // Preferir flotas (ibague/pasto). Los satélites del corredor irían primero por slug.
+  const fleet = cities.filter(
+    (city) => city.slug === "ibague" || city.slug === "pasto",
+  );
+  const pool = fleet.length > 0 ? fleet : cities;
   if (cities.length > 1) {
     console.warn("[city] getActiveCity() es legacy; hay múltiples ciudades habilitadas", {
       slugs: cities.map((c) => c.slug),
+      picked: pool[0]?.slug,
       note: "Operación debe usar resolveCityFromPoint / trip.city_id",
     });
   }
-  return cities[0];
+  return pool[0];
 }
 
 export function outOfCityServiceMessage(city: City): string {

@@ -97,7 +97,34 @@ export function getPlaceConfidenceThreshold(): number {
   return envNumber("PLACE_CONFIDENCE_THRESHOLD", 0.75);
 }
 
+export type GeoExperimentalProvider = "google" | "mapbox";
+
+/**
+ * Interruptor reversible. Default y producción: Google.
+ * No leer GEO_PROVIDER. Mapbox solo si GEO_EXPERIMENTAL_PROVIDER=mapbox.
+ */
+export function getGeoExperimentalProvider(): GeoExperimentalProvider {
+  const raw = process.env.GEO_EXPERIMENTAL_PROVIDER?.trim().toLowerCase();
+  if (raw === "mapbox") {
+    return "mapbox";
+  }
+  return "google";
+}
+
+export function isMapboxExperimentalEnabled(): boolean {
+  return getGeoExperimentalProvider() === "mapbox";
+}
+
+/** Token Mapbox. Nunca loguear el valor. */
+export function getMapboxAccessToken(): string | null {
+  const token = process.env.MAPBOX_ACCESS_TOKEN?.trim();
+  return token ? token : null;
+}
+
 /** Margen mínimo entre 1º y 2º candidato para aceptar alta confianza. */
 export const PLACE_TOP_MARGIN = 0.2;
 
 export const GOOGLE_FETCH_TIMEOUT_MS = 8000;
+
+/** Prefijo interno. Nunca se envía a Google Maps URLs. */
+export const MAPBOX_PLACE_ID_PREFIX = "mapbox:";

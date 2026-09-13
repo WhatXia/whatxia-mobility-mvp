@@ -64,14 +64,18 @@ import {
 import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
 import {
   getCityById,
+  listEnabledCities,
   outOfCoverageMessage,
   resolveCityFromPoint,
 } from "@/lib/city/context";
 import { planTripCompletion } from "@/lib/city/pricing";
 import {
-  canAcceptTripInCity,
   filterDriversByTripCity,
 } from "@/lib/city/isolation";
+import {
+  dispatchFleetCity,
+  driverServesOriginCity,
+} from "@/lib/city/corridors";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
 import {
   formatAssignedPickupLines,
@@ -408,10 +412,13 @@ export async function offerTripToDrivers(
     return;
   }
 
+  const cities = await listEnabledCities();
+  const fleetCity = dispatchFleetCity(serviceCity, cities);
+
   let availableDrivers;
   try {
     availableDrivers = await listAvailableDrivers({
-      cityId: serviceCity.id,
+      cityId: fleetCity.id,
       excludePhone: passengerPhone,
       excludeDriverId: requesterDriver?.id,
     });
@@ -424,6 +431,10 @@ export async function offerTripToDrivers(
   }
 
   console.log("[dispatch:diag] STEP_3_eligible_count", {
+    originCityId: serviceCity.id,
+    originCitySlug: serviceCity.slug,
+    fleetCityId: fleetCity.id,
+    fleetCitySlug: fleetCity.slug,
     count: availableDrivers.length,
     drivers: availableDrivers.map((d) => ({
       id: d.id,
@@ -504,6 +515,8 @@ export async function offerTripToDrivers(
       tripId: trip.id,
       cityId: trip.cityId,
       citySlug: serviceCity.slug,
+      fleetCityId: fleetCity.id,
+      fleetCitySlug: fleetCity.slug,
       status: trip.status,
       searchDeadlineAt: trip.searchDeadlineAt ?? null,
       quotedFare: trip.quotedFare,
@@ -615,10 +628,21 @@ async function publishTripOffer(
     return;
   }
 
+  const originCity = await getCityById(trip.cityId);
+  if (!originCity) {
+    console.error("[dispatch] STOP_at_publish_unknown_trip_city", {
+      tripId: trip.id,
+      tripCityId: trip.cityId,
+    });
+    return;
+  }
+  const cities = await listEnabledCities();
+  const fleetCity = dispatchFleetCity(originCity, cities);
+
   let candidates;
   try {
     candidates = await listAvailableDrivers({
-      cityId: trip.cityId,
+      cityId: fleetCity.id,
       excludePhone: options?.excludePhone,
     });
   } catch (error) {
@@ -637,7 +661,7 @@ async function publishTripOffer(
   });
 
   const availableDrivers = filterDriversForTripOffer({
-    drivers: filterDriversByTripCity(candidates, trip.cityId),
+    drivers: filterDriversByTripCity(candidates, fleetCity.id),
     excludedDriverIds,
   });
 
@@ -821,12 +845,22 @@ export async function handleDriverAccept(
     return;
   }
 
-  if (!canAcceptTripInCity(trip.cityId, driver.city_id)) {
+  const originCity = trip.cityId ? await getCityById(trip.cityId) : null;
+  const driverCity = driver.city_id
+    ? await getCityById(driver.city_id)
+    : null;
+  if (
+    !originCity ||
+    !driverCity ||
+    !driverServesOriginCity(originCity, driverCity)
+  ) {
     console.warn("[dispatch] accept rejected cross-city", {
       tripId: trip.id,
       tripCityId: trip.cityId,
+      tripCitySlug: originCity?.slug ?? null,
       driverId: driver.id,
       driverCityId: driver.city_id,
+      driverCitySlug: driverCity?.slug ?? null,
     });
     await sendTextMessage(driverPhone, await cms("D_NOT_AVAILABLE"));
     return;

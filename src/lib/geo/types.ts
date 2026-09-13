@@ -9,6 +9,8 @@ export type PlaceCandidate = {
   address: string;
   location: GeoPoint;
   confidenceScore: number;
+  types?: string[];
+  primaryType?: string | null;
 };
 
 export type ResolvedPlace = {

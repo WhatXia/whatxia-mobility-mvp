@@ -13,6 +13,7 @@ import {
   filterDriversByTripCity,
   republishKeepsTripCity,
 } from "@/lib/city/isolation";
+import { driverServesOriginCity } from "@/lib/city/corridors";
 import {
   planTripCompletion,
   pricingModeForCitySlug,
@@ -249,4 +250,24 @@ assert(
   "Test 9e: FARE cierra con finalizeFare; NO_FARE cierra en COMPLETED",
 );
 
-console.log("\nMulti-ciudad: Tests 1–9 OK");
+const tangua: City = {
+  id: "city-tangua",
+  slug: "tangua",
+  name: "Tangua",
+  region: "Nariño",
+  countryCode: "CO",
+  center: { lat: 1.0950573, lng: -77.3939558 },
+  radiusMeters: 819,
+  active: true,
+};
+assert(
+  driverServesOriginCity(tangua, pasto) && !driverServesOriginCity(tangua, ibague),
+  "Test 10a: origen Tangua lo atiende flota Pasto, no Ibagué",
+);
+assert(
+  pricingModeForCitySlug("tangua") === "NO_FARE" &&
+    !planTripCompletion("tangua").runFinalizeFare,
+  "Test 10b: slug tangua no dispara FARE",
+);
+
+console.log("\nMulti-ciudad: Tests 1–10 OK");

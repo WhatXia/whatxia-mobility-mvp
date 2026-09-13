@@ -33,15 +33,19 @@ import {
 } from "@/lib/booking/intent";
 import { clearSession, getSession, upsertSession } from "@/lib/sessions";
 import {
-  isPointInCity,
   listEnabledCities,
   outOfCityServiceMessage,
   outOfCoverageMessage,
   resolveCityFromPoint,
-  sameCityDestinationMessage,
   type City,
 } from "@/lib/city/context";
 import { cityUsesFare, PASTO_CITY_SLUG } from "@/lib/city/pricing";
+import {
+  dropoffNotAllowedMessage,
+  isAllowedDropoffPoint,
+  isPastoCorridorSlug,
+  isPastoSatelliteSlug,
+} from "@/lib/city/corridors";
 import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import {
   sendButtonsMessage,
@@ -508,6 +512,14 @@ async function offerDropoffNotFoundOptions(
   ]);
 }
 
+async function isAllowedBookingDropoff(
+  origin: City,
+  point: { lat: number; lng: number },
+): Promise<boolean> {
+  const cities = await listEnabledCities();
+  return isAllowedDropoffPoint(origin, point, cities);
+}
+
 async function cityForPickupDraft(draft: BookingDraft): Promise<City | null> {
   const loc = draft.pickup?.location ?? draft.pickupLocation;
   if (!loc) return null;
@@ -535,8 +547,8 @@ async function applyDropoffFromWhatsAppLocation(
   const dropoffLocation = { lat: location.lat, lng: location.lng };
   const serviceCity = await cityForPickupDraft(draft);
   if (serviceCity) {
-    if (!isPointInCity(dropoffLocation, serviceCity)) {
-      await sendTextMessage(phone, sameCityDestinationMessage(serviceCity));
+    if (!(await isAllowedBookingDropoff(serviceCity, dropoffLocation))) {
+      await sendTextMessage(phone, dropoffNotAllowedMessage(serviceCity));
       await offerDropoffNotFoundOptions(phone, name, draft);
       return;
     }
@@ -697,8 +709,8 @@ export async function startBookingFromFavorite(
     return;
   }
 
-  if (!isPointInCity(dropoffLoc, city)) {
-    await sendTextMessage(phone, sameCityDestinationMessage(city));
+  if (!(await isAllowedBookingDropoff(city, dropoffLoc))) {
+    await sendTextMessage(phone, dropoffNotAllowedMessage(city));
     return;
   }
 
@@ -910,11 +922,20 @@ async function tryQuoteFromBothPlaces(
     const cities = await listEnabledCities();
 
     for (const city of cities) {
+      if (isPastoSatelliteSlug(city.slug)) continue;
       const pickupSearch = await searchPlaces(pickupText, city);
-      const resolvedPickup = pickResolvedPlace(pickupSearch.candidates, city);
+      const resolvedPickup = pickResolvedPlace(
+        pickupSearch.candidates,
+        city,
+        cities,
+      );
       if (!resolvedPickup) continue;
       const dropoffSearch = await searchPlaces(destinationText, city);
-      const resolvedDropoff = pickResolvedPlace(dropoffSearch.candidates, city);
+      const resolvedDropoff = pickResolvedPlace(
+        dropoffSearch.candidates,
+        city,
+        cities,
+      );
       if (!resolvedDropoff) continue;
       pickupResolved = resolvedPickup;
       dropoffResolved = resolvedDropoff;
@@ -961,6 +982,7 @@ async function tryQuoteFromBothPlaces(
 function pickResolvedPlace(
   candidates: PlaceCandidate[],
   city: City,
+  cities: City[],
 ): ResolvedPlace | null {
   if (candidates.length === 0) {
     return null;
@@ -969,7 +991,7 @@ function pickResolvedPlace(
     return null;
   }
   const resolved = candidateToResolved(candidates[0]);
-  if (!isPointInCity(resolved.location, city)) {
+  if (!isAllowedDropoffPoint(city, resolved.location, cities)) {
     return null;
   }
   return resolved;
@@ -1059,7 +1081,12 @@ async function resolveTextToPlace(
 
   if (candidates.length === 0) {
     if (rejectedOutsideCity > 0) {
-      await sendTextMessage(phone, outOfCityServiceMessage(city));
+      await sendTextMessage(
+        phone,
+        isPastoCorridorSlug(city.slug)
+          ? dropoffNotAllowedMessage(city)
+          : outOfCityServiceMessage(city),
+      );
       await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", {
         ...draft,
         dropoff: undefined,
@@ -1079,8 +1106,8 @@ async function resolveTextToPlace(
 
   if (isHighConfidenceMatch(candidates)) {
     const resolved = candidateToResolved(candidates[0]);
-    if (!isPointInCity(resolved.location, city)) {
-      await sendTextMessage(phone, outOfCityServiceMessage(city));
+    if (!(await isAllowedBookingDropoff(city, resolved.location))) {
+      await sendTextMessage(phone, dropoffNotAllowedMessage(city));
       await offerDropoffNotFoundOptions(phone, name, {
         ...draft,
         dropoff: undefined,
@@ -1475,8 +1502,8 @@ export async function handleBookingMessage(
         await sendTextMessage(phone, ASK_DESTINATION);
         return true;
       }
-      if (!isPointInCity(draft.dropoff.location, serviceCity)) {
-        await sendTextMessage(phone, sameCityDestinationMessage(serviceCity));
+      if (!(await isAllowedBookingDropoff(serviceCity, draft.dropoff.location))) {
+        await sendTextMessage(phone, dropoffNotAllowedMessage(serviceCity));
         draft.dropoff = undefined;
         await persistDraft(phone, name, "WAITING_DROPOFF_TEXT", draft);
         await sendTextMessage(phone, ASK_DESTINATION);
@@ -1500,11 +1527,14 @@ export async function handleBookingMessage(
       }
       const resolved = candidateToResolved(chosen);
       const serviceCity = await cityForPickupDraft(draft);
-      if (!serviceCity || !isPointInCity(resolved.location, serviceCity)) {
+      if (
+        !serviceCity ||
+        !(await isAllowedBookingDropoff(serviceCity, resolved.location))
+      ) {
         await sendTextMessage(
           phone,
           serviceCity
-            ? sameCityDestinationMessage(serviceCity)
+            ? dropoffNotAllowedMessage(serviceCity)
             : outOfCoverageMessage(),
         );
         draft.dropoff = undefined;

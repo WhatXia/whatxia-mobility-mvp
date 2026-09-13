@@ -1,4 +1,31 @@
 import type { GeoPoint } from "@/lib/geo/types";
+import { MAPBOX_PLACE_ID_PREFIX } from "@/lib/geo/config";
+
+function stripPlacesPrefix(placeId: string): string {
+  return placeId.startsWith("places/")
+    ? placeId.slice("places/".length)
+    : placeId;
+}
+
+/**
+ * Solo Place IDs de Google pueden ir a Maps URLs.
+ * Prefijo mapbox: y mapbox_id (dXJu…) nunca se envían como destination_place_id.
+ */
+export function googlePlaceIdForMapsUrl(
+  placeId: string | null | undefined,
+): string | null {
+  if (!placeId?.trim()) {
+    return null;
+  }
+  const id = stripPlacesPrefix(placeId.trim());
+  if (id.startsWith(MAPBOX_PLACE_ID_PREFIX)) {
+    return null;
+  }
+  if (id.startsWith("dXJu")) {
+    return null;
+  }
+  return id;
+}
 
 /** Deep link de Google Maps centrado en un punto. */
 export function mapsUrlForPoint(point: GeoPoint, label?: string): string {
@@ -13,14 +40,16 @@ export function mapsUrlForCoords(point: GeoPoint): string {
 }
 
 export function mapsUrlForPlaceId(placeId: string, name?: string): string {
-  const id = placeId.startsWith("places/")
-    ? placeId.slice("places/".length)
-    : placeId;
+  const id = googlePlaceIdForMapsUrl(placeId);
+  if (!id) {
+    const query = encodeURIComponent(name?.trim() || "destino");
+    return `https://www.google.com/maps/search/?api=1&query=${query}`;
+  }
   const query = encodeURIComponent(name ?? id);
   return `https://www.google.com/maps/search/?api=1&query=${query}&query_place_id=${encodeURIComponent(id)}`;
 }
 
-/** Navegación turn-by-turn hacia el destino (coords y/o place_id). */
+/** Navegación turn-by-turn hacia el destino (coords y/o place_id Google). */
 export function mapsNavigationUrl(input: {
   lat?: number | null;
   lng?: number | null;
@@ -28,11 +57,7 @@ export function mapsNavigationUrl(input: {
   label?: string | null;
 }): string | null {
   const label = input.label?.trim();
-  const placeId = input.placeId
-    ? input.placeId.startsWith("places/")
-      ? input.placeId.slice("places/".length)
-      : input.placeId
-    : null;
+  const placeId = googlePlaceIdForMapsUrl(input.placeId);
 
   if (input.lat != null && input.lng != null) {
     const dest = `${input.lat},${input.lng}`;

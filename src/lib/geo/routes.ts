@@ -1,4 +1,6 @@
 import { fetchGoogleJsonWithRetry, GoogleMapsError } from "@/lib/geo/client";
+import { isMapboxExperimentalEnabled } from "@/lib/geo/config";
+import { estimateRouteWithMapbox } from "@/lib/geo/mapbox-directions";
 import type { GeoPoint, RouteEstimate } from "@/lib/geo/types";
 
 type ComputeRoutesResponse = {
@@ -76,9 +78,9 @@ async function computeRoutes(
 }
 
 /**
- * Estima ruta en auto. Intenta TRAFFIC_AWARE y cae a TRAFFIC_UNAWARE.
+ * Camino Google (producción). TRAFFIC_AWARE y fallback UNAWARE.
  */
-export async function estimateRoute(
+export async function estimateRouteWithGoogle(
   origin: GeoPoint,
   destination: GeoPoint,
 ): Promise<RouteEstimate> {
@@ -90,6 +92,26 @@ export async function estimateRoute(
     });
     return computeRoutes(origin, destination, "TRAFFIC_UNAWARE");
   }
+}
+
+/**
+ * Estima ruta en auto. Default: Google.
+ * GEO_EXPERIMENTAL_PROVIDER=mapbox intenta Directions y cae a Google.
+ */
+export async function estimateRoute(
+  origin: GeoPoint,
+  destination: GeoPoint,
+): Promise<RouteEstimate> {
+  if (isMapboxExperimentalEnabled()) {
+    try {
+      return await estimateRouteWithMapbox(origin, destination);
+    } catch (error) {
+      console.warn("[geo:routes] Mapbox experimental falló; fallback Google", {
+        reason: error instanceof Error ? error.message : "error",
+      });
+    }
+  }
+  return estimateRouteWithGoogle(origin, destination);
 }
 
 /** Parseo puro para certificación con fixtures. */

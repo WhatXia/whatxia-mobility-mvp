@@ -19,6 +19,7 @@ import {
   pricingModeForCitySlug,
   shouldFinalizeFare,
 } from "@/lib/city/pricing";
+import { PASTO_CORRIDOR_GOOGLE_CITIES } from "@/lib/city/corridors";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -176,6 +177,33 @@ assert(
 assert(
   shouldFinalizeFare(ibague.slug) && !shouldFinalizeFare(pasto.slug),
   "Finalización: FARE llama finalizeFare; NO_FARE no",
+);
+
+const chachagui: City = {
+  id: "city-chachagui",
+  slug: "chachagui",
+  name: PASTO_CORRIDOR_GOOGLE_CITIES.find((c) => c.slug === "chachagui")!.name,
+  region: "Nariño",
+  countryCode: "CO",
+  center: PASTO_CORRIDOR_GOOGLE_CITIES.find((c) => c.slug === "chachagui")!.center,
+  radiusMeters: PASTO_CORRIDOR_GOOGLE_CITIES.find((c) => c.slug === "chachagui")!
+    .radiusMeters,
+  active: true,
+};
+assert(
+  resolveCityFromPointSync(chachagui.center, [ibague, pasto, chachagui])
+    ?.slug === "chachagui",
+  "Solape Pasto/Chachagüí: gana el radio menor (origen Chachagüí)",
+);
+assert(
+  resolveCityFromPointSync(pasto.center, [ibague, pasto, chachagui])?.slug ===
+    "pasto",
+  "Centro Pasto sigue siendo Pasto con satélites habilitados",
+);
+assert(
+  pricingModeForCitySlug("tangua") === "NO_FARE" &&
+    pricingModeForCitySlug("ibague") === "FARE",
+  "Nuevos slugs del corredor no activan FARE; Ibagué sí",
 );
 
 console.log("\nCity context (multi-ciudad): todas las aserciones OK");
