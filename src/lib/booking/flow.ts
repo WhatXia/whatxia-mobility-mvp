@@ -41,6 +41,7 @@ import {
   sameCityDestinationMessage,
   type City,
 } from "@/lib/city/context";
+import { cityUsesFare, PASTO_CITY_SLUG } from "@/lib/city/pricing";
 import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
 import {
   sendButtonsMessage,
@@ -63,16 +64,16 @@ export const ORIGIN_CAPTURE_MODE:
  */
 export const BOOKING_REQUIRE_DROPOFF = true;
 
-/** Demo operacional: única ciudad que publica sin tarifa estimada. */
-export const PASTO_CITY_SLUG = "pasto";
+export { PASTO_CITY_SLUG };
 
+/** FARE → cotiza. NO_FARE → publica sin estimateFare / quote. */
 export function requiresFareQuote(citySlug: string): boolean {
-  return citySlug.trim().toLowerCase() !== PASTO_CITY_SLUG;
+  return cityUsesFare(citySlug);
 }
 
 /**
- * Ibagué (y el resto): pickup + dropoff + route + quote.
- * Pasto: pickup + dropoff; quote no es requisito de publicación.
+ * FARE: pickup + dropoff + route + quote.
+ * NO_FARE: pickup + dropoff; quote no es requisito de publicación.
  */
 export function isDraftReadyToPublish(
   draft: Pick<BookingDraft, "pickup" | "dropoff" | "route" | "quote">,
@@ -1165,7 +1166,7 @@ async function buildAndSendQuote(
       candidateRole: undefined,
     };
     await persistDraft(phone, name, "WAITING_QUOTE_CONFIRM", nextDraft);
-    console.log("[publish:diag] STEP_P1_Pasto_confirm_without_fare", {
+    console.log("[publish:diag] STEP_P1_NO_FARE_confirm_without_fare", {
       phone,
       citySlug: city.slug,
       hasRoute: Boolean(route),

@@ -67,6 +67,7 @@ import {
   outOfCoverageMessage,
   resolveCityFromPoint,
 } from "@/lib/city/context";
+import { planTripCompletion } from "@/lib/city/pricing";
 import {
   canAcceptTripInCity,
   filterDriversByTripCity,
@@ -1246,7 +1247,7 @@ export async function handleDriverFinalizarViaje(
     return;
   }
 
-  // Tarifa final: Mobility solo solicita al Tariff Engine (sin fórmulas propias).
+  // Ciudad operacional decide FARE vs NO_FARE. El Tariff Engine no se invoca en NO_FARE.
   let fareCity = trip.cityId ? await getCityById(trip.cityId) : null;
   if (!fareCity && trip.pickupLat != null && trip.pickupLng != null) {
     fareCity = await resolveCityFromPoint({
@@ -1255,7 +1256,7 @@ export async function handleDriverFinalizarViaje(
     });
   }
   if (!fareCity) {
-    console.error("[dispatch] finalizeFare sin ciudad operacional", {
+    console.error("[dispatch] finalizar sin ciudad operacional", {
       tripId: trip.id,
       tripCityId: trip.cityId,
     });
@@ -1263,51 +1264,62 @@ export async function handleDriverFinalizarViaje(
     return;
   }
 
+  const completion = planTripCompletion(fareCity.slug);
   const finishedAt = new Date();
-  const startedAt = trip.startedAt
-    ? new Date(trip.startedAt)
-    : finishedAt;
-  const distanceMeters = trip.distanceMeters ?? 0;
-  const durationSeconds =
-    trip.durationSeconds ??
-    Math.max(1, Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000));
+  let finalQuote: Awaited<ReturnType<typeof finalizeFare>> | null = null;
 
-  let finalQuote;
-  try {
-    finalQuote = await finalizeFare({
-      citySlug: fareCity.slug,
-      origin:
-        trip.pickupLat != null && trip.pickupLng != null
-          ? {
-              lat: trip.pickupLat,
-              lng: trip.pickupLng,
-              label: trip.pickupLabel ?? trip.pickupNeighborhood,
-            }
-          : undefined,
-      destination:
-        trip.dropoffLat != null && trip.dropoffLng != null
-          ? {
-              lat: trip.dropoffLat,
-              lng: trip.dropoffLng,
-              label: trip.dropoffLabel ?? undefined,
-            }
-          : undefined,
-      distanceMeters,
-      durationSeconds,
-      startedAt,
-      finishedAt,
-      deriveWaitFromSpeed: true,
-    });
-  } catch (error) {
-    console.error("[dispatch] Tariff Engine finalizeFare error:", error);
-    await sendTextMessage(driverPhone, await cms("D_FINAL_FARE_ERROR"));
-    return;
+  if (completion.runFinalizeFare) {
+    const startedAt = trip.startedAt
+      ? new Date(trip.startedAt)
+      : finishedAt;
+    const distanceMeters = trip.distanceMeters ?? 0;
+    const durationSeconds =
+      trip.durationSeconds ??
+      Math.max(
+        1,
+        Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000),
+      );
+
+    try {
+      finalQuote = await finalizeFare({
+        citySlug: fareCity.slug,
+        origin:
+          trip.pickupLat != null && trip.pickupLng != null
+            ? {
+                lat: trip.pickupLat,
+                lng: trip.pickupLng,
+                label: trip.pickupLabel ?? trip.pickupNeighborhood,
+              }
+            : undefined,
+        destination:
+          trip.dropoffLat != null && trip.dropoffLng != null
+            ? {
+                lat: trip.dropoffLat,
+                lng: trip.dropoffLng,
+                label: trip.dropoffLabel ?? undefined,
+              }
+            : undefined,
+        distanceMeters,
+        durationSeconds,
+        startedAt,
+        finishedAt,
+        deriveWaitFromSpeed: true,
+      });
+    } catch (error) {
+      console.error("[dispatch] Tariff Engine finalizeFare error:", error);
+      await sendTextMessage(driverPhone, await cms("D_FINAL_FARE_ERROR"));
+      return;
+    }
   }
 
   const updated = await finishTrip(trip.id, {
-    finalFare: finalQuote.amount,
-    waitSeconds: finalQuote.breakdown.waitSecondsUsed,
     finishedAt: finishedAt.toISOString(),
+    ...(completion.persistFinalFare && finalQuote
+      ? {
+          finalFare: finalQuote.amount,
+          waitSeconds: finalQuote.breakdown.waitSecondsUsed,
+        }
+      : {}),
   });
 
   if (!updated) {
@@ -1335,11 +1347,11 @@ export async function handleDriverFinalizarViaje(
     state: "IDLE",
   });
 
+  const completedCms = completion.runFinalizeFare
+    ? "P_TRIP_COMPLETED"
+    : "P_TRIP_COMPLETED_NO_FARE";
   await Promise.allSettled([
-    sendTextMessage(
-      updated.passengerPhone,
-      await cms("P_TRIP_COMPLETED"),
-    ),
+    sendTextMessage(updated.passengerPhone, await cms(completedCms)),
   ]);
 
   await sendRatingPrompt(updated.passengerPhone, updated.id);
@@ -1353,14 +1365,14 @@ export async function handleDriverFinalizarViaje(
     console.error("[dispatch] no se pudo programar cierre de túnel:", error);
   }
 
-
   console.log("[dispatch] viaje finalizado:", {
     tripId: updated.id,
     driverPhone,
     driverId: updated.assignedDriverId,
     resolveSource: source,
-    finalFare: finalQuote.amount,
+    pricingMode: completion.pricingMode,
+    finalFare: finalQuote?.amount ?? null,
     quotedFare: trip.quotedFare,
-    waitSeconds: finalQuote.breakdown.waitSecondsUsed,
+    waitSeconds: finalQuote?.breakdown.waitSecondsUsed ?? null,
   });
 }

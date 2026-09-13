@@ -883,6 +883,16 @@ export const BOT_CMS_CATALOG = [
     "category": "MOBILITY"
   },
   {
+    "code": "P_TRIP_COMPLETED_NO_FARE",
+    "name": "Trip completed passenger (no fare)",
+    "module": "MOBILITY",
+    "body": "Gracias por usar WhatXia y por viajar con nosotros.\n\nCalifica tu experiencia.",
+    "content_type": "text",
+    "source_file": "dispatch.ts",
+    "source_symbol": "handleDriverFinalizarViaje",
+    "category": "MOBILITY"
+  },
+  {
     "code": "D_SERVICE_ASSIGNED",
     "name": "Service assigned to driver",
     "module": "DRIVER",

@@ -13,6 +13,11 @@ import {
   filterDriversByTripCity,
   republishKeepsTripCity,
 } from "@/lib/city/isolation";
+import {
+  planTripCompletion,
+  pricingModeForCitySlug,
+  shouldFinalizeFare,
+} from "@/lib/city/pricing";
 import { mapFareRulesRowToCityTariff } from "@/lib/tariff/config-loader";
 import { calculateTariff } from "@/lib/tariff/calculator";
 
@@ -227,4 +232,21 @@ assert(
   "Test 8c: trip sin city_id no despacha a nadie (fail-closed)",
 );
 
-console.log("\nMulti-ciudad: Tests 1–8 OK");
+// Test 9 — pricing_mode FARE vs NO_FARE (sin inventar fare_rules de Pasto)
+assert(
+  pricingModeForCitySlug("ibague") === "FARE",
+  "Test 9a: Ibagué opera con tarifa",
+);
+assert(
+  pricingModeForCitySlug("pasto") === "NO_FARE",
+  "Test 9b: Pasto opera sin tarifa",
+);
+assert(shouldFinalizeFare("ibague"), "Test 9c: Ibagué sí llama finalizeFare");
+assert(!shouldFinalizeFare("pasto"), "Test 9d: Pasto no llama finalizeFare");
+assert(
+  planTripCompletion("ibague").runFinalizeFare &&
+    !planTripCompletion("pasto").runFinalizeFare,
+  "Test 9e: FARE cierra con finalizeFare; NO_FARE cierra en COMPLETED",
+);
+
+console.log("\nMulti-ciudad: Tests 1–9 OK");

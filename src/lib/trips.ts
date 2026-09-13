@@ -541,10 +541,25 @@ export async function startTrip(tripId: string): Promise<Trip | null> {
 }
 
 export type FinishTripFareInput = {
-  finalFare: number;
+  /** Omitir en ciudades NO_FARE: no persistir $0 ni tarifa inventada. */
+  finalFare?: number;
   waitSeconds?: number;
   finishedAt?: string;
 };
+
+/** Campos tarifarios a persistir al completar. NO_FARE → objeto vacío. */
+export function finishTripFarePatch(input?: FinishTripFareInput): {
+  final_fare?: number;
+  wait_seconds?: number;
+} {
+  if (typeof input?.finalFare !== "number") {
+    return {};
+  }
+  return {
+    final_fare: input.finalFare,
+    wait_seconds: input.waitSeconds ?? 0,
+  };
+}
 
 export async function finishTrip(
   tripId: string,
@@ -569,12 +584,7 @@ export async function finishTrip(
       status: "COMPLETED",
       finished_at: now,
       updated_at: now,
-      ...(fare
-        ? {
-            final_fare: fare.finalFare,
-            wait_seconds: fare.waitSeconds ?? 0,
-          }
-        : {}),
+      ...finishTripFarePatch(fare),
     })
     .eq("id", tripId)
     .eq("status", "IN_PROGRESS")

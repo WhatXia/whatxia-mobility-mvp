@@ -14,6 +14,11 @@ import {
   resolveCityFromPointSync,
   type City,
 } from "@/lib/city/context";
+import {
+  cityUsesFare,
+  pricingModeForCitySlug,
+  shouldFinalizeFare,
+} from "@/lib/city/pricing";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -158,6 +163,19 @@ assert(
 assert(
   matchCityByHint("Pasto", enabled)?.slug === "pasto",
   "Hint de registro 'Pasto' → pasto",
+);
+
+assert(
+  pricingModeForCitySlug(pasto.slug) === "NO_FARE" && !cityUsesFare(pasto.slug),
+  "Pasto: ciudad NO_FARE (sin fare_rules)",
+);
+assert(
+  pricingModeForCitySlug(ibague.slug) === "FARE" && cityUsesFare(ibague.slug),
+  "Ibagué: ciudad FARE",
+);
+assert(
+  shouldFinalizeFare(ibague.slug) && !shouldFinalizeFare(pasto.slug),
+  "Finalización: FARE llama finalizeFare; NO_FARE no",
 );
 
 console.log("\nCity context (multi-ciudad): todas las aserciones OK");

@@ -25,7 +25,14 @@ import {
   resolvePickupLabelFromText,
 } from "@/lib/booking/intent";
 import { catalogBody } from "@/lib/bot-cms/copy";
+import {
+  planTripCompletion,
+  pricingModeForCitySlug,
+  shouldFinalizeFare,
+} from "@/lib/city/pricing";
 import { computeAutomaticEtaRange } from "@/lib/eta-auto";
+import { parseRatingButton } from "@/lib/rating";
+import { finishTripFarePatch } from "@/lib/trips";
 import {
   resolveCityFromPointSync,
   type City,
@@ -522,6 +529,70 @@ assert(
 assert(
   !pastoBody.includes("$") && !pastoBody.includes("COP"),
   "Confirmación Pasto sin valores monetarios",
+);
+
+assert(
+  pricingModeForCitySlug("pasto") === "NO_FARE",
+  "Pasto: pricing_mode NO_FARE",
+);
+assert(
+  pricingModeForCitySlug("ibague") === "FARE",
+  "Ibagué: pricing_mode FARE",
+);
+assert(!shouldFinalizeFare("pasto"), "Pasto: no ejecuta finalizeFare");
+assert(shouldFinalizeFare("ibague"), "Ibagué: sí ejecuta finalizeFare");
+
+const pastoCompletion = planTripCompletion("pasto");
+assert(
+  pastoCompletion.pricingMode === "NO_FARE" &&
+    pastoCompletion.runFinalizeFare === false &&
+    pastoCompletion.persistFinalFare === false,
+  "Pasto: Finalizar → COMPLETED sin finalizeFare",
+);
+const ibagueCompletion = planTripCompletion("ibague");
+assert(
+  ibagueCompletion.pricingMode === "FARE" &&
+    ibagueCompletion.runFinalizeFare === true &&
+    ibagueCompletion.persistFinalFare === true,
+  "Ibagué: Finalizar → finalizeFare → COMPLETED",
+);
+
+assert(
+  Object.keys(finishTripFarePatch({ finishedAt: "2026-09-10T00:00:00Z" }))
+    .length === 0,
+  "Pasto: finishTrip no escribe final_fare ni $0",
+);
+assert(
+  finishTripFarePatch({ finalFare: 7400, waitSeconds: 40 }).final_fare === 7400,
+  "Ibagué: finishTrip persiste tarifa final",
+);
+
+const pastoClose = catalogBody("P_TRIP_COMPLETED_NO_FARE");
+assert(
+  pastoClose.includes("Gracias por usar WhatXia") &&
+    pastoClose.includes("Califica tu experiencia"),
+  "Pasto: mensaje de cierre y solicitud de calificación",
+);
+assert(
+  !pastoClose.includes("$") &&
+    !pastoClose.includes("COP") &&
+    !pastoClose.includes("tarifa") &&
+    !/\d/.test(pastoClose),
+  "Cierre Pasto sin precio, tarifa, COP ni valores monetarios",
+);
+assert(
+  catalogBody("P_TRIP_COMPLETED").includes("$800") &&
+    catalogBody("P_TRIP_COMPLETED").includes("taxímetro"),
+  "Ibagué: copy de cierre con tarifa intacto",
+);
+assert(
+  catalogBody("P_RATING_PROMPT").includes("calificar"),
+  "Rating usa el prompt CMS existente",
+);
+assert(
+  parseRatingButton("rating:5:trip-pasto")?.rating === 5 &&
+    parseRatingButton("rating:5:trip-pasto")?.tripId === "trip-pasto",
+  "Rating Pasto reutiliza botones y persistencia existentes",
 );
 
 console.log("\nbooking-flow: todas las aserciones OK");

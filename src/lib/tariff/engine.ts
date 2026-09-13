@@ -39,6 +39,7 @@ export async function resolveCityTariff(
 
 /**
  * Tarifa estimada (informativa) antes de aceptar el servicio.
+ * Solo para ciudades FARE. Mobility no invoca esto en NO_FARE.
  */
 export async function estimateFare(
   input: EstimateFareInput,
@@ -60,6 +61,8 @@ export async function estimateFare(
 
 /**
  * Tarifa final (única oficial) al terminar el viaje.
+ * Solo para ciudades FARE. Mobility no invoca esto en NO_FARE
+ * (`planTripCompletion` / `shouldFinalizeFare`).
  */
 export async function finalizeFare(
   input: FinalizeFareInput,
