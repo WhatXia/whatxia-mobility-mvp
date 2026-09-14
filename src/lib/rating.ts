@@ -5,7 +5,6 @@ import { closeTunnelForTrip } from "@/lib/tunnels";
 import { getTrip, samePhone, setTripRating } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
 import { startBookingFlow } from "@/lib/booking/flow";
-import { offerSaveFavoriteAfterRating } from "@/lib/route-favorites/flow";
 
 const RATING_PREFIX = "rating";
 const POST_RATING_PREFIX = "post_rating";
@@ -64,11 +63,15 @@ export function parsePostRatingButton(
   return { action: actionRaw, tripId };
 }
 
-export async function sendRatingPrompt(passengerPhone: string, tripId: string) {
+export async function sendRatingPrompt(
+  passengerPhone: string,
+  tripId: string,
+  body?: string,
+) {
   // Títulos ≤ 20 caracteres (límite WhatsApp).
   await sendButtonsMessage(
     passengerPhone,
-    await cms("P_RATING_PROMPT"),
+    body ?? (await cms("P_RATING_PROMPT")),
     [
       { id: ratingButtonId(5, tripId), title: "⭐⭐⭐⭐⭐ Excelente" },
       { id: ratingButtonId(4, tripId), title: "⭐⭐⭐⭐ Buena" },
@@ -104,9 +107,9 @@ export async function handlePassengerRating(
   }
 
   if (trip.rating !== null) {
-    const { sendPassengerActionMenu } = await import("@/lib/route-favorites");
-    await sendPassengerActionMenu(passengerPhone, "", {
-      body: await cms("P_RATING_ALREADY"),
+    console.log("[rating] ya calificado, silencio:", {
+      tripId,
+      passengerPhone,
     });
     return;
   }
@@ -120,13 +123,6 @@ export async function handlePassengerRating(
     );
     return;
   }
-
-  const code =
-    RATING_REPLY_CODES[rating] ?? "P_RATING_REPLY_DEFAULT";
-  await sendTextMessage(passengerPhone, await cms(code));
-
-  // Favoritos inteligentes: ofrecer guardar recorrido (origen + destino).
-  await offerSaveFavoriteAfterRating(passengerPhone, tripId);
 
   console.log("[rating] calificación guardada:", {
     tripId: updated.id,

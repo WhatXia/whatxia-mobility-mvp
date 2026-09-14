@@ -563,13 +563,40 @@ assert(
   "SEARCHING_DRIVER no es estado de booking; es búsqueda/dispatch",
 );
 assert(
-  catalogBody("P_ASK_DESTINATION").includes("destino"),
-  "Flujo posterior: P_ASK_DESTINATION intacto",
+  catalogBody("P_ASK_DESTINATION").includes("dirección de destino"),
+  "Flujo posterior: P_ASK_DESTINATION pide destino",
 );
 assert(
   catalogBody("P_QUOTE_CONFIRM").includes("Tarifa estimada") &&
-    catalogBody("P_QUOTE_CONFIRM").includes("taxímetro"),
-  "Flujo posterior: P_QUOTE_CONFIRM rango + taxímetro intacto",
+    catalogBody("P_QUOTE_CONFIRM").includes("Resumen de tu servicio") &&
+    !catalogBody("P_QUOTE_CONFIRM").includes("taxímetro"),
+  "Flujo posterior: P_QUOTE_CONFIRM resumen + rango estimado",
+);
+assert(
+  catalogButtons("P_QUOTE_CONFIRM").some((b) => b.title === "✅ Solicitar") &&
+    catalogButtons("P_QUOTE_CONFIRM").some((b) => b.title === "❌ Cancelar"),
+  "Quote: botones Solicitar / Cancelar intactos",
+);
+assert(
+  catalogBody("P_PICKUP_LOCATION_PROMPT").includes(
+    "Envíanos tu ubicación para confirmar el punto de recogida",
+  ) &&
+    catalogBody("P_PICKUP_LOCATION_WITH_LABEL").includes(
+      "Envíanos tu ubicación para confirmar el punto de recogida",
+    ),
+  "Pickup GPS: copy único de solicitud de ubicación",
+);
+assert(
+  catalogBody("P_VEHICLE_CONFIRMED").includes("Conductor asignado") &&
+    catalogBody("P_VEHICLE_CONFIRMED").includes("{{driver_name}}") &&
+    catalogBody("P_VEHICLE_CONFIRMED").includes("{{plate}}") &&
+    !catalogBody("P_VEHICLE_CONFIRMED").includes("{{vehicle}}"),
+  "Asignación pasajero: conductor + placa, sin vehículo",
+);
+assert(
+  catalogBody("P_DRIVER_ARRIVED").includes("Tu conductor ha llegado") &&
+    catalogBody("P_DRIVER_ARRIVED_ANON").includes("Ya puedes abordar"),
+  "Llegada pasajero: un solo aviso de abordaje",
 );
 assert(true, "WAITING_QUOTE_CONFIRM + REQUEST_TRIP tras tarifa estimada");
 assert(
@@ -759,8 +786,8 @@ assert(
 
 const pastoClose = catalogBody("P_TRIP_COMPLETED_NO_FARE");
 assert(
-  pastoClose.includes("Gracias por usar WhatXia") &&
-    pastoClose.includes("Califica tu experiencia"),
+  pastoClose.includes("Viaje finalizado") &&
+    pastoClose.includes("¿Cómo fue tu experiencia?"),
   "Pasto: mensaje de cierre y solicitud de calificación",
 );
 assert(
@@ -771,12 +798,14 @@ assert(
   "Cierre Pasto sin precio, tarifa, COP ni valores monetarios",
 );
 assert(
-  catalogBody("P_TRIP_COMPLETED").includes("$800") &&
-    catalogBody("P_TRIP_COMPLETED").includes("taxímetro"),
-  "Ibagué: copy de cierre con tarifa intacto",
+  catalogBody("P_TRIP_COMPLETED").includes("{{final_fare}}") &&
+    catalogBody("P_TRIP_COMPLETED").includes("¿Cómo fue tu experiencia?") &&
+    !catalogBody("P_TRIP_COMPLETED").includes("taxímetro") &&
+    !catalogBody("P_TRIP_COMPLETED").includes("$800"),
+  "Ibagué: cierre + valor persistido + calificación en un mensaje",
 );
 assert(
-  catalogBody("P_RATING_PROMPT").includes("calificar"),
+  catalogBody("P_RATING_PROMPT").includes("experiencia"),
   "Rating usa el prompt CMS existente",
 );
 assert(

@@ -1375,15 +1375,13 @@ export async function handleDriverFinalizarViaje(
     state: "IDLE",
   });
 
-  const completedCms = completion.runFinalizeFare
-    ? "P_TRIP_COMPLETED"
-    : "P_TRIP_COMPLETED_NO_FARE";
-  await Promise.allSettled([
-    sendTextMessage(updated.passengerPhone, await cms(completedCms)),
-  ]);
-
-  await sendRatingPrompt(updated.passengerPhone, updated.id);
-  // UX-004: fin + calificación en un solo mensaje (mismas estrellas).
+  const completedBody =
+    completion.runFinalizeFare && finalQuote
+      ? await cms("P_TRIP_COMPLETED", {
+          final_fare: formatCopSymbol(finalQuote.amount),
+        })
+      : await cms("P_TRIP_COMPLETED_NO_FARE");
+  await sendRatingPrompt(updated.passengerPhone, updated.id, completedBody);
   await sendDriverRatesPassengerPrompt(driverPhone, updated.id);
 
   // active → closing + closes_at = now + 5 min

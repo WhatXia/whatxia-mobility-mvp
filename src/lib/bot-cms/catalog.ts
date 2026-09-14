@@ -339,7 +339,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_PICKUP_LOCATION_PROMPT",
     "name": "Pickup location request",
     "module": "MOBILITY",
-    "body": "📍 Comparte tu ubicación actual para encontrarte más rápido.",
+    "body": "📍 Perfecto. Envíanos tu ubicación para confirmar el punto de recogida.",
     "content_type": "interactive",
     "source_file": "booking/flow.ts",
     "source_symbol": "PICKUP_LOCATION_PROMPT",
@@ -349,7 +349,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_PICKUP_LOCATION_WITH_LABEL",
     "name": "Pickup location with label",
     "module": "MOBILITY",
-    "body": "📍 Perfecto, ya sabemos dónde te vamos a recoger. Envíanos tu ubicación actual para que el conductor pueda encontrarte con mayor precisión.",
+    "body": "📍 Perfecto. Envíanos tu ubicación para confirmar el punto de recogida.",
     "content_type": "interactive",
     "variables": [
       "pickup_label"
@@ -362,7 +362,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_ASK_DESTINATION",
     "name": "Ask destination",
     "module": "MOBILITY",
-    "body": "🚖 Perfecto. Ahora cuéntame, ¿cuál es tu destino?",
+    "body": "🏁 Ahora escríbenos tu dirección de destino.",
     "content_type": "text",
     "source_file": "booking/flow.ts",
     "source_symbol": "ASK_DESTINATION",
@@ -514,7 +514,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_QUOTE_CONFIRM",
     "name": "Quote confirmation",
     "module": "MOBILITY",
-    "body": "📍 {{pickup}}\n\n🏁 {{dropoff}}\n\n💰 Tarifa estimada: {{min}} - {{max}}\n\nEl valor final será el que marque el taxímetro, de acuerdo con la tarifa oficial vigente, más $800 por solicitud del servicio.\n\n¿Confirmas tu solicitud?",
+    "body": "🚕 Resumen de tu servicio\n\n📍 Recogida: {{pickup}}\n🏁 Destino: {{dropoff}}\n💰 Tarifa estimada: {{min}} - {{max}}",
     "content_type": "interactive",
     "buttons": [
       {
@@ -780,7 +780,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_VEHICLE_CONFIRMED",
     "name": "Vehicle assignment confirmation",
     "module": "MOBILITY",
-    "body": "🚖 Confirmación del vehículo\n\n👤 Conductor: {{driver_name}}\n\n🚖 Placa: {{plate}}\n\n⏱️ Llega en: {{eta_min}}–{{eta_max}} minutos\n\n{{rating_line}}",
+    "body": "✅ ¡Conductor asignado!\n\n👤 {{driver_name}}\n🚗 {{plate}}\n\n📍 Tu conductor se dirige al punto de recogida.",
     "content_type": "interactive",
     "buttons": [
       {
@@ -826,7 +826,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_DRIVER_ARRIVED",
     "name": "Driver arrived (with preferred name)",
     "module": "MOBILITY",
-    "body": "🎉 ¡{{preferred}}, tu WhatXia ya llegó!\n\nTu vehículo de placa {{plate}} ya está esperándote.\n\nWhatXia, moviendo vidas.",
+    "body": "🚕 ¡Tu conductor ha llegado!\n\nYa puedes abordar el vehículo.",
     "content_type": "interactive",
     "buttons": [
       {
@@ -852,7 +852,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_DRIVER_ARRIVED_ANON",
     "name": "Driver arrived (no preferred name)",
     "module": "MOBILITY",
-    "body": "🎉 ¡Tu WhatXia ya llegó!\n\nTu vehículo de placa {{plate}} ya está esperándote.\n\nWhatXia, moviendo vidas.",
+    "body": "🚕 ¡Tu conductor ha llegado!\n\nYa puedes abordar el vehículo.",
     "content_type": "interactive",
     "buttons": [
       {
@@ -877,17 +877,59 @@ export const BOT_CMS_CATALOG = [
     "code": "P_TRIP_COMPLETED",
     "name": "Trip completed passenger",
     "module": "MOBILITY",
-    "body": "✅ ¡Llegaste a tu destino!\n\nRecuerda que el valor a cancelar es el que indique el taxímetro, de acuerdo con la tarifa oficial vigente, más $800 por solicitud del servicio.\n\nGracias por viajar con WhatXia. 🚖",
-    "content_type": "text",
+    "body": "🏁 Viaje finalizado\n\n💰 Valor del servicio: {{final_fare}}\n\n⭐ ¿Cómo fue tu experiencia?",
+    "content_type": "interactive",
+    "buttons": [
+      {
+        "id": "rating:5:{{tripId}}",
+        "title": "⭐⭐⭐⭐⭐ Excelente",
+        "sort_order": 0
+      },
+      {
+        "id": "rating:4:{{tripId}}",
+        "title": "⭐⭐⭐⭐ Buena",
+        "sort_order": 1
+      },
+      {
+        "id": "rating:2:{{tripId}}",
+        "title": "⭐⭐ Regular",
+        "sort_order": 2
+      }
+    ],
+    "variables": [
+      "final_fare",
+      "tripId"
+    ],
     "source_file": "dispatch.ts",
+    "source_symbol": "handleDriverFinalizarViaje",
     "category": "MOBILITY"
   },
   {
     "code": "P_TRIP_COMPLETED_NO_FARE",
     "name": "Trip completed passenger (no fare)",
     "module": "MOBILITY",
-    "body": "Gracias por usar WhatXia y por viajar con nosotros.\n\nCalifica tu experiencia.",
-    "content_type": "text",
+    "body": "🏁 Viaje finalizado\n\n⭐ ¿Cómo fue tu experiencia?",
+    "content_type": "interactive",
+    "buttons": [
+      {
+        "id": "rating:5:{{tripId}}",
+        "title": "⭐⭐⭐⭐⭐ Excelente",
+        "sort_order": 0
+      },
+      {
+        "id": "rating:4:{{tripId}}",
+        "title": "⭐⭐⭐⭐ Buena",
+        "sort_order": 1
+      },
+      {
+        "id": "rating:2:{{tripId}}",
+        "title": "⭐⭐ Regular",
+        "sort_order": 2
+      }
+    ],
+    "variables": [
+      "tripId"
+    ],
     "source_file": "dispatch.ts",
     "source_symbol": "handleDriverFinalizarViaje",
     "category": "MOBILITY"
@@ -1286,7 +1328,7 @@ export const BOT_CMS_CATALOG = [
     "code": "P_RATING_PROMPT",
     "name": "Passenger rating prompt",
     "module": "MOBILITY",
-    "body": "¿Cómo calificarías tu viaje?",
+    "body": "⭐ ¿Cómo fue tu experiencia?",
     "content_type": "interactive",
     "buttons": [
       {

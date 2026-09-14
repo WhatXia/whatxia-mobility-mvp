@@ -90,16 +90,10 @@ export function isDraftReadyToPublish(
 
 export function buildPastoConfirmBody(pickup: string, dropoff: string): string {
   return [
-    "📍 Recogida:",
-    pickup,
+    "🚕 Resumen de tu servicio",
     "",
-    "🏁 Destino:",
-    dropoff,
-    "",
-    "En Pasto todavía no mostramos tarifa estimada.",
-    "El servicio se publicará con origen y destino.",
-    "",
-    "¿Confirmas tu solicitud?",
+    `📍 Recogida: ${pickup}`,
+    `🏁 Destino: ${dropoff}`,
   ].join("\n");
 }
 
@@ -319,8 +313,6 @@ async function launchTripFromDraft(
     pickupNeighborhood: zone,
     bookingDraft: draft,
   });
-
-  await sendTextMessage(phone, await cms("P_SEARCHING_DRIVER"));
 
   console.log("[publish:diag] STEP_0b_calling_offerTripToDrivers", {
     phone,
