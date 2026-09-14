@@ -8,7 +8,7 @@ import {
 } from "@/lib/supabase/drivers";
 import {
   findOrCreatePassenger,
-  getPassengerFullName,
+  passengerNameForDriverAssignment,
 } from "@/lib/supabase/passengers";
 import {
   createTrip,
@@ -294,6 +294,7 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     "Punto de recogida";
   const driverBody = await cms("D_SERVICE_ASSIGNED", {
     passenger_full_name: passengerFullName,
+    passenger_name: passengerFullName,
     pickup_block: pickupBlock,
     pickup_neighborhood: assignedPickup.neighborhood,
     pickup_detail: assignedPickup.detail,
@@ -339,7 +340,7 @@ async function sendInProgressTripScreen(
       tripId: trip.id,
     }),
     [
-      { id: navegarButtonId(trip.id), title: "🧭 Navegar al destino" },
+      { id: navegarButtonId(trip.id), title: "🗺️ Abrir Maps" },
       { id: finalizarButtonId(trip.id), title: "🏁 Terminar viaje" },
     ],
   );
@@ -921,12 +922,13 @@ export async function handleDriverAccept(
   const passenger = await findOrCreatePassenger(assigned.passengerPhone);
 
   // Fase 1.1 + 1.2: ETA automático + un mensaje unificado por rol.
-  // Identidad compartida: full_name (no preferred_name).
   await applyAutomaticEtaAndNotifyAssignment({
     driverPhone,
     trip: assigned,
     driverName: getDriverFullName(driver),
-    passengerFullName: getPassengerFullName(passenger),
+    passengerFullName: passengerNameForDriverAssignment(passenger, {
+      pickupLabel: assigned.pickupLabel,
+    }),
     plate: driver.plate ?? "",
     driverAverage: driverRep.average,
   });
@@ -1224,7 +1226,7 @@ export async function handleDriverNavegarDestino(
     return;
   }
 
-  // WhatsApp no mezcla reply buttons con cta_url. "Navegar al destino" no
+  // WhatsApp no mezcla reply buttons con cta_url. "Abrir Maps" no
   // puede abrir Maps en el mismo mensaje de viaje iniciado (Terminar viaje).
   await sendCtaUrlMessage(
     driverPhone,

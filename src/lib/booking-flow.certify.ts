@@ -27,6 +27,11 @@ import {
 } from "@/lib/booking/intent";
 import { catalogBody, catalogButtons } from "@/lib/bot-cms/copy";
 import {
+  passengerNameForDriverAssignment,
+} from "@/lib/supabase/passengers";
+import { mapsNavigationUrl } from "@/lib/geo/maps-url";
+import { DRIVER_BUTTON_IDS, parseDriverButton } from "@/lib/dispatch";
+import {
   planTripCompletion,
   pricingModeForCitySlug,
   shouldFinalizeFare,
@@ -374,6 +379,74 @@ assert(
     catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_block}}"),
   "D_SERVICE_ASSIGNED: pasajero + pickup completo",
 );
+
+function interpolateCms(body: string, vars: Record<string, string>): string {
+  return body.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key: string) => {
+    return vars[key] ?? `{{${key}}}`;
+  });
+}
+
+const requestText = "Hola necesito un servicio para Mister Pollo JB";
+const assignedName = passengerNameForDriverAssignment(
+  {
+    full_name: requestText,
+    preferred_name: null,
+    name: requestText,
+    whatsapp_name: "Carlos Valencia",
+  },
+  { pickupLabel: "Mister Pollo JB" },
+);
+assert(
+  assignedName === "Carlos Valencia",
+  "El nombre mostrado es el nombre real del pasajero",
+);
+assert(
+  assignedName !== requestText && !assignedName.includes("necesito un servicio"),
+  "El texto original de solicitud no aparece como nombre",
+);
+assert(
+  passengerNameForDriverAssignment(
+    {
+      full_name: "Carlos Valencia",
+      preferred_name: "Carlos",
+      name: "Carlos",
+      whatsapp_name: "Carlos V",
+    },
+    { pickupLabel: requestText },
+  ) === "Carlos Valencia",
+  "full_name del registro gana sobre el texto de solicitud",
+);
+assert(
+  passengerNameForDriverAssignment(
+    {
+      full_name: "Mister Pollo JB",
+      preferred_name: "Carlos Valencia",
+      name: "Mister Pollo JB",
+      whatsapp_name: null,
+    },
+    { pickupLabel: "Mister Pollo JB" },
+  ) === "Carlos Valencia",
+  "No usa pickup_label como nombre aunque esté copiado en full_name",
+);
+
+const assignedBody = interpolateCms(catalogBody("D_SERVICE_ASSIGNED"), {
+  passenger_full_name: assignedName,
+  passenger_name: assignedName,
+  pickup_block: formatAssignedPickupBlock(
+    "El Tablón",
+    "Mister Pollo JB, Manzana 1, Casa 8",
+  ),
+});
+assert(
+  assignedBody.includes("👤 Pasajero: Carlos Valencia") &&
+    !assignedBody.includes(requestText),
+  "D_SERVICE_ASSIGNED interpolado usa el nombre real",
+);
+assert(
+  assignedBody.includes("El Tablón") &&
+    assignedBody.includes("Manzana 1, Casa 8"),
+  "pickup_block conserva toda la información del punto de recogida",
+);
 assert(
   catalogBody("D_START_TRIP_PROMPT").includes("Llegaste al punto de recogida") &&
     !catalogBody("D_START_TRIP_PROMPT").includes("taxímetro") &&
@@ -421,9 +494,54 @@ assert(
   "Llegada: un solo botón Iniciar viaje",
 );
 assert(
-  catalogButtons("D_IN_PROGRESS_SCREEN").some((b) => b.title === "🧭 Navegar al destino") &&
-    catalogButtons("D_IN_PROGRESS_SCREEN").some((b) => b.title === "🏁 Terminar viaje"),
-  "En viaje: Navegar / Terminar",
+  catalogButtons("D_IN_PROGRESS_SCREEN").some((b) => b.title === "🗺️ Abrir Maps") &&
+    catalogButtons("D_IN_PROGRESS_SCREEN").some((b) => b.title === "🏁 Terminar viaje") &&
+    !catalogButtons("D_IN_PROGRESS_SCREEN").some((b) => b.title === "🧭 Navegar al destino"),
+  "En viaje: Abrir Maps / Terminar",
+);
+
+const navegarParsed = parseDriverButton(`${DRIVER_BUTTON_IDS.NAVEGAR}:trip-dest-1`);
+assert(
+  navegarParsed?.action === "navegar" && navegarParsed.tripId === "trip-dest-1",
+  "Al pulsar Abrir Maps se sigue disparando la acción navegar existente",
+);
+const dropoffCta = mapsNavigationUrl({
+  lat: 1.2136,
+  lng: -77.2811,
+  label: "Centro de Pasto",
+});
+assert(Boolean(dropoffCta), "CTA de Google Maps existente se sigue generando");
+assert(
+  Boolean(
+    dropoffCta?.includes("https://www.google.com/maps/dir/") &&
+      dropoffCta.includes("destination=1.2136%2C-77.2811"),
+  ),
+  "El CTA de Abrir Maps apunta al destino del viaje",
+);
+
+const verUbicacionParsed = parseDriverButton(
+  `${DRIVER_BUTTON_IDS.VER_UBICACION}:trip-pick-1`,
+);
+assert(
+  verUbicacionParsed?.action === "ver_ubicacion" &&
+    verUbicacionParsed.tripId === "trip-pick-1",
+  "Ver ubicación sigue funcionando",
+);
+const pickupCta = mapsNavigationUrl({
+  lat: 1.427,
+  lng: -77.096,
+  label: "Mister Pollo JB",
+});
+assert(
+  Boolean(
+    pickupCta?.includes("https://www.google.com/maps/dir/") &&
+      pickupCta.includes("destination=1.427%2C-77.096"),
+  ),
+  "Ver ubicación usa el enlace de Google Maps existente hacia el pickup",
+);
+assert(
+  catalogButtons("D_SERVICE_ASSIGNED").some((b) => b.title === "📍 Ver ubicación"),
+  "Título Ver ubicación no se modifica",
 );
 assert(
   catalogButtons("D_RATE_PASSENGER_PROMPT").some((b) => b.title === "⭐⭐⭐⭐⭐ Excelente") &&

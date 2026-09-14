@@ -917,6 +917,7 @@ export const BOT_CMS_CATALOG = [
     ],
     "variables": [
       "passenger_full_name",
+      "passenger_name",
       "pickup_block",
       "pickup_neighborhood",
       "pickup_detail",
@@ -984,7 +985,7 @@ export const BOT_CMS_CATALOG = [
     "buttons": [
       {
         "id": "navegar:{{tripId}}",
-        "title": "🧭 Navegar al destino",
+        "title": "🗺️ Abrir Maps",
         "sort_order": 0
       },
       {

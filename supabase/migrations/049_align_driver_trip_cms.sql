@@ -6,6 +6,7 @@
 --
 -- Los botones de WhatsApp del viaje salen de dispatch.ts / driver-menu.ts.
 -- El body publicado sí sobrescribe el catálogo de inmediato.
+-- D_IN_PROGRESS_SCREEN: título runtime "🗺️ Abrir Maps" (misma acción navegar).
 -- No toca bot_conversation_nodes (el flujo de viaje no los usa).
 
 begin;
@@ -59,7 +60,7 @@ set
   interactive_payload = jsonb_build_object(
     'kind', 'buttons',
     'buttons', jsonb_build_array(
-      jsonb_build_object('id', 'navegar:{{tripId}}', 'title', '🧭 Navegar al destino', 'sort_order', 0),
+      jsonb_build_object('id', 'navegar:{{tripId}}', 'title', '🗺️ Abrir Maps', 'sort_order', 0),
       jsonb_build_object('id', 'finalizar:{{tripId}}', 'title', '🏁 Terminar viaje', 'sort_order', 1)
     )
   ),

@@ -11,6 +11,7 @@ import {
   type RegistrationSource,
 } from "@/lib/registration-source";
 import { applyPendingReferralForPassenger } from "@/lib/referrals";
+import { hasServiceIntent } from "@/lib/booking/intent";
 
 export type PassengerRow = {
   id: string;
@@ -85,6 +86,50 @@ export function getPassengerFullName(
   const full = passenger.full_name?.trim();
   if (full) return full;
   return getPassengerDisplayName(passenger, fallback);
+}
+
+export type PassengerNameFields = Pick<
+  PassengerRow,
+  "full_name" | "preferred_name" | "name" | "whatsapp_name"
+>;
+
+function foldPassengerName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Nombre del pasajero para D_SERVICE_ASSIGNED.
+ * Usa el registro (full_name → preferred_name → name → whatsapp_name).
+ * Nunca usa pickup_label ni el texto original de la solicitud.
+ */
+export function passengerNameForDriverAssignment(
+  passenger: PassengerNameFields,
+  extras?: { pickupLabel?: string | null },
+): string {
+  const pickupFold = extras?.pickupLabel?.trim()
+    ? foldPassengerName(extras.pickupLabel)
+    : "";
+  const candidates = [
+    passenger.full_name,
+    passenger.preferred_name,
+    passenger.name,
+    passenger.whatsapp_name,
+  ];
+
+  for (const raw of candidates) {
+    const value = raw?.trim();
+    if (!value) continue;
+    if (hasServiceIntent(value)) continue;
+    if (pickupFold && foldPassengerName(value) === pickupFold) continue;
+    return value;
+  }
+
+  return "Pasajero";
 }
 
 export async function findPassengerByPhone(
