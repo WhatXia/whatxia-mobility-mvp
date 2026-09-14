@@ -1,4 +1,4 @@
-import { catalogBody, cms, cmsSync } from "@/lib/bot-cms/copy";
+import { cms } from "@/lib/bot-cms/copy";
 import {
   findDriverByPhone,
   getDriverFullName,
@@ -77,11 +77,7 @@ import {
   driverServesOriginCity,
 } from "@/lib/city/corridors";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
-import {
-  formatAssignedPickupLines,
-  formatAssignedPickupParts,
-  resolveOfferOrigin,
-} from "@/lib/booking/intent";
+import { resolveOfferOrigin } from "@/lib/booking/intent";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -284,24 +280,14 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     },
   ]);
 
-  const assignedPickup = formatAssignedPickupParts(
-    updated.pickupNeighborhood,
-    updated.pickupLabel,
-  );
   const driverBody = await cms("D_SERVICE_ASSIGNED", {
     passenger_full_name: passengerFullName,
-    pickup_neighborhood: assignedPickup.neighborhood,
-    pickup_detail: assignedPickup.detail,
-    pickup_lines: formatAssignedPickupLines(
-      updated.pickupNeighborhood,
-      updated.pickupLabel,
-    ),
     tripId: updated.id,
   });
 
   await sendButtonsMessage(driverPhone, driverBody, [
-    { id: verUbicacionButtonId(updated.id), title: "📌 Ver ubicación" },
-    { id: llegueButtonId(updated.id), title: "✅ Llegué" },
+    { id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" },
+    { id: llegueButtonId(updated.id), title: "🚕 Llegué" },
     {
       id: cancelServicioButtonId(updated.id),
       title: "❌ Cancelar servicio",
@@ -315,18 +301,6 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     maxMinutes: range.maxMinutes,
     driverPhone,
   });
-}
-
-async function sendArrivedButton(driverPhone: string, tripId: string) {
-  await sendButtonsMessage(
-    driverPhone,
-    await cms("D_ARRIVED_LEGACY_PROMPT", { tripId }),
-    [
-      { id: verUbicacionButtonId(tripId), title: "📍 Ver ubicación" },
-      { id: llegueButtonId(tripId), title: "📍 Llegué" },
-      { id: cancelServicioButtonId(tripId), title: "❌ Cancelar servicio" },
-    ],
-  );
 }
 
 async function sendStartTripButton(driverPhone: string, tripId: string) {
@@ -351,7 +325,7 @@ async function sendInProgressTripScreen(
     }),
     [
       { id: navegarButtonId(trip.id), title: "🧭 Navegar al destino" },
-      { id: finalizarButtonId(trip.id), title: "Terminar viaje" },
+      { id: finalizarButtonId(trip.id), title: "🏁 Terminar viaje" },
     ],
   );
 }
@@ -750,7 +724,7 @@ async function publishTripOffer(
   });
 
   const buttons = [
-    { id: acceptButtonId(trip.id), title: "✅ Aceptar" },
+    { id: acceptButtonId(trip.id), title: "↩️ Aceptar" },
     { id: rejectButtonId(trip.id), title: "❌ Rechazar" },
   ];
 
@@ -1024,8 +998,7 @@ export async function handleDriverEta(
     ],
   );
 
-  // Siguiente acción operativa (sin confirmación al conductor).
-  await sendArrivedButton(driverPhone, updated.id);
+  // Sin mensaje extra al conductor: D_SERVICE_ASSIGNED ya trae Ver ubicación / Llegué.
 
   console.log("[dispatch] ETA informado:", {
     tripId: updated.id,

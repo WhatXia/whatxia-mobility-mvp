@@ -24,7 +24,7 @@ import {
   resolveOfferOrigin,
   resolvePickupLabelFromText,
 } from "@/lib/booking/intent";
-import { catalogBody } from "@/lib/bot-cms/copy";
+import { catalogBody, catalogButtons } from "@/lib/bot-cms/copy";
 import {
   planTripCompletion,
   pricingModeForCitySlug,
@@ -356,13 +356,59 @@ assert(
 );
 assert(
   catalogBody("D_TRIP_OFFER").includes("📍 Origen: {{pickup}}") &&
+    catalogBody("D_TRIP_OFFER").startsWith("🚕 Nuevo servicio") &&
     !catalogBody("D_TRIP_OFFER").includes("🏠"),
-  "Oferta D_TRIP_OFFER no cambia (solo barrio)",
+  "Oferta D_TRIP_OFFER: un mensaje de nuevo servicio sin dirección de casa",
 );
 assert(
-  catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_neighborhood}}") &&
-    catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_detail}}"),
-  "D_SERVICE_ASSIGNED recibe pickup_neighborhood y pickup_detail tras aceptar",
+  catalogBody("D_SERVICE_ASSIGNED").includes("{{passenger_full_name}}") &&
+    catalogBody("D_SERVICE_ASSIGNED").includes("Dirígete al punto de recogida") &&
+    !catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_neighborhood}}") &&
+    !catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_detail}}"),
+  "D_SERVICE_ASSIGNED: un mensaje de asignado sin repetir origen",
+);
+assert(
+  catalogBody("D_START_TRIP_PROMPT").includes("Llegaste al punto de recogida") &&
+    catalogBody("D_START_TRIP_PROMPT").includes("Iniciar viaje") === false &&
+    catalogBody("D_START_TRIP_PROMPT").includes("taxímetro"),
+  "D_START_TRIP_PROMPT: llegada + cobro + abordar en un solo cuerpo",
+);
+assert(
+  catalogBody("D_IN_PROGRESS_SCREEN").includes("Viaje iniciado") &&
+    catalogBody("D_IN_PROGRESS_SCREEN").includes("{{dropoff_label}}"),
+  "D_IN_PROGRESS_SCREEN: viaje iniciado + destino",
+);
+assert(
+  catalogBody("D_RATE_PASSENGER_PROMPT").startsWith("🏁 Viaje finalizado") &&
+    catalogBody("D_RATE_PASSENGER_PROMPT").includes("experiencia con este pasajero"),
+  "D_RATE_PASSENGER_PROMPT: fin + calificación en un solo mensaje",
+);
+assert(
+  catalogButtons("D_TRIP_OFFER").some((b) => b.title === "↩️ Aceptar") &&
+    catalogButtons("D_TRIP_OFFER").some((b) => b.title === "❌ Rechazar"),
+  "Oferta: Aceptar / Rechazar",
+);
+assert(
+  catalogButtons("D_SERVICE_ASSIGNED").some((b) => b.title === "📍 Ver ubicación") &&
+    catalogButtons("D_SERVICE_ASSIGNED").some((b) => b.title === "🚕 Llegué") &&
+    catalogButtons("D_SERVICE_ASSIGNED").some((b) => b.title === "❌ Cancelar servicio"),
+  "Asignado: Ver ubicación / Llegué / Cancelar",
+);
+assert(
+  catalogButtons("D_START_TRIP_PROMPT").some((b) => b.title === "▶️ Iniciar viaje") &&
+    catalogButtons("D_START_TRIP_PROMPT").length === 1,
+  "Llegada: un solo botón Iniciar viaje",
+);
+assert(
+  catalogButtons("D_IN_PROGRESS_SCREEN").some((b) => b.title === "🧭 Navegar al destino") &&
+    catalogButtons("D_IN_PROGRESS_SCREEN").some((b) => b.title === "🏁 Terminar viaje"),
+  "En viaje: Navegar / Terminar",
+);
+assert(
+  catalogButtons("D_RATE_PASSENGER_PROMPT").some((b) => b.title === "⭐⭐⭐⭐⭐ Excelente") &&
+    catalogButtons("D_RATE_PASSENGER_PROMPT").some((b) => b.title === "⭐⭐⭐⭐ Buena") &&
+    catalogButtons("D_RATE_PASSENGER_PROMPT").some((b) => b.title === "⭐⭐⭐ Regular"),
+  "Cierre: tres botones de calificación",
 );
 
 assert(true, "Dirección de recogida → WAITING_PICKUP_LOCATION + Enviar ubicación");

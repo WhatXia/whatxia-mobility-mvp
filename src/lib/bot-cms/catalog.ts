@@ -896,17 +896,17 @@ export const BOT_CMS_CATALOG = [
     "code": "D_SERVICE_ASSIGNED",
     "name": "Service assigned to driver",
     "module": "DRIVER",
-    "body": "✅ Servicio asignado\n\n👤 Pasajero: {{passenger_full_name}}\n\n📍 {{pickup_neighborhood}}\n🏠 {{pickup_detail}}",
+    "body": "✅ Servicio asignado\n\n👤 Pasajero: {{passenger_full_name}}\n📍 Dirígete al punto de recogida.",
     "content_type": "interactive",
     "buttons": [
       {
         "id": "ver_ubicacion:{{tripId}}",
-        "title": "📌 Ver ubicación",
+        "title": "📍 Ver ubicación",
         "sort_order": 0
       },
       {
         "id": "llegue:{{tripId}}",
-        "title": "✅ Llegué",
+        "title": "🚕 Llegué",
         "sort_order": 1
       },
       {
@@ -917,8 +917,6 @@ export const BOT_CMS_CATALOG = [
     ],
     "variables": [
       "passenger_full_name",
-      "pickup_neighborhood",
-      "pickup_detail",
       "tripId"
     ],
     "source_file": "dispatch.ts",
@@ -958,7 +956,7 @@ export const BOT_CMS_CATALOG = [
     "code": "D_START_TRIP_PROMPT",
     "name": "Start trip prompt",
     "module": "DRIVER",
-    "body": "💰 Recuerda cobrar el valor que indique el taxímetro más $800 por solicitud del servicio.\n\n👤 Cuando el pasajero aborde el vehículo, inicia el viaje.",
+    "body": "🚕 Llegaste al punto de recogida.\n\n💰 Recuerda cobrar el valor indicado por el taxímetro + $800 por solicitud del servicio.\n\nCuando el pasajero aborde, inicia el viaje.",
     "content_type": "interactive",
     "buttons": [
       {
@@ -978,7 +976,7 @@ export const BOT_CMS_CATALOG = [
     "code": "D_IN_PROGRESS_SCREEN",
     "name": "In-progress trip screen",
     "module": "DRIVER",
-    "body": "🏁 Destino\n\n{{dropoff_label}}",
+    "body": "🚕 Viaje iniciado\n\n🏁 Destino: {{dropoff_label}}",
     "content_type": "interactive",
     "buttons": [
       {
@@ -988,7 +986,7 @@ export const BOT_CMS_CATALOG = [
       },
       {
         "id": "finalizar:{{tripId}}",
-        "title": "Terminar viaje",
+        "title": "🏁 Terminar viaje",
         "sort_order": 1
       }
     ],
@@ -1004,12 +1002,12 @@ export const BOT_CMS_CATALOG = [
     "code": "D_TRIP_OFFER",
     "name": "New trip offer",
     "module": "DRIVER",
-    "body": "🚖 Nuevo servicio\n\n📍 Origen: {{pickup}}\n\n🏁 Destino: {{dropoff}}\n\n💰 Tarifa estimada: {{min}} - {{max}}\n\n{{passenger_line}}",
+    "body": "🚕 Nuevo servicio\n\n📍 Origen: {{pickup}}\n🏁 Destino: {{dropoff}}\n💰 Tarifa estimada: {{min}} - {{max}}\n{{passenger_line}}",
     "content_type": "interactive",
     "buttons": [
       {
         "id": "aceptar:{{tripId}}",
-        "title": "✅ Aceptar",
+        "title": "↩️ Aceptar",
         "sort_order": 0
       },
       {
@@ -1428,7 +1426,7 @@ export const BOT_CMS_CATALOG = [
     "code": "D_RATE_PASSENGER_PROMPT",
     "name": "Driver rates passenger prompt",
     "module": "DRIVER",
-    "body": "✅ Viaje finalizado\n\n⭐ ¿Cómo fue tu experiencia con este pasajero?",
+    "body": "🏁 Viaje finalizado\n\n⭐ ¿Cómo fue tu experiencia con este pasajero?",
     "content_type": "interactive",
     "buttons": [
       {

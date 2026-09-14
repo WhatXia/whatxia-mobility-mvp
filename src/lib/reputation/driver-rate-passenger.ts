@@ -2,35 +2,16 @@
  * Flujo: conductor califica al pasajero al finalizar el viaje.
  */
 
-import { sendDriverMainMenu } from "@/lib/driver-menu";
-import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import { getTrip, samePhone } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
+import { cms } from "@/lib/bot-cms/copy";
 import {
   createPassengerRating,
   getPassengerRatingByTripId,
 } from "@/lib/reputation/store";
 
-async function returnDriverToMainMenu(
-  driverPhone: string,
-  body: string,
-): Promise<void> {
-  const driver = await findDriverByPhone(driverPhone);
-  if (!driver) {
-    return;
-  }
-  // CTA universal: confirmación + menú, sin saludo de sesión.
-  await sendDriverMainMenu(driver, driverPhone, { body });
-}
-
 const DRIVER_RATES_PAX_PREFIX = "pax_rating";
-
-const DRIVER_RATING_REPLIES: Record<number, string> = {
-  5: "¡Gracias! Registramos tu calificación del pasajero. ⭐",
-  4: "Gracias. Registramos tu calificación del pasajero.",
-  2: "Gracias. Registramos tu calificación del pasajero.",
-};
 
 function driverRatesPaxButtonId(rating: number, tripId: string) {
   return `${DRIVER_RATES_PAX_PREFIX}:${rating}:${tripId}`;
@@ -61,11 +42,7 @@ export async function sendDriverRatesPassengerPrompt(
 ): Promise<void> {
   await sendButtonsMessage(
     driverPhone,
-    [
-      "✅ Viaje finalizado",
-      "",
-      "⭐ ¿Cómo fue tu experiencia con este pasajero?",
-    ].join("\n"),
+    await cms("D_RATE_PASSENGER_PROMPT", { tripId }),
     [
       {
         id: driverRatesPaxButtonId(5, tripId),
@@ -119,10 +96,6 @@ export async function handleDriverRatesPassenger(
 
   const already = await getPassengerRatingByTripId(tripId);
   if (already) {
-    await returnDriverToMainMenu(
-      driverPhone,
-      "Ya registramos tu calificación de este pasajero. ¡Gracias!",
-    );
     return;
   }
 
@@ -137,18 +110,12 @@ export async function handleDriverRatesPassenger(
   });
 
   if (!saved) {
-    await returnDriverToMainMenu(
+    await sendTextMessage(
       driverPhone,
       "No se pudo guardar la calificación del pasajero.",
     );
     return;
   }
-
-  const reply =
-    DRIVER_RATING_REPLIES[rating] ??
-    "¡Gracias! Registramos tu calificación del pasajero.";
-
-  await returnDriverToMainMenu(driverPhone, reply);
 
   console.log("[reputation] conductor calificó pasajero", {
     tripId,
