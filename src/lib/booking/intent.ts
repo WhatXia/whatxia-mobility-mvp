@@ -439,6 +439,21 @@ export function formatAssignedPickupLines(
 }
 
 /**
+ * Bloque de recogida para el mensaje de servicio asignado.
+ * Conserva barrio + nomenclatura/manzana/casa/edificio disponibles.
+ */
+export function formatAssignedPickupBlock(
+  pickupNeighborhood?: string | null,
+  pickupLabel?: string | null,
+): string {
+  const { neighborhood, detail } = formatAssignedPickupParts(
+    pickupNeighborhood,
+    pickupLabel,
+  );
+  return [neighborhood, detail].filter(Boolean).join("\n");
+}
+
+/**
  * Texto de origen para la oferta al conductor.
  * Si hay pickupNeighborhood real, se usa tal cual. El fallback genérico
  * no sustituye un barrio ya disponible.

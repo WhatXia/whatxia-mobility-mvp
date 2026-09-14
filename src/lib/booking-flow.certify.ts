@@ -18,6 +18,7 @@ import {
   resolveTripPickupNeighborhood,
 } from "@/lib/booking/flow";
 import {
+  formatAssignedPickupBlock,
   formatAssignedPickupLines,
   parsePickupAddress,
   pickupOfferZone,
@@ -355,6 +356,13 @@ assert(
   "Tras aceptar: La Pola no se duplica en el detalle",
 );
 assert(
+  formatAssignedPickupBlock(
+    "Jordán Octava Etapa",
+    "Jordán Octava Etapa, Manzana 23, Casa 1",
+  ) === "Jordán Octava Etapa\nManzana 23, Casa 1",
+  "Asignado: bloque de recogida conserva barrio + manzana/casa",
+);
+assert(
   catalogBody("D_TRIP_OFFER").includes("📍 Origen: {{pickup}}") &&
     catalogBody("D_TRIP_OFFER").startsWith("🚕 Nuevo servicio") &&
     !catalogBody("D_TRIP_OFFER").includes("🏠"),
@@ -362,16 +370,24 @@ assert(
 );
 assert(
   catalogBody("D_SERVICE_ASSIGNED").includes("{{passenger_full_name}}") &&
-    catalogBody("D_SERVICE_ASSIGNED").includes("Dirígete al punto de recogida") &&
-    !catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_neighborhood}}") &&
-    !catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_detail}}"),
-  "D_SERVICE_ASSIGNED: un mensaje de asignado sin repetir origen",
+    catalogBody("D_SERVICE_ASSIGNED").includes("Punto de recogida") &&
+    catalogBody("D_SERVICE_ASSIGNED").includes("{{pickup_block}}"),
+  "D_SERVICE_ASSIGNED: pasajero + pickup completo",
 );
 assert(
   catalogBody("D_START_TRIP_PROMPT").includes("Llegaste al punto de recogida") &&
-    catalogBody("D_START_TRIP_PROMPT").includes("Iniciar viaje") === false &&
-    catalogBody("D_START_TRIP_PROMPT").includes("taxímetro"),
-  "D_START_TRIP_PROMPT: llegada + cobro + abordar en un solo cuerpo",
+    !catalogBody("D_START_TRIP_PROMPT").includes("taxímetro") &&
+    !catalogBody("D_START_TRIP_PROMPT").includes("$800") &&
+    !catalogBody("D_START_TRIP_PROMPT").toLowerCase().includes("cobrar") &&
+    !catalogBody("D_START_TRIP_PROMPT").includes("Iniciar viaje"),
+  "D_START_TRIP_PROMPT: llegada nacional sin tarifa ni taxímetro",
+);
+assert(
+  !catalogBody("D_SERVICE_ASSIGNED").includes("taxímetro") &&
+    !catalogBody("D_IN_PROGRESS_SCREEN").includes("taxímetro") &&
+    !catalogBody("D_TRIP_OFFER").includes("taxímetro") &&
+    !catalogBody("D_RATE_PASSENGER_PROMPT").includes("taxímetro"),
+  "Happy path conductor no menciona taxímetro",
 );
 assert(
   catalogBody("D_IN_PROGRESS_SCREEN").includes("Viaje iniciado") &&
@@ -382,6 +398,11 @@ assert(
   catalogBody("D_RATE_PASSENGER_PROMPT").startsWith("🏁 Viaje finalizado") &&
     catalogBody("D_RATE_PASSENGER_PROMPT").includes("experiencia con este pasajero"),
   "D_RATE_PASSENGER_PROMPT: fin + calificación en un solo mensaje",
+);
+assert(
+  catalogBody("D_RATE_PAX_THANKS").includes("Registramos tu calificación") &&
+    catalogBody("D_RATE_PAX_THANKS").includes("🙏"),
+  "Tras calificar: un solo agradecimiento operativo",
 );
 assert(
   catalogButtons("D_TRIP_OFFER").some((b) => b.title === "↩️ Aceptar") &&

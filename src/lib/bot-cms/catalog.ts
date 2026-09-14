@@ -896,7 +896,7 @@ export const BOT_CMS_CATALOG = [
     "code": "D_SERVICE_ASSIGNED",
     "name": "Service assigned to driver",
     "module": "DRIVER",
-    "body": "✅ Servicio asignado\n\n👤 Pasajero: {{passenger_full_name}}\n📍 Dirígete al punto de recogida.",
+    "body": "✅ Servicio asignado\n\n👤 Pasajero: {{passenger_full_name}}\n\n📍 Punto de recogida:\n{{pickup_block}}",
     "content_type": "interactive",
     "buttons": [
       {
@@ -917,6 +917,9 @@ export const BOT_CMS_CATALOG = [
     ],
     "variables": [
       "passenger_full_name",
+      "pickup_block",
+      "pickup_neighborhood",
+      "pickup_detail",
       "tripId"
     ],
     "source_file": "dispatch.ts",
@@ -956,7 +959,7 @@ export const BOT_CMS_CATALOG = [
     "code": "D_START_TRIP_PROMPT",
     "name": "Start trip prompt",
     "module": "DRIVER",
-    "body": "🚕 Llegaste al punto de recogida.\n\n💰 Recuerda cobrar el valor indicado por el taxímetro + $800 por solicitud del servicio.\n\nCuando el pasajero aborde, inicia el viaje.",
+    "body": "🚕 Llegaste al punto de recogida.\n\nCuando el pasajero aborde, inicia el viaje.",
     "content_type": "interactive",
     "buttons": [
       {
@@ -1455,16 +1458,16 @@ export const BOT_CMS_CATALOG = [
     "code": "D_RATE_PAX_THANKS_5",
     "name": "Driver rates pax thanks 5",
     "module": "DRIVER",
-    "body": "¡Gracias! Registramos tu calificación del pasajero. ⭐",
+    "body": "🙏 ¡Gracias! Registramos tu calificación. ⭐",
     "content_type": "text",
     "source_file": "reputation/driver-rate-passenger.ts",
     "category": "DRIVER"
   },
   {
     "code": "D_RATE_PAX_THANKS",
-    "name": "Driver rates pax thanks 4/2",
+    "name": "Driver rates pax thanks",
     "module": "DRIVER",
-    "body": "Gracias. Registramos tu calificación del pasajero.",
+    "body": "🙏 ¡Gracias! Registramos tu calificación. ⭐",
     "content_type": "text",
     "source_file": "reputation/driver-rate-passenger.ts",
     "category": "DRIVER"

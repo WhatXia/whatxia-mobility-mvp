@@ -2,6 +2,8 @@
  * Flujo: conductor califica al pasajero al finalizar el viaje.
  */
 
+import { sendDriverMainMenu } from "@/lib/driver-menu";
+import { findDriverByPhone } from "@/lib/supabase/drivers";
 import { findOrCreatePassenger } from "@/lib/supabase/passengers";
 import { getTrip, samePhone } from "@/lib/trips";
 import { sendButtonsMessage, sendTextMessage } from "@/lib/whatsapp/client";
@@ -10,6 +12,17 @@ import {
   createPassengerRating,
   getPassengerRatingByTripId,
 } from "@/lib/reputation/store";
+
+async function returnDriverToMainMenu(
+  driverPhone: string,
+  body: string,
+): Promise<void> {
+  const driver = await findDriverByPhone(driverPhone);
+  if (!driver) {
+    return;
+  }
+  await sendDriverMainMenu(driver, driverPhone, { body });
+}
 
 const DRIVER_RATES_PAX_PREFIX = "pax_rating";
 
@@ -96,6 +109,10 @@ export async function handleDriverRatesPassenger(
 
   const already = await getPassengerRatingByTripId(tripId);
   if (already) {
+    await returnDriverToMainMenu(
+      driverPhone,
+      await cms("D_RATE_PAX_THANKS"),
+    );
     return;
   }
 
@@ -116,6 +133,8 @@ export async function handleDriverRatesPassenger(
     );
     return;
   }
+
+  await returnDriverToMainMenu(driverPhone, await cms("D_RATE_PAX_THANKS"));
 
   console.log("[reputation] conductor calificó pasajero", {
     tripId,

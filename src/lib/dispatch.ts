@@ -77,7 +77,7 @@ import {
   driverServesOriginCity,
 } from "@/lib/city/corridors";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
-import { resolveOfferOrigin } from "@/lib/booking/intent";
+import { resolveOfferOrigin, formatAssignedPickupBlock, formatAssignedPickupParts } from "@/lib/booking/intent";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -280,8 +280,23 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     },
   ]);
 
+  const assignedPickup = formatAssignedPickupParts(
+    updated.pickupNeighborhood,
+    updated.pickupLabel,
+  );
+  const pickupBlock =
+    formatAssignedPickupBlock(
+      updated.pickupNeighborhood,
+      updated.pickupLabel,
+    ) ||
+    updated.pickupLabel?.trim() ||
+    updated.pickupNeighborhood?.trim() ||
+    "Punto de recogida";
   const driverBody = await cms("D_SERVICE_ASSIGNED", {
     passenger_full_name: passengerFullName,
+    pickup_block: pickupBlock,
+    pickup_neighborhood: assignedPickup.neighborhood,
+    pickup_detail: assignedPickup.detail,
     tripId: updated.id,
   });
 
@@ -1050,6 +1065,8 @@ export async function handleDriverVerUbicacion(
     return;
   }
 
+  // WhatsApp no mezcla reply buttons con cta_url. El botón "Ver ubicación"
+  // no puede abrir Maps en el mismo mensaje de asignado (Llegué / Cancelar).
   await sendCtaUrlMessage(
     driverPhone,
     await cms("D_PICKUP_MAPS_CTA", { label }),
@@ -1207,6 +1224,8 @@ export async function handleDriverNavegarDestino(
     return;
   }
 
+  // WhatsApp no mezcla reply buttons con cta_url. "Navegar al destino" no
+  // puede abrir Maps en el mismo mensaje de viaje iniciado (Terminar viaje).
   await sendCtaUrlMessage(
     driverPhone,
     await cms("D_DROPOFF_MAPS_CTA", { label }),
