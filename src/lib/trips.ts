@@ -862,6 +862,24 @@ export async function clearSearchDeadlinesOnAssign(
     .eq("id", tripId);
 }
 
+/** Viajes que siguen abiertos a oferta. No cambia estados. */
+export async function listSearchingTrips(): Promise<Trip[]> {
+  const supabase = getSupabase();
+
+  const { data, error } = await supabase
+    .from("trips")
+    .select(TRIP_COLUMNS)
+    .eq("status", "SEARCHING")
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("[supabase] error al listar viajes SEARCHING:", error);
+    throw error;
+  }
+
+  return (data ?? []).map((row) => mapRow(row as TripRow));
+}
+
 export async function listTripsDueSearchPrompt(
   nowIso: string = new Date().toISOString(),
 ): Promise<Trip[]> {

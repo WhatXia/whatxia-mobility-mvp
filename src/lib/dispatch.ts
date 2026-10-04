@@ -5,6 +5,7 @@ import {
   listAvailableDrivers,
   markDriverAvailable,
   markDriverUnavailable,
+  type DriverRow,
 } from "@/lib/supabase/drivers";
 import {
   findOrCreatePassenger,
@@ -582,19 +583,41 @@ export async function republishTripToDrivers(tripId: string): Promise<void> {
   });
 }
 
-async function publishTripOffer(
+export type TripOfferAudienceOptions = {
+  excludePhone?: string;
+  excludeDriverId?: string;
+  /**
+   * La consulta de la app reutiliza esta selección sin repetir
+   * los logs de diagnóstico del envío por WhatsApp.
+   */
+  quiet?: boolean;
+};
+
+export type TripOfferAudience = {
+  drivers: DriverRow[];
+  excludedDriverIds: string[];
+};
+
+/**
+ * Conductores que recibirían la oferta de este viaje.
+ * Misma selección que el envío por WhatsApp: flota de la ciudad,
+ * listAvailableDrivers, ciudad operacional y exclusiones del viaje.
+ */
+export async function listEligibleDriversForTripOffer(
   trip: Trip,
-  options?: { excludePhone?: string; excludeDriverId?: string },
-): Promise<void> {
-  console.log("[dispatch:diag] publish_STEP_A_start", { tripId: trip.id });
+  options?: TripOfferAudienceOptions,
+): Promise<TripOfferAudience> {
+  const quiet = options?.quiet === true;
 
   let tripExclusions: string[] = [];
   try {
     tripExclusions = await listExcludedDriverIdsForTrip(trip.id);
-    console.log("[dispatch:diag] publish_STEP_B_exclusions", {
-      tripId: trip.id,
-      tripExclusions,
-    });
+    if (!quiet) {
+      console.log("[dispatch:diag] publish_STEP_B_exclusions", {
+        tripId: trip.id,
+        tripExclusions,
+      });
+    }
   } catch (error) {
     console.error("[dispatch:diag] STOP_at_listExcludedDriverIdsForTrip", {
       tripId: trip.id,
@@ -615,7 +638,7 @@ async function publishTripOffer(
     console.error("[dispatch] STOP_at_publish_missing_trip_city", {
       tripId: trip.id,
     });
-    return;
+    return { drivers: [], excludedDriverIds };
   }
 
   const originCity = await getCityById(trip.cityId);
@@ -624,12 +647,12 @@ async function publishTripOffer(
       tripId: trip.id,
       tripCityId: trip.cityId,
     });
-    return;
+    return { drivers: [], excludedDriverIds };
   }
   const cities = await listEnabledCities();
   const fleetCity = dispatchFleetCity(originCity, cities);
 
-  let candidates;
+  let candidates: DriverRow[];
   try {
     candidates = await listAvailableDrivers({
       cityId: fleetCity.id,
@@ -643,25 +666,29 @@ async function publishTripOffer(
     throw error;
   }
 
-  console.log("[dispatch:diag] publish_STEP_C_candidates", {
-    tripId: trip.id,
-    candidateCount: candidates.length,
-    excludedDriverIds,
-    candidateIds: candidates.map((d) => d.id),
-  });
+  if (!quiet) {
+    console.log("[dispatch:diag] publish_STEP_C_candidates", {
+      tripId: trip.id,
+      candidateCount: candidates.length,
+      excludedDriverIds,
+      candidateIds: candidates.map((d) => d.id),
+    });
+  }
 
   const availableDrivers = filterDriversForTripOffer({
     drivers: filterDriversByTripCity(candidates, fleetCity.id),
     excludedDriverIds,
   });
 
-  console.log("[dispatch:diag] publish_STEP_D_after_exclusion_filter", {
-    tripId: trip.id,
-    eligibleCount: availableDrivers.length,
-    eligibleIds: availableDrivers.map((d) => d.id),
-  });
+  if (!quiet) {
+    console.log("[dispatch:diag] publish_STEP_D_after_exclusion_filter", {
+      tripId: trip.id,
+      eligibleCount: availableDrivers.length,
+      eligibleIds: availableDrivers.map((d) => d.id),
+    });
+  }
 
-  if (availableDrivers.length === 0) {
+  if (availableDrivers.length === 0 && !quiet) {
     console.warn("[dispatch:diag] STOP_at_zero_eligible_after_filters", {
       tripId: trip.id,
       excludedDriverIds,
@@ -672,6 +699,22 @@ async function publishTripOffer(
       tripId: trip.id,
       excludedDriverIds,
     });
+  }
+
+  return { drivers: availableDrivers, excludedDriverIds };
+}
+
+async function publishTripOffer(
+  trip: Trip,
+  options?: { excludePhone?: string; excludeDriverId?: string },
+): Promise<void> {
+  console.log("[dispatch:diag] publish_STEP_A_start", { tripId: trip.id });
+
+  const audience = await listEligibleDriversForTripOffer(trip, options);
+  const availableDrivers = audience.drivers;
+  const excludedDriverIds = audience.excludedDriverIds;
+
+  if (availableDrivers.length === 0) {
     return;
   }
 
