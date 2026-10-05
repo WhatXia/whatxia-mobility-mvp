@@ -33,9 +33,7 @@ import {
 } from "@/lib/whatsapp/client";
 import { sendRatingPrompt } from "@/lib/rating";
 import {
-  formatPassengerReputationForOffer,
   getDriverRatingAggregate,
-  getPassengerRatingAggregateSafe,
   sendDriverRatesPassengerPrompt,
 } from "@/lib/reputation";
 
@@ -62,7 +60,7 @@ import {
   finalizeFare,
   formatEstimatedFareRangeLine,
 } from "@/lib/tariff";
-import { formatCopSymbol, ESTIMATED_FARE_RANGE_MARGIN_COP } from "@/lib/tariff/present-estimate";
+import { formatCopSymbol } from "@/lib/tariff/present-estimate";
 import {
   getCityById,
   listEnabledCities,
@@ -78,7 +76,7 @@ import {
   driverServesOriginCity,
 } from "@/lib/city/corridors";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
-import { resolveOfferOrigin, formatAssignedPickupBlock, formatAssignedPickupParts } from "@/lib/booking/intent";
+import { formatAssignedPickupBlock, formatAssignedPickupParts } from "@/lib/booking/intent";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -110,14 +108,6 @@ type DriverButtonAction =
   | { action: "iniciar"; tripId: string }
   | { action: "navegar"; tripId: string }
   | { action: "finalizar"; tripId: string };
-
-function acceptButtonId(tripId: string) {
-  return `${DRIVER_BUTTON_IDS.ACEPTAR}:${tripId}`;
-}
-
-function rejectButtonId(tripId: string) {
-  return `${DRIVER_BUTTON_IDS.RECHAZAR}:${tripId}`;
-}
 
 function llegueButtonId(tripId: string) {
   return `${DRIVER_BUTTON_IDS.LLEGUE}:${tripId}`;
@@ -711,147 +701,11 @@ async function publishTripOffer(
   console.log("[dispatch:diag] publish_STEP_A_start", { tripId: trip.id });
 
   const audience = await listEligibleDriversForTripOffer(trip, options);
-  const availableDrivers = audience.drivers;
-  const excludedDriverIds = audience.excludedDriverIds;
 
-  if (availableDrivers.length === 0) {
-    return;
-  }
-
-  console.log("[publish:diag] STEP_R1_reputation_enter", {
+  console.log("[dispatch] oferta disponible para Driver App, sin WhatsApp", {
     tripId: trip.id,
-    tripPassengerId: trip.passengerId,
-    note: "NUEVO post-reputación: getPassengerRatingAggregateSafe → tabla passenger_ratings",
-  });
-
-  let passengerId = trip.passengerId;
-  if (!passengerId) {
-    console.log("[publish:diag] STEP_R1b_resolve_passengerId", {
-      tripId: trip.id,
-      continues: true,
-    });
-    const passenger = await findOrCreatePassenger(trip.passengerPhone);
-    passengerId = passenger.id;
-  }
-
-  let passengerRep;
-  try {
-    passengerRep = await getPassengerRatingAggregateSafe(passengerId);
-    console.log("[publish:diag] STEP_R2_reputation_ok", {
-      tripId: trip.id,
-      passengerId,
-      average: passengerRep.average,
-      count: passengerRep.count,
-      continues: true,
-    });
-  } catch (error) {
-    console.error("[publish:diag] STOP_at_reputation_passenger_ratings", {
-      tripId: trip.id,
-      passengerId,
-      continues: false,
-      hint: "Si migración 034 no está aplicada, SELECT a passenger_ratings falla AQUÍ y nunca llega a WhatsApp",
-      error,
-      errorMessage:
-        error && typeof error === "object" && "message" in error
-          ? (error as { message?: string }).message
-          : String(error),
-      errorCode:
-        error && typeof error === "object" && "code" in error
-          ? (error as { code?: string }).code
-          : null,
-      errorDetails:
-        error && typeof error === "object" && "details" in error
-          ? (error as { details?: string }).details
-          : null,
-    });
-    throw error;
-  }
-
-  const body = await cms("D_TRIP_OFFER", {
-    pickup: resolveOfferOrigin(trip.pickupNeighborhood, trip.pickupLabel),
-    dropoff: trip.dropoffLabel?.trim() || "Por confirmar",
-    min:
-      trip.quotedFare != null
-        ? formatCopSymbol(trip.quotedFare)
-        : "—",
-    max:
-      trip.quotedFare != null
-        ? formatCopSymbol(trip.quotedFare + ESTIMATED_FARE_RANGE_MARGIN_COP)
-        : "—",
-    passenger_line: formatPassengerReputationForOffer(passengerRep),
-    tripId: trip.id,
-  });
-
-  const buttons = [
-    { id: acceptButtonId(trip.id), title: "↩️ Aceptar" },
-    { id: rejectButtonId(trip.id), title: "❌ Rechazar" },
-  ];
-
-  console.log("[publish:diag] STEP_W1_whatsapp_send_enter", {
-    tripId: trip.id,
-    recipientCount: availableDrivers.length,
-    recipients: availableDrivers.map((d) => d.phone),
-    channel: "1:1 sendButtonsMessage (no hay grupos WA en este flujo)",
-    bodyPreview: body.slice(0, 180),
-    continues: true,
-  });
-
-  console.log("[dispatch:diag] publish_STEP_E_whatsapp_sendButtonsMessage", {
-    tripId: trip.id,
-    recipientCount: availableDrivers.length,
-    recipients: availableDrivers.map((d) => d.phone),
-  });
-
-  console.log("[dispatch] enviando oferta a conductores:", {
-    tripId: trip.id,
-    pickupNeighborhood: trip.pickupNeighborhood,
-    excludedPhone: options?.excludePhone ?? null,
-    excludedDriverIds,
-    drivers: availableDrivers.map((d) => ({ id: d.id, phone: d.phone })),
-  });
-
-  const results = await Promise.allSettled(
-    availableDrivers.map((driver) =>
-      sendButtonsMessage(driver.phone, body, buttons),
-    ),
-  );
-
-  results.forEach((result, index) => {
-    const driver = availableDrivers[index];
-
-    if (result.status === "fulfilled") {
-      console.log("[dispatch:diag] publish_STEP_F_whatsapp_ok", {
-        phone: driver.phone,
-      });
-      console.log("[publish:diag] STEP_W2_whatsapp_ok", {
-        phone: driver.phone,
-        continues: true,
-      });
-      console.log("[dispatch] oferta enviada:", driver.phone);
-    } else {
-      console.error("[dispatch:diag] publish_STEP_F_whatsapp_fail", {
-        phone: driver.phone,
-        reason: result.reason,
-      });
-      console.error("[publish:diag] STEP_W2_whatsapp_fail", {
-        phone: driver.phone,
-        continues: false,
-        reason: result.reason,
-      });
-      console.error(
-        "[dispatch] fallo al notificar:",
-        driver.phone,
-        result.reason,
-      );
-    }
-  });
-
-  const okCount = results.filter((r) => r.status === "fulfilled").length;
-  console.log("[publish:diag] STEP_W3_publishTripOffer_done", {
-    tripId: trip.id,
-    okCount,
-    failCount: results.length - okCount,
-    continues: true,
+    status: trip.status,
+    eligibleCount: audience.drivers.length,
   });
 }
 
