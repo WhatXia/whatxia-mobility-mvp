@@ -1574,3 +1574,85 @@ export async function handleDriverFinalizarViaje(
     waitSeconds: finalQuote?.breakdown.waitSecondsUsed ?? null,
   });
 }
+
+/**
+ * Efectos de pasajero tras completar, sin recalcular tarifa
+ * y sin escribir al conductor por WhatsApp.
+ */
+async function notifyPassengerTripCompleted(trip: Trip): Promise<void> {
+  if (trip.assignedDriverId) {
+    await markDriverAvailable(trip.assignedDriverId);
+  }
+
+  if (trip.passengerId) {
+    try {
+      const { recordReferralConversionIfFirstCompletedTrip } = await import(
+        "@/lib/referrals"
+      );
+      await recordReferralConversionIfFirstCompletedTrip(trip.passengerId);
+    } catch (error) {
+      console.error("[referrals] conversion hook:", error);
+    }
+  }
+
+  await upsertSession(trip.passengerPhone, { state: "IDLE" });
+
+  const completedBody =
+    typeof trip.finalFare === "number"
+      ? await cms("P_TRIP_COMPLETED", {
+          final_fare: formatCopSymbol(trip.finalFare),
+        })
+      : await cms("P_TRIP_COMPLETED_NO_FARE");
+  await sendRatingPrompt(trip.passengerPhone, trip.id, completedBody);
+
+  try {
+    await scheduleTunnelClose(trip.id);
+  } catch (error) {
+    console.error("[dispatch] no se pudo programar cierre de túnel:", error);
+  }
+}
+
+export type DriverAppFinishResult =
+  | { ok: true; trip_id: string; status: Trip["status"] }
+  | { ok: false; httpStatus: 403 | 404 | 409 };
+
+/**
+ * Fin de viaje desde WhatXia Driver.
+ * Reutiliza finishTrip (COMPLETED y finished_at) sin escribir final_fare.
+ * El pasajero recibe el cierre ya existente. No hay WhatsApp al conductor.
+ */
+export async function handleDriverAppFinish(
+  driverId: string,
+  tripId: string,
+): Promise<DriverAppFinishResult> {
+  const trip = await getTrip(tripId);
+  if (!trip) {
+    return { ok: false, httpStatus: 404 };
+  }
+  if (!trip.assignedDriverId || trip.assignedDriverId !== driverId) {
+    return { ok: false, httpStatus: 403 };
+  }
+  if (trip.status !== "IN_PROGRESS") {
+    return { ok: false, httpStatus: 409 };
+  }
+
+  const updated = await finishTrip(trip.id);
+  if (!updated) {
+    return { ok: false, httpStatus: 409 };
+  }
+
+  await notifyPassengerTripCompleted(updated);
+
+  console.log("[dispatch] viaje finalizado:", {
+    tripId: updated.id,
+    driverId,
+    channel: "driver_app",
+    finalFare: updated.finalFare,
+  });
+
+  return {
+    ok: true,
+    trip_id: updated.id,
+    status: updated.status,
+  };
+}
