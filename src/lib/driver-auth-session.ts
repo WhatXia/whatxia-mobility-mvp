@@ -124,6 +124,9 @@ export type DriverAppAuthFailure = {
 export type DriverAppAuthSuccess = {
   ok: true;
   driver: DriverRow;
+  /** Teléfono y conductor guardados en driver_auth_sessions. */
+  phone: string;
+  driverId: string;
 };
 
 export type DriverAppAuthResult = DriverAppAuthSuccess | DriverAppAuthFailure;
@@ -265,5 +268,10 @@ export async function authenticateDriverAppBearer(
     return { ok: false, status: 403 };
   }
 
-  return { ok: true, driver };
+  return {
+    ok: true,
+    driver,
+    phone: session.phone,
+    driverId: session.driverId,
+  };
 }

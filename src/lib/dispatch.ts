@@ -76,7 +76,11 @@ import {
   driverServesOriginCity,
 } from "@/lib/city/corridors";
 import { mapsNavigationUrl } from "@/lib/geo/maps-url";
-import { formatAssignedPickupBlock, formatAssignedPickupParts } from "@/lib/booking/intent";
+import {
+  formatAssignedPickupBlock,
+  formatAssignedPickupParts,
+  resolveOfferOrigin,
+} from "@/lib/booking/intent";
 
 export type TripOfferDetails = {
   pickup: ResolvedPlace;
@@ -211,34 +215,35 @@ function formatDriverStarsForAssignment(average: number | null): string {
   return `⭐ Calificación: ${average.toFixed(1)}`;
 }
 
+type PassengerEtaNotice =
+  | { kind: "skipped" }
+  | { kind: "eta_failed" }
+  | {
+      kind: "sent";
+      trip: Trip;
+      elapsedSeconds: number;
+      minMinutes: number;
+      maxMinutes: number;
+    };
+
 /**
- * Fase 1.1 + 1.2: persiste ETA automático y envía un único mensaje a cada parte.
+ * Persiste el ETA automático y avisa solo al pasajero.
+ * El mensaje al conductor queda en el canal que llama.
  */
-async function applyAutomaticEtaAndNotifyAssignment(params: {
-  driverPhone: string;
+async function saveAutomaticEtaAndNotifyPassenger(params: {
   trip: Trip;
-  /** full_name del conductor (identidad compartida). */
   driverName: string;
-  /** full_name del pasajero (identidad compartida). */
-  passengerFullName: string;
   plate: string;
   driverAverage: number | null;
-}): Promise<void> {
-  const {
-    driverPhone,
-    trip,
-    driverName,
-    passengerFullName,
-    plate,
-    driverAverage,
-  } = params;
+}): Promise<PassengerEtaNotice> {
+  const { trip, driverName, plate, driverAverage } = params;
 
   if (trip.status !== "ASSIGNED") {
     console.warn("[dispatch] ETA automático omitido: viaje no ASSIGNED", {
       tripId: trip.id,
       status: trip.status,
     });
-    return;
+    return { kind: "skipped" };
   }
 
   const createdMs = trip.createdAt ? Date.parse(trip.createdAt) : NaN;
@@ -249,12 +254,10 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
 
   const updated = await setTripEta(trip.id, range.maxMinutes);
   if (!updated) {
-    await sendTextMessage(driverPhone, await cms("D_ETA_REGISTER_FAIL"));
-    return;
+    return { kind: "eta_failed" };
   }
 
   const plateLabel = plate.trim() || "Sin placa";
-
   const passengerBody = await cms("P_VEHICLE_CONFIRMED", {
     driver_name: driverName,
     plate: plateLabel,
@@ -271,17 +274,29 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     },
   ]);
 
+  return {
+    kind: "sent",
+    trip: updated,
+    elapsedSeconds,
+    minMinutes: range.minMinutes,
+    maxMinutes: range.maxMinutes,
+  };
+}
+
+async function sendDriverAssignmentNotice(params: {
+  driverPhone: string;
+  trip: Trip;
+  passengerFullName: string;
+}): Promise<void> {
+  const { driverPhone, trip, passengerFullName } = params;
   const assignedPickup = formatAssignedPickupParts(
-    updated.pickupNeighborhood,
-    updated.pickupLabel,
+    trip.pickupNeighborhood,
+    trip.pickupLabel,
   );
   const pickupBlock =
-    formatAssignedPickupBlock(
-      updated.pickupNeighborhood,
-      updated.pickupLabel,
-    ) ||
-    updated.pickupLabel?.trim() ||
-    updated.pickupNeighborhood?.trim() ||
+    formatAssignedPickupBlock(trip.pickupNeighborhood, trip.pickupLabel) ||
+    trip.pickupLabel?.trim() ||
+    trip.pickupNeighborhood?.trim() ||
     "Punto de recogida";
   const driverBody = await cms("D_SERVICE_ASSIGNED", {
     passenger_full_name: passengerFullName,
@@ -289,25 +304,17 @@ async function applyAutomaticEtaAndNotifyAssignment(params: {
     pickup_block: pickupBlock,
     pickup_neighborhood: assignedPickup.neighborhood,
     pickup_detail: assignedPickup.detail,
-    tripId: updated.id,
+    tripId: trip.id,
   });
 
   await sendButtonsMessage(driverPhone, driverBody, [
-    { id: verUbicacionButtonId(updated.id), title: "📍 Ver ubicación" },
-    { id: llegueButtonId(updated.id), title: "🚕 Llegué" },
+    { id: verUbicacionButtonId(trip.id), title: "📍 Ver ubicación" },
+    { id: llegueButtonId(trip.id), title: "🚕 Llegué" },
     {
-      id: cancelServicioButtonId(updated.id),
+      id: cancelServicioButtonId(trip.id),
       title: "❌ Cancelar servicio",
     },
   ]);
-
-  console.log("[dispatch] asignación unificada + ETA automático:", {
-    tripId: updated.id,
-    elapsedSeconds: Math.round(elapsedSeconds),
-    minMinutes: range.minMinutes,
-    maxMinutes: range.maxMinutes,
-    driverPhone,
-  });
 }
 
 async function sendStartTripButton(driverPhone: string, tripId: string) {
@@ -709,33 +716,85 @@ async function publishTripOffer(
   });
 }
 
-export async function handleDriverAccept(
+export type DriverAcceptTripView = {
+  trip_id: string;
+  status: Trip["status"];
+  driver_id: string;
+  pickup_label: string;
+  dropoff_label: string | null;
+  quoted_fare: number | null;
+  eta_minutes: number | null;
+};
+
+export type DriverAppAcceptFailureReason =
+  | "TRIP_NOT_FOUND"
+  | "ALREADY_TAKEN"
+  | "DRIVER_NOT_FOUND"
+  | "DRIVER_NOT_AVAILABLE"
+  | "DRIVER_NOT_ELIGIBLE"
+  | "ETA_NOT_SAVED";
+
+export type DriverAppAcceptResult =
+  | { ok: true; reason: "ASSIGNED"; trip: DriverAcceptTripView }
+  | { ok: false; reason: DriverAppAcceptFailureReason };
+
+type AcceptContext =
+  | {
+      ok: false;
+      reason: Exclude<DriverAppAcceptFailureReason, "ETA_NOT_SAVED">;
+    }
+  | { ok: true; trip: Trip; driver: DriverRow };
+
+type CommittedAssignment =
+  | { ok: false; reason: "ALREADY_TAKEN" }
+  | {
+      ok: true;
+      assigned: Trip;
+      etaTrip: Trip | null;
+      openedTunnelId: string | null;
+      passengerFullName: string;
+      passengerNotified: boolean;
+      etaFailed: boolean;
+      elapsedSeconds: number;
+      minMinutes: number;
+      maxMinutes: number;
+    };
+
+function driverAcceptTripView(trip: Trip, driverId: string): DriverAcceptTripView {
+  const dropoff = trip.dropoffLabel?.trim() ?? "";
+  return {
+    trip_id: trip.id,
+    status: trip.status,
+    driver_id: driverId,
+    pickup_label: resolveOfferOrigin(trip.pickupNeighborhood, trip.pickupLabel),
+    dropoff_label: dropoff.length > 0 ? dropoff : null,
+    quoted_fare: trip.quotedFare,
+    eta_minutes: trip.etaMinutes,
+  };
+}
+
+async function loadAcceptContext(
   driverPhone: string,
   tripId: string,
-): Promise<void> {
+): Promise<AcceptContext> {
   const trip = await getTrip(tripId);
-
-  if (!trip || trip.status !== "SEARCHING") {
-    await sendTextMessage(driverPhone, await cms("D_TRIP_ALREADY_TAKEN"));
-    return;
+  if (!trip) {
+    return { ok: false, reason: "TRIP_NOT_FOUND" };
+  }
+  if (trip.status !== "SEARCHING") {
+    return { ok: false, reason: "ALREADY_TAKEN" };
   }
 
   const driver = await findDriverByPhone(driverPhone);
-
   if (!driver) {
-    await sendTextMessage(driverPhone, await cms("D_NOT_REGISTERED"));
-    return;
+    return { ok: false, reason: "DRIVER_NOT_FOUND" };
   }
-
   if (!driver.is_available) {
-    await sendTextMessage(driverPhone, await cms("D_NOT_AVAILABLE"));
-    return;
+    return { ok: false, reason: "DRIVER_NOT_AVAILABLE" };
   }
 
   const originCity = trip.cityId ? await getCityById(trip.cityId) : null;
-  const driverCity = driver.city_id
-    ? await getCityById(driver.city_id)
-    : null;
+  const driverCity = driver.city_id ? await getCityById(driver.city_id) : null;
   if (
     !originCity ||
     !driverCity ||
@@ -749,11 +808,24 @@ export async function handleDriverAccept(
       driverCityId: driver.city_id,
       driverCitySlug: driverCity?.slug ?? null,
     });
-    await sendTextMessage(driverPhone, await cms("D_NOT_AVAILABLE"));
-    return;
+    return { ok: false, reason: "DRIVER_NOT_ELIGIBLE" };
   }
 
-  // Usar el teléfono del webhook para que coincida en ETA / Llegué / Iniciar / Finalizar.
+  return { ok: true, trip, driver };
+}
+
+/**
+ * Asignación común: viaje, conductor, sesión del pasajero, plazos, túnel,
+ * ETA y WhatsApp del pasajero. No escribe al conductor.
+ */
+async function commitDriverAssignment(params: {
+  driverPhone: string;
+  tripId: string;
+  driver: DriverRow;
+}): Promise<CommittedAssignment> {
+  const { driverPhone, tripId, driver } = params;
+
+  // El teléfono de esta llamada queda en el viaje para ETA / Llegué / Iniciar / Finalizar.
   const assigned = await tryAssignTrip(
     tripId,
     driver.id,
@@ -762,8 +834,7 @@ export async function handleDriverAccept(
   );
 
   if (!assigned) {
-    await sendTextMessage(driverPhone, await cms("D_TRIP_ALREADY_TAKEN"));
-    return;
+    return { ok: false, reason: "ALREADY_TAKEN" };
   }
 
   await markDriverUnavailable(driver.id);
@@ -817,20 +888,37 @@ export async function handleDriverAccept(
 
   const driverRep = await getDriverRatingAggregate(driver.id);
   const passenger = await findOrCreatePassenger(assigned.passengerPhone);
-
-  // Fase 1.1 + 1.2: ETA automático + un mensaje unificado por rol.
-  await applyAutomaticEtaAndNotifyAssignment({
-    driverPhone,
+  const passengerFullName = passengerNameForDriverAssignment(passenger, {
+    pickupLabel: assigned.pickupLabel,
+  });
+  const notice = await saveAutomaticEtaAndNotifyPassenger({
     trip: assigned,
     driverName: getDriverFullName(driver),
-    passengerFullName: passengerNameForDriverAssignment(passenger, {
-      pickupLabel: assigned.pickupLabel,
-    }),
     plate: driver.plate ?? "",
     driverAverage: driverRep.average,
   });
 
-  // Diagnóstico: justo después de informar asignación unificada.
+  return {
+    ok: true,
+    assigned,
+    etaTrip: notice.kind === "sent" ? notice.trip : null,
+    openedTunnelId,
+    passengerFullName,
+    passengerNotified: notice.kind === "sent",
+    etaFailed: notice.kind === "eta_failed",
+    elapsedSeconds: notice.kind === "sent" ? notice.elapsedSeconds : 0,
+    minMinutes: notice.kind === "sent" ? notice.minMinutes : 0,
+    maxMinutes: notice.kind === "sent" ? notice.maxMinutes : 0,
+  };
+}
+
+async function finishAcceptDiagnostics(params: {
+  driverPhone: string;
+  driverId: string;
+  assigned: Trip;
+  openedTunnelId: string | null;
+}): Promise<void> {
+  const { driverPhone, driverId, assigned, openedTunnelId } = params;
   await diagnoseTunnelVisibility({
     tripId: assigned.id,
     passengerPhone: assigned.passengerPhone,
@@ -842,10 +930,108 @@ export async function handleDriverAccept(
   console.log("[dispatch] viaje asignado:", {
     tripId: assigned.id,
     passengerPhone: assigned.passengerPhone,
-    driverId: driver.id,
+    driverId,
     driverPhone,
     assignedDriverPhone: assigned.assignedDriverPhone,
   });
+}
+
+export async function handleDriverAccept(
+  driverPhone: string,
+  tripId: string,
+): Promise<void> {
+  const context = await loadAcceptContext(driverPhone, tripId);
+  if (!context.ok) {
+    if (
+      context.reason === "TRIP_NOT_FOUND" ||
+      context.reason === "ALREADY_TAKEN"
+    ) {
+      await sendTextMessage(driverPhone, await cms("D_TRIP_ALREADY_TAKEN"));
+      return;
+    }
+    if (context.reason === "DRIVER_NOT_FOUND") {
+      await sendTextMessage(driverPhone, await cms("D_NOT_REGISTERED"));
+      return;
+    }
+    await sendTextMessage(driverPhone, await cms("D_NOT_AVAILABLE"));
+    return;
+  }
+
+  const committed = await commitDriverAssignment({
+    driverPhone,
+    tripId,
+    driver: context.driver,
+  });
+
+  if (!committed.ok) {
+    await sendTextMessage(driverPhone, await cms("D_TRIP_ALREADY_TAKEN"));
+    return;
+  }
+
+  if (committed.etaFailed) {
+    await sendTextMessage(driverPhone, await cms("D_ETA_REGISTER_FAIL"));
+  } else if (committed.passengerNotified && committed.etaTrip) {
+    await sendDriverAssignmentNotice({
+      driverPhone,
+      trip: committed.etaTrip,
+      passengerFullName: committed.passengerFullName,
+    });
+    console.log("[dispatch] asignación unificada + ETA automático:", {
+      tripId: committed.etaTrip.id,
+      elapsedSeconds: Math.round(committed.elapsedSeconds),
+      minMinutes: committed.minMinutes,
+      maxMinutes: committed.maxMinutes,
+      driverPhone,
+    });
+  }
+
+  await finishAcceptDiagnostics({
+    driverPhone,
+    driverId: context.driver.id,
+    assigned: committed.assigned,
+    openedTunnelId: committed.openedTunnelId,
+  });
+}
+
+/**
+ * Aceptación desde WhatXia Driver. Misma asignación que WhatsApp,
+ * sin ningún mensaje al conductor.
+ */
+export async function handleDriverAppAccept(
+  driverPhone: string,
+  tripId: string,
+): Promise<DriverAppAcceptResult> {
+  const context = await loadAcceptContext(driverPhone, tripId);
+  if (!context.ok) {
+    return context;
+  }
+
+  const committed = await commitDriverAssignment({
+    driverPhone,
+    tripId,
+    driver: context.driver,
+  });
+
+  if (!committed.ok) {
+    return committed;
+  }
+
+  await finishAcceptDiagnostics({
+    driverPhone,
+    driverId: context.driver.id,
+    assigned: committed.assigned,
+    openedTunnelId: committed.openedTunnelId,
+  });
+
+  if (!committed.passengerNotified || !committed.etaTrip) {
+    return { ok: false, reason: "ETA_NOT_SAVED" };
+  }
+
+  return {
+    ok: true,
+    reason: "ASSIGNED",
+    trip: driverAcceptTripView(committed.etaTrip, context.driver.id),
+  };
 }
 
 export async function handleDriverReject(
