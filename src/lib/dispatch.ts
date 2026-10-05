@@ -1321,6 +1321,49 @@ export async function handleDriverIniciarViaje(
   });
 }
 
+export type DriverAppStartResult =
+  | { ok: true; trip_id: string; status: Trip["status"] }
+  | { ok: false; httpStatus: 403 | 404 | 409 };
+
+/**
+ * Inicio de viaje desde WhatXia Driver.
+ * Reutiliza startTrip (IN_PROGRESS y started_at).
+ * El bot no avisa al pasajero al iniciar; esta ruta tampoco.
+ * No escribe al conductor por WhatsApp.
+ */
+export async function handleDriverAppStart(
+  driverId: string,
+  tripId: string,
+): Promise<DriverAppStartResult> {
+  const trip = await getTrip(tripId);
+  if (!trip) {
+    return { ok: false, httpStatus: 404 };
+  }
+  if (!trip.assignedDriverId || trip.assignedDriverId !== driverId) {
+    return { ok: false, httpStatus: 403 };
+  }
+  if (trip.status !== "DRIVER_ARRIVED") {
+    return { ok: false, httpStatus: 409 };
+  }
+
+  const updated = await startTrip(trip.id);
+  if (!updated) {
+    return { ok: false, httpStatus: 409 };
+  }
+
+  console.log("[dispatch] viaje iniciado:", {
+    tripId: updated.id,
+    driverId,
+    channel: "driver_app",
+  });
+
+  return {
+    ok: true,
+    trip_id: updated.id,
+    status: updated.status,
+  };
+}
+
 export async function handleDriverNavegarDestino(
   driverPhone: string,
   tripId: string,
