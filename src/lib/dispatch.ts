@@ -1167,6 +1167,38 @@ export async function handleDriverVerUbicacion(
   });
 }
 
+/** Aviso de llegada al pasajero. Mismos textos y botones que el bot. */
+async function notifyPassengerOfDriverArrival(trip: Trip): Promise<void> {
+  const passenger = await findOrCreatePassenger(trip.passengerPhone);
+  const preferred = passenger.preferred_name?.trim();
+  const assignedDriver = trip.assignedDriverPhone
+    ? await findDriverByPhone(trip.assignedDriverPhone)
+    : null;
+  const plate = assignedDriver?.plate?.trim() || "Sin placa";
+  const arrivalBody = preferred
+    ? await cms("P_DRIVER_ARRIVED", {
+        preferred,
+        plate,
+        tripId: trip.id,
+      })
+    : await cms("P_DRIVER_ARRIVED_ANON", {
+        plate,
+        tripId: trip.id,
+      });
+
+  await sendButtonsMessage(trip.passengerPhone, arrivalBody, [
+    { id: yaVoyButtonId(trip.id), title: "✅ Ya voy" },
+    {
+      id: cancelServicioButtonId(trip.id),
+      title: "❌ Cancelar servicio",
+    },
+  ]);
+}
+
+export type DriverAppArrivedResult =
+  | { ok: true; trip_id: string; status: Trip["status"] }
+  | { ok: false; httpStatus: 403 | 404 | 409 };
+
 export async function handleDriverLlegue(
   driverPhone: string,
   tripId: string,
@@ -1196,34 +1228,9 @@ export async function handleDriverLlegue(
     return;
   }
 
-  // UX-003: mensaje de llegada personalizado (solo copy; mismos botones).
-  const passenger = await findOrCreatePassenger(updated.passengerPhone);
-  const preferred = passenger.preferred_name?.trim();
-  const assignedDriver = updated.assignedDriverPhone
-    ? await findDriverByPhone(updated.assignedDriverPhone)
-    : null;
-  const plate = assignedDriver?.plate?.trim() || "Sin placa";
-  const arrivalBody = preferred
-    ? await cms("P_DRIVER_ARRIVED", {
-        preferred,
-        plate,
-        tripId: updated.id,
-      })
-    : await cms("P_DRIVER_ARRIVED_ANON", {
-        plate,
-        tripId: updated.id,
-      });
+  await notifyPassengerOfDriverArrival(updated);
 
-  await sendButtonsMessage(updated.passengerPhone, arrivalBody, [
-      { id: yaVoyButtonId(updated.id), title: "✅ Ya voy" },
-      {
-        id: cancelServicioButtonId(updated.id),
-        title: "❌ Cancelar servicio",
-      },
-    ],
-  );
-
-  // Siguiente acción operativa (sin confirmación al conductor).
+  // Siguiente acción operativa del bot (la app no la envía).
   await sendStartTripButton(driverPhone, updated.id);
 
   console.log("[dispatch] conductor llegó al punto de recogida:", {
@@ -1231,6 +1238,45 @@ export async function handleDriverLlegue(
     driverPhone,
     resolveSource: source,
   });
+}
+
+/**
+ * Llegada desde WhatXia Driver. Misma marca y el mismo aviso al pasajero.
+ * No escribe al conductor por WhatsApp.
+ */
+export async function handleDriverAppArrived(
+  driverId: string,
+  tripId: string,
+): Promise<DriverAppArrivedResult> {
+  const trip = await getTrip(tripId);
+  if (!trip) {
+    return { ok: false, httpStatus: 404 };
+  }
+  if (!trip.assignedDriverId || trip.assignedDriverId !== driverId) {
+    return { ok: false, httpStatus: 403 };
+  }
+  if (trip.status !== "ETA_INFORMED") {
+    return { ok: false, httpStatus: 409 };
+  }
+
+  const updated = await markDriverArrived(trip.id);
+  if (!updated) {
+    return { ok: false, httpStatus: 409 };
+  }
+
+  await notifyPassengerOfDriverArrival(updated);
+
+  console.log("[dispatch] conductor llegó al punto de recogida:", {
+    tripId: updated.id,
+    driverId,
+    channel: "driver_app",
+  });
+
+  return {
+    ok: true,
+    trip_id: updated.id,
+    status: updated.status,
+  };
 }
 
 export async function handleDriverIniciarViaje(
